@@ -1,12 +1,13 @@
+from __future__ import print_function
+from __future__ import unicode_literals
+
 import datetime
 from dateutil.parser import parse
 from decimal import Decimal
 import re
-from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
-from django.utils import datetime_safe, importlib
-from tastypie.bundle import Bundle
-from tastypie.exceptions import ApiFieldError, NotFound
-from tastypie.utils import dict_strip_unicode_keys, make_aware
+
+from .bundle import Bundle
+from .exceptions import ApiFieldError, NotFound
 
 
 class NOT_PROVIDED:
@@ -166,41 +167,18 @@ class ApiField(object):
         return bundle.data[self.instance_name]
 
 
-class CharField(ApiField):
+class StringField( ApiField ):
     """
     A text field of arbitrary length.
-
-    Covers both ``models.CharField`` and ``models.TextField``.
     """
     dehydrated_type = 'string'
     help_text = 'Unicode string data. Ex: "Hello World"'
 
-    def convert(self, value):
+    def convert( self, value ):
         if value is None:
             return None
 
-        return unicode(value)
-
-
-class FileField(ApiField):
-    """
-    A file-related field.
-
-    Covers both ``models.FileField`` and ``models.ImageField``.
-    """
-    dehydrated_type = 'string'
-    help_text = 'A file URL as a string. Ex: "http://media.example.com/media/photos/my_photo.jpg"'
-
-    def convert(self, value):
-        if value is None:
-            return None
-
-        try:
-            # Try to return the URL if it's a ``File``, falling back to the string
-            # itself if it's been overridden or is a default.
-            return getattr(value, 'url', value)
-        except ValueError:
-            return None
+        return unicode( value )
 
 
 class IntegerField(ApiField):

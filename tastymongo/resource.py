@@ -1,7 +1,8 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
-import framework
+from . import http
+from . import fields
 from .serializers import Serializer
 from .exceptions import *
 
@@ -105,7 +106,7 @@ class DeclarativeMetaclass(type):
 
         if getattr(new_class._meta, 'include_resource_uri', True):
             if not 'resource_uri' in new_class.base_fields:
-                new_class.base_fields['resource_uri'] = fields.CharField(readonly=True)
+                new_class.base_fields['resource_uri'] = fields.StringField(readonly=True)
         elif 'resource_uri' in new_class.base_fields and not 'resource_uri' in attrs:
             del(new_class.base_fields['resource_uri'])
 
@@ -139,7 +140,7 @@ class Resource( object ):
         method = getattr(self, "%s_%s" % (request_method, request_type), None)
 
         if method is None:
-            raise ImmediateHttpResponse('''response=http.HttpNotImplemented()''')
+            raise ImmediateHttpResponse( response=http.HttpNotImplemented() )
 
         self.is_authenticated(request)
         self.is_authorized(request)
@@ -193,11 +194,11 @@ class Resource( object ):
         allows = ','.join(map(str.upper, allowed))
 
         if request_method == "options":
-            response = framework.HttpResponse( body=allows )
+            response = http.HttpResponse( body=allows )
             raise ImmediateHttpResponse(response=response)
 
         if not request_method in allowed:
-            response = framework.HttpMethodNotAllowed( body=allows )
+            response = http.HttpMethodNotAllowed( body=allows )
             raise ImmediateHttpResponse(response=response)
 
         return request_method

@@ -1,3 +1,6 @@
+from __future__ import print_function
+from __future__ import unicode_literals
+
 # In a separate file to avoid circular imports...
 class Bundle( object ):
     """

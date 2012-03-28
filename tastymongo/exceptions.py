@@ -1,3 +1,6 @@
+from __future__ import print_function
+from __future__ import unicode_literals
+
 from pyramid.response import Response
 
 class TastypieError(Exception):
