@@ -1,0 +1,4 @@
+pyramid
+pymongo
+mongoengine
+blinker # events for mongoengine
