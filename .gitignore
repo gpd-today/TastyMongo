@@ -1,0 +1,27 @@
+# Numerous always-ignore extensions
+*.diff
+*.patch
+*.err
+*.orig
+*.log
+*.rej
+*.swo
+*.swp
+*.swn
+*.vi
+*.pdf
+*~
+*.pyc
+*.swp
+
+# OS or Editor folders
+__pycache__
+.idea
+.DS_Store
+.cache
+.project
+.pydevproject
+.settings
+nbproject
+thumbs.db
+
