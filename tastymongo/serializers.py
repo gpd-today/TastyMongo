@@ -6,6 +6,8 @@ import json
 from StringIO import StringIO
 
 from .exceptions import *
+from .utils import *
+
 
 class Serializer(object):
     """
@@ -24,10 +26,9 @@ class Serializer(object):
     various format methods (i.e. ``to_json``), by changing the
     ``formats/content_types`` options or by altering the other hook methods.
     """
-    formats = ['json', 'jsonp', 'html' ]
+    formats = ['json', 'html' ]
     content_types = {
         'json': 'application/json',
-        'jsonp': 'text/javascript',
         'html': 'text/html'
     }
 
