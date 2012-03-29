@@ -7,6 +7,7 @@ from pyramid.response import Response
 
 from .exceptions import NotRegistered, BadRequest
 from .serializers import Serializer
+from .utils import *
 
 
 class Api(object):
@@ -24,9 +25,8 @@ class Api(object):
     def __init__(self, api_name="v1"):
         self.api_name = api_name
         self._registry = {}
-        self._canonicals = {}
 
-    def register(self, resource, canonical=True):
+    def register( self, resource ):
         """
         Registers an instance of a ``Resource`` subclass with the API.
 
@@ -41,15 +41,9 @@ class Api(object):
 
         self._registry[resource_name] = resource
 
-        if canonical is True:
-            if resource_name in self._canonicals:
-                warnings.warn("A new resource '%r' is replacing the existing canonical URL for '%s'." % (resource, resource_name), Warning, stacklevel=2)
-
-            self._canonicals[resource_name] = resource
-            # TODO: This is messy, but makes URI resolution on FK/M2M fields
-            #       work consistently.
-            resource._meta.api_name = self.api_name
-            resource.__class__.Meta.api_name = self.api_name
+        # TODO: This is messy, but makes URI resolution on FK/M2M fields work consistently.
+        resource._meta.api_name = self.api_name
+        resource.__class__.Meta.api_name = self.api_name
 
     def unregister(self, resource_name):
         """
@@ -57,16 +51,6 @@ class Api(object):
         """
         if resource_name in self._registry:
             del(self._registry[resource_name])
-
-        if resource_name in self._canonicals:
-            del(self._canonicals[resource_name])
-
-    def canonical_resource_for(self, resource_name):
-        """
-        Returns the canonical resource for a given ``resource_name``.
-        """
-        if resource_name in self._canonicals:
-            return self._canonicals[resource_name]
 
         raise NotRegistered("No resource was registered as canonical for '%s'." % resource_name)
 
@@ -126,14 +110,6 @@ class Api(object):
         desired_format = determine_format(request, serializer)
         options = {}
 
-        if 'text/javascript' in desired_format:
-            callback = request.GET.get('callback', 'callback')
-
-            if not is_valid_jsonp_callback_value(callback):
-                raise BadRequest('JSONP callback name is invalid.')
-
-            options['callback'] = callback
-
         serialized = serializer.serialize(available_resources, desired_format, options)
         return Response( body=serialized, content_type=build_content_type(desired_format) )
 
@@ -144,23 +120,3 @@ class Api(object):
         See ``NamespacedApi._build_reverse_url`` for an example.
         """
         return reverse(name, args=args, kwargs=kwargs)
-
-
-class NamespacedApi(Api):
-    """
-    An API subclass that respects Django namespaces.
-    """
-    def __init__(self, api_name="v1", urlconf_namespace=None):
-        super(NamespacedApi, self).__init__(api_name=api_name)
-        self.urlconf_namespace = urlconf_namespace
-
-    def register(self, resource, canonical=True):
-        super(NamespacedApi, self).register(resource, canonical=canonical)
-
-        if canonical is True:
-            # Plop in the namespace here as well.
-            resource._meta.urlconf_namespace = self.urlconf_namespace
-
-    def _build_reverse_url(self, name, args=None, kwargs=None):
-        namespaced = "%s:%s" % (self.urlconf_namespace, name)
-        return reverse(namespaced, args=args, kwargs=kwargs)

@@ -3,45 +3,52 @@ from __future__ import unicode_literals
 
 from pyramid.response import Response
 
-class TastypieError(Exception):
+class TastyMongoError(Exception):
     """A base exception for other tastypie-related errors."""
     pass
 
 
-class HydrationError(TastypieError):
+class ObjectDoesNotExist(TastyMongoError):
+    """Object not found."""
+    pass
+
+class ConfigurationError( TastyMongoError ):
+    pass
+
+class HydrationError(TastyMongoError):
     """Raised when there is an error hydrating data."""
     pass
 
 
-class NotRegistered(TastypieError):
+class NotRegistered(TastyMongoError):
     """
     Raised when the requested resource isn't registered with the ``Api`` class.
     """
     pass
 
 
-class NotFound(TastypieError):
+class NotFound(TastyMongoError):
     """
     Raised when the resource/object in question can't be found.
     """
     pass
 
 
-class ApiFieldError(TastypieError):
+class ApiFieldError(TastyMongoError):
     """
     Raised when there is a configuration error with a ``ApiField``.
     """
     pass
 
 
-class UnsupportedFormat(TastypieError):
+class UnsupportedFormat(TastyMongoError):
     """
     Raised when an unsupported serialization format is requested.
     """
     pass
 
 
-class BadRequest(TastypieError):
+class BadRequest(TastyMongoError):
     """
     A generalized exception for indicating incorrect request parameters.
 
@@ -59,7 +66,7 @@ class InvalidFilterError(BadRequest):
     pass
 
 
-class InvalidSortError(TastypieError):
+class InvalidSortError(TastyMongoError):
     """
     Raised when the end user attempts to sort on a field that has not be
     explicitly allowed.
@@ -67,7 +74,7 @@ class InvalidSortError(TastypieError):
     pass
 
 
-class ImmediateHttpResponse(TastypieError):
+class ImmediateHttpResponse(TastyMongoError):
     """
     This exception is used to interrupt the flow of processing to immediately
     return a custom HttpResponse.

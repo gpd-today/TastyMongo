@@ -5,8 +5,13 @@ from . import http
 from . import fields
 from .serializers import Serializer
 from .exceptions import *
+from .utils import *
+
+from pyramid.response import Response
 
 from copy import deepcopy
+
+import sys
 
 class ResourceOptions(object):
     """
@@ -59,7 +64,7 @@ class ResourceOptions(object):
         if overrides.get('detail_allowed_methods', None) is None:
             overrides['detail_allowed_methods'] = allowed_methods
 
-        return object.__new__(type('ResourceOptions', (cls,), overrides))
+        return object.__new__(type(str('ResourceOptions'), (cls,), overrides))
 
 
 class DeclarativeMetaclass(type):
@@ -137,7 +142,8 @@ class Resource( object ):
         """
         allowed_methods = getattr(self._meta, '%s_allowed_methods' % request_type, None)
         request_method = self.method_check(request, allowed=allowed_methods)
-        method = getattr(self, "%s_%s" % (request_method, request_type), None)
+        print( 'resource={}; request={}_{}'.format(self._meta.resource_name, request_method, request_type))
+        method = getattr(self, '{}_{}'.format(request_method, request_type), None)
 
         if method is None:
             raise ImmediateHttpResponse( response=http.HttpNotImplemented() )
@@ -191,17 +197,82 @@ class Resource( object ):
             allowed = []
 
         request_method = request.method.lower()
-        allows = ','.join(map(str.upper, allowed))
-
-        if request_method == "options":
-            response = http.HttpResponse( body=allows )
-            raise ImmediateHttpResponse(response=response)
 
         if not request_method in allowed:
+            allows = ','.join(map(unicode.upper, allowed))
             response = http.HttpMethodNotAllowed( body=allows )
             raise ImmediateHttpResponse(response=response)
 
         return request_method
+
+    def get_schema(self, request, **kwargs):
+        """
+        Returns a serialized form of the schema of the resource.
+
+        Calls ``build_schema`` to generate the data. This method only responds
+        to HTTP GET.
+
+        Should return a HttpResponse (200 OK).
+        """
+        self.method_check(request, allowed=['get'])
+        self.is_authenticated(request)
+        self.throttle_check(request)
+        return self.create_response(request, self.build_schema())
+
+    def get_multiple(self, request, **kwargs):
+        """
+        Returns a serialized list of resources based on the identifiers
+        from the URL.
+
+        Calls ``obj_get`` to fetch only the objects requested. This method
+        only responds to HTTP GET.
+
+        Should return a HttpResponse (200 OK).
+        """
+        self.method_check(request, allowed=['get'])
+        self.is_authenticated(request)
+        self.throttle_check(request)
+
+        # Rip apart the list then iterate.
+        obj_pks = kwargs.get('pk_list', '').split(';')
+        objects = []
+        not_found = []
+
+        for pk in obj_pks:
+            try:
+                obj = self.obj_get(request, pk=pk)
+                bundle = self.build_bundle(obj=obj, request=request)
+                bundle = self.full_dehydrate(bundle)
+                objects.append(bundle)
+            except ObjectDoesNotExist:
+                not_found.append(pk)
+
+        object_list = { 'objects': objects }
+
+        if len(not_found):
+            object_list['not_found'] = not_found
+
+        return self.create_response(request, object_list)
+
+    def create_response(self, request, data, response_class=Response, **response_kwargs):
+        """
+        Extracts the common "which-format/serialize/return-response" cycle.
+
+        Mostly a useful shortcut/hook.
+        """
+        desired_format = self.determine_format(request)
+        serialized = self.serialize(request, data, desired_format)
+        return response_class(content=serialized, content_type=build_content_type(desired_format), **response_kwargs)
+
+    def error_response(self, errors, request):
+        if request:
+            desired_format = self.determine_format(request)
+        else:
+            desired_format = self._meta.default_format
+
+        serialized = self.serialize(request, errors, desired_format)
+        response = http.HttpBadRequest(content=serialized, content_type=build_content_type(desired_format))
+        raise ImmediateHttpResponse(response=response)
 
     def serialize(self, request, data, format, options=None):
         """
@@ -223,6 +294,52 @@ class Resource( object ):
         """
         deserialized = self._meta.serializer.deserialize(data, format=request.META.get('CONTENT_TYPE', format))
         return deserialized
+
+    def is_authorized(self, request, object=None):
+        """
+        Handles checking of permissions to see if the user has authorization
+        to GET, POST, PUT, or DELETE this resource.  If ``object`` is provided,
+        the authorization backend can apply additional row-level permissions
+        checking.
+        """
+        auth_result = self._meta.authorization.is_authorized(request, object)
+
+        if isinstance(auth_result, Response):
+            raise ImmediateHttpResponse(response=auth_result)
+
+        if not auth_result is True:
+            raise ImmediateHttpResponse(response=http.HttpUnauthorized())
+
+    def is_authenticated(self, request):
+        """
+        Handles checking if the user is authenticated and dealing with
+        unauthenticated users.
+
+        Mostly a hook, this uses class assigned to ``authentication`` from
+        ``Resource._meta``.
+        """
+        # Authenticate the request as needed.
+        auth_result = self._meta.authentication.is_authenticated(request)
+
+        if isinstance(auth_result, Response):
+            raise ImmediateHttpResponse(response=auth_result)
+
+        if not auth_result is True:
+            raise ImmediateHttpResponse(response=http.HttpUnauthorized())
+
+    def throttle_check(self, request):
+        """
+        Handles checking if the user should be throttled.
+
+        Mostly a hook, this uses class assigned to ``throttle`` from
+        ``Resource._meta``.
+        """
+        identifier = self._meta.authentication.get_identifier(request)
+
+        # Check to see if they should be throttled.
+        if self._meta.throttle.should_be_throttled(identifier):
+            # Throttle limit exceeded.
+            raise ImmediateHttpResponse(response=http.HttpForbidden())
 
 
 class DocumentResource( Resource ):
