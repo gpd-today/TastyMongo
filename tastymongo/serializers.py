@@ -6,6 +6,7 @@ import json
 from StringIO import StringIO
 
 from .exceptions import *
+from .bundle import Bundle
 from .utils import *
 
 

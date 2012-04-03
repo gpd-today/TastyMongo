@@ -40,7 +40,15 @@ class Api(object):
 
     @staticmethod
     def build_uri( request, route_name, *elements ):
-        return request.route_url( route_name, *elements )
+        return request.route_path( route_name, *elements )
+
+    def build_route_name(self, resource_name, operation):
+        if resource_name is not None:
+            route_name = '{}/{}/{}'.format(self.route, resource_name, operation)
+        else:
+            route_name = '{}/{}'.format(self.route, operation)
+
+        return route_name
 
     def register(self, resource):
         """
@@ -58,22 +66,22 @@ class Api(object):
         resource.__class__.Meta.api_name = self.api_name
 
         # add 'list' action
-        list_name = '{}/{}/list'.format(self.route, resource_name)
+        list_name = self.build_route_name(resource_name, 'list')
         self.config.add_route(list_name, '{}/{}/'.format(self.route, resource_name))
         self.config.add_view(resource.dispatch_list, route_name=list_name)
 
         # add 'schema' action
-        schema_name = '{}/{}/schema'.format(self.route, resource_name)
+        schema_name = self.build_route_name(resource_name, 'schema')
         self.config.add_route(schema_name, '{}/{}/schema'.format(self.route, resource_name))
         self.config.add_view(resource.get_schema, route_name=schema_name)
 
         # add 'get_multiple' action
-        multiple_name = '{}/{}/multiple'.format(self.route, resource_name)
+        multiple_name = self.build_route_name(resource_name, 'multiple')
         self.config.add_route(multiple_name, '{}/{}/set/{{ids}}/'.format(self.route, resource_name))
         self.config.add_view(resource.get_multiple, route_name=multiple_name)
 
         # add 'detail' action
-        detail_name = '{}/{}/detail'.format(self.route, resource_name)
+        detail_name = self.build_route_name(resource_name, 'detail')
         self.config.add_route(detail_name, '{}/{}/{{id}}/'.format(self.route, resource_name))
         self.config.add_view(resource.dispatch_detail, route_name=detail_name)
 
@@ -91,7 +99,7 @@ class Api(object):
             return getattr(self, view)(request, *args, **kwargs)
         return wrapper
 
-    def top_level(self, request, api_name=None):
+    def top_level(self, request):
         """
         A view that returns a serialized list of all resources registers
         to the ``Api``. Useful for discovery.
@@ -99,19 +107,10 @@ class Api(object):
         serializer = Serializer()
         available_resources = {}
 
-        if api_name is None:
-            api_name = self.api_name
-
-        for name in sorted(self._registry.keys()):
-            available_resources[name] = {
-                'list_endpoint': self.build_uri(request, "api_dispatch_list", {
-                    'api_name': api_name,
-                    'resource_name': name,
-                }),
-                'schema': self.build_uri(request, "api_get_schema", {
-                    'api_name': api_name,
-                    'resource_name': name,
-                }),
+        for resource_name in sorted(self._registry.keys()):
+            available_resources[resource_name] = {
+                'list_endpoint': self.build_uri(request, self.build_route_name(resource_name, 'list')),
+                'schema': self.build_uri(request, self.build_route_name(resource_name, 'schema')),
             }
 
         desired_format = determine_format(request, serializer)

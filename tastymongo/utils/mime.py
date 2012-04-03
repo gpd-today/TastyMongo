@@ -1,6 +1,3 @@
-import mimeparse
-
-
 def determine_format(request, serializer, default_format='application/json'):
     """
     Tries to "smartly" determine which output format is desired.
@@ -24,13 +21,9 @@ def determine_format(request, serializer, default_format='application/json'):
         return serializer.get_mime_for_format('jsonp')
     
     # Try to fallback on the Accepts header.
-    if request.META.get('HTTP_ACCEPT', '*/*') != '*/*':
+    if request.accept != '*/*':
         formats = list(serializer.supported_formats) or []
-        # Reverse the list, because mimeparse is weird like that. See also
-        # https://github.com/toastdriven/django-tastypie/issues#issue/12 for
-        # more information.
-        formats.reverse()
-        best_format = mimeparse.best_match(formats, request.META['HTTP_ACCEPT'])
+        best_format = request.accept.best_match(formats)
         
         if best_format:
             return best_format
@@ -46,4 +39,4 @@ def build_content_type(format, encoding='utf-8'):
     if 'charset' in format:
         return format
     
-    return "%s; charset=%s" % (format, encoding)
+    return str("%s; charset=%s" % (format, encoding))
