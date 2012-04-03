@@ -72,7 +72,7 @@ class Api(object):
 
         # add 'schema' action
         schema_name = self.build_route_name(resource_name, 'schema')
-        self.config.add_route(schema_name, '{}/{}/schema'.format(self.route, resource_name))
+        self.config.add_route(schema_name, '{}/{}/schema/'.format(self.route, resource_name))
         self.config.add_view(resource.get_schema, route_name=schema_name)
 
         # add 'get_multiple' action

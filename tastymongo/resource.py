@@ -11,8 +11,6 @@ from pyramid.response import Response
 
 from copy import deepcopy
 
-import sys
-
 class ResourceOptions(object):
     """
     A configuration class for ``Resource``.
@@ -121,6 +119,7 @@ class DeclarativeMetaclass(type):
 
         return new_class
 
+
 class Resource( object ):
     __metaclass__ = DeclarativeMetaclass
 
@@ -135,6 +134,15 @@ class Resource( object ):
             return self.fields[name]
         raise AttributeError(name)
 
+    def determine_format(self, request):
+        """
+        Used to determine the desired format.
+
+        Largely relies on ``tastypie.utils.mime.determine_format`` but here
+        as a point of extension.
+        """
+        return determine_format(request, self._meta.serializer, default_format=self._meta.default_format)
+
     def dispatch(self, request_type, request, **kwargs):
         """
         Handles the common operations (allowed HTTP method, authentication,
@@ -148,9 +156,9 @@ class Resource( object ):
         if method is None:
             raise ImmediateHttpResponse( response=http.HttpNotImplemented() )
 
-        self.is_authenticated(request)
-        self.is_authorized(request)
-        self.throttle_check(request)
+#        self.is_authenticated(request)
+#        self.is_authorized(request)
+#        self.throttle_check(request)
 
         # All clear. Process the request.
         response = method(request, **kwargs)
@@ -205,6 +213,46 @@ class Resource( object ):
 
         return request_method
 
+    def build_schema(self):
+        """
+        Returns a dictionary of all the fields on the resource and some
+        properties about those fields.
+
+        Used by the ``schema/`` endpoint to describe what will be available.
+        """
+        data = {
+            'fields': {},
+            'default_format': self._meta.default_format,
+            'allowed_list_http_methods': self._meta.list_allowed_methods,
+            'allowed_detail_http_methods': self._meta.detail_allowed_methods,
+            'default_limit': self._meta.limit,
+        }
+
+        if self._meta.ordering:
+            data['ordering'] = self._meta.ordering
+
+        if self._meta.filtering:
+            data['filtering'] = self._meta.filtering
+
+        for field_name, field_object in self.fields.items():
+            data['fields'][field_name] = {
+                'default': field_object.default,
+                'type': field_object.dehydrated_type,
+                'nullable': field_object.null,
+                'blank': field_object.blank,
+                'readonly': field_object.readonly,
+                'help_text': field_object.help_text,
+                'unique': field_object.unique,
+            }
+            if field_object.dehydrated_type == 'related':
+                if getattr(field_object, 'is_m2m', False):
+                    related_type = 'to_many'
+                else:
+                    related_type = 'to_one'
+                data['fields'][field_name]['related_type'] = related_type
+
+        return data
+
     def get_schema(self, request, **kwargs):
         """
         Returns a serialized form of the schema of the resource.
@@ -214,9 +262,9 @@ class Resource( object ):
 
         Should return a HttpResponse (200 OK).
         """
-        self.method_check(request, allowed=['get'])
-        self.is_authenticated(request)
-        self.throttle_check(request)
+#        self.method_check(request, allowed=['get'])
+#        self.is_authenticated(request)
+#        self.throttle_check(request)
         return self.create_response(request, self.build_schema())
 
     def get_multiple(self, request, **kwargs):
@@ -230,8 +278,8 @@ class Resource( object ):
         Should return a HttpResponse (200 OK).
         """
         self.method_check(request, allowed=['get'])
-        self.is_authenticated(request)
-        self.throttle_check(request)
+#        self.is_authenticated(request)
+#        self.throttle_check(request)
 
         # Rip apart the list then iterate.
         obj_pks = kwargs.get('pk_list', '').split(';')
@@ -262,7 +310,7 @@ class Resource( object ):
         """
         desired_format = self.determine_format(request)
         serialized = self.serialize(request, data, desired_format)
-        return response_class(content=serialized, content_type=build_content_type(desired_format), **response_kwargs)
+        return response_class(body=serialized, content_type=build_content_type(desired_format), **response_kwargs)
 
     def error_response(self, errors, request):
         if request:
