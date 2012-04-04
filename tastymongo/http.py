@@ -1,12 +1,11 @@
 from pyramid.response import Response
 
 class HttpResponse(Response):
-    status_int = 200
+    def __init__(self, *args, **kwargs):
+        slef.status_int = 200
 
 
 class HttpCreated(Response):
-    status_int = 201
-
     def __init__(self, *args, **kwargs):
         location = ''
 
@@ -16,47 +15,69 @@ class HttpCreated(Response):
 
         super(HttpCreated, self).__init__(*args, **kwargs)
         self.location = location
-
-
-class HttpCreated(Response):
-    status_int = 201
+        self.status_int = 201
 
 
 class HttpAccepted(Response):
-    status_int = 202
+    def __init__(self, *args, **kwargs):
+        super(HttpAccepted, self).__init__(*args, **kwargs)
+        self.status_int = 202
 
 
 class HttpNoContent(Response):
-    status_int = 204
+    def __init__(self, *args, **kwargs):
+        super(HttpNoContent, self).__init__(*args, **kwargs)
+        self.status_int = 204
 
 
 class HttpNotModified(Response):
-    status_int = 304
+    def __init__(self, *args, **kwargs):
+        super(HttpNotModified, self).__init__(*args, **kwargs)
+        self.status_int = 304
 
 
 class HttpBadRequest(Response):
-    status_int = 400
+    def __init__(self, *args, **kwargs):
+        super(HttpBadRequest, self).__init__(*args, **kwargs)
+        self.status_int = 400
 
 
 class HttpUnauthorized(Response):
-    status_int = 401
+    def __init__(self, *args, **kwargs):
+        super(HttpUnauthorized, self).__init__(*args, **kwargs)
+        self.status_int = 401
 
 
 class HttpForbidden(Response):
-    status_int = 403
+    def __init__(self, *args, **kwargs):
+        super(HttpForbidden, self).__init__(*args, **kwargs)
+        self.status_int = 403
 
+
+class HttpNotFound(Response):
+    def __init__(self, *args, **kwargs):
+        super(HttpNotFound, self).__init__(*args, **kwargs)
+        self.status_int = 404
 
 class HttpMethodNotAllowed(Response):
-    status_int = 405
+    def __init__(self, *args, **kwargs):
+        super(HttpMethodNotAllowed, self).__init__(*args, **kwargs)
+        self.status_int = 405
 
 
 class HttpGone(Response):
-    status_int = 410
+    def __init__(self, *args, **kwargs):
+        super(HttpGone, self).__init__(*args, **kwargs)
+        self.status_int = 410
 
 
 class HttpApplicationError(Response):
-    status_int = 500
+    def __init__(self, *args, **kwargs):
+        super(HttpApplicationError, self).__init__(*args, **kwargs)
+        self.status_int = 500
 
 
 class HttpNotImplemented(Response):
-    status_int = 501
+    def __init__(self, *args, **kwargs):
+        super(HttpNotImplemented, self).__init__(*args, **kwargs)
+        self.status_int = 501

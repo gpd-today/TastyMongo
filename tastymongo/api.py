@@ -6,7 +6,9 @@ import warnings
 from pyramid.response import Response
 from pyramid.config import Configurator
 
-from .exceptions import NotRegistered, BadRequest, ConfigurationError
+from . import http
+from .exceptions import NotRegistered, BadRequest, ConfigurationError, ObjectDoesNotExist, NotFound
+from .fields import ApiFieldError
 from .serializers import Serializer
 from .utils import *
 
@@ -32,15 +34,7 @@ class Api(object):
         self.route = '/{}/{}'.format(self.api_name, self.api_version)
 
         self.config.add_route(self.route, self.route + '/')
-        self.config.add_view(self.top_level, route_name=self.route)
-
-    @staticmethod
-    def resolve_uri( uri='/' ):
-        pass
-
-    @staticmethod
-    def build_uri( request, route_name, *elements ):
-        return request.route_path( route_name, *elements )
+        self.config.add_view(Api.wrap_view(self, self.top_level), route_name=self.route)
 
     def build_route_name(self, resource_name, operation):
         if resource_name is not None:
@@ -49,6 +43,26 @@ class Api(object):
             route_name = '{}/{}'.format(self.route, operation)
 
         return route_name
+
+    def top_level(self, request):
+        """
+        A view that returns a serialized list of all resources registers
+        to the ``Api``. Useful for discovery.
+        """
+        serializer = Serializer()
+        available_resources = {}
+
+        for resource_name in sorted(self._registry.keys()):
+            available_resources[resource_name] = {
+                'list_endpoint': self.build_uri(request, self.build_route_name(resource_name, 'list')),
+                'schema': self.build_uri(request, self.build_route_name(resource_name, 'schema')),
+                }
+
+        desired_format = determine_format(request, serializer)
+        options = {}
+
+        serialized = serializer.serialize(available_resources, desired_format, options)
+        return Response( body=serialized, content_type=build_content_type(desired_format) )
 
     def register(self, resource):
         """
@@ -68,22 +82,22 @@ class Api(object):
         # add 'list' action
         list_name = self.build_route_name(resource_name, 'list')
         self.config.add_route(list_name, '{}/{}/'.format(self.route, resource_name))
-        self.config.add_view(resource.dispatch_list, route_name=list_name)
+        self.config.add_view(Api.wrap_view(resource, resource.dispatch_list), route_name=list_name)
 
         # add 'schema' action
         schema_name = self.build_route_name(resource_name, 'schema')
         self.config.add_route(schema_name, '{}/{}/schema/'.format(self.route, resource_name))
-        self.config.add_view(resource.get_schema, route_name=schema_name)
+        self.config.add_view(Api.wrap_view(resource, resource.get_schema), route_name=schema_name)
 
         # add 'get_multiple' action
         multiple_name = self.build_route_name(resource_name, 'multiple')
         self.config.add_route(multiple_name, '{}/{}/set/{{ids}}/'.format(self.route, resource_name))
-        self.config.add_view(resource.get_multiple, route_name=multiple_name)
+        self.config.add_view(Api.wrap_view(resource, resource.get_multiple), route_name=multiple_name)
 
         # add 'detail' action
         detail_name = self.build_route_name(resource_name, 'detail')
         self.config.add_route(detail_name, '{}/{}/{{id}}/'.format(self.route, resource_name))
-        self.config.add_view(resource.dispatch_detail, route_name=detail_name)
+        self.config.add_view(Api.wrap_view(resource, resource.dispatch_detail), route_name=detail_name)
 
     def unregister(self, resource_name):
         """
@@ -94,27 +108,75 @@ class Api(object):
         else:
             raise NotRegistered("No resource was registered for '%s'." % resource_name)
 
-    def wrap_view(self, view):
+    @staticmethod
+    def resolve_uri(uri='/'):
+        pass
+
+    @staticmethod
+    def build_uri(request, route_name, *elements):
+        return request.route_path( route_name, *elements )
+
+    @staticmethod
+    def wrap_view(resource, view):
+        """
+        Wraps methods so they can be called in a more functional way as well
+        as handling exceptions better.
+
+        Note that if ``BadRequest`` or an exception with a ``response`` attr
+        are seen, there is special handling to either present a message back
+        to the user or return the response traveling with the exception.
+        """
         def wrapper(request, *args, **kwargs):
-            return getattr(self, view)(request, *args, **kwargs)
+            try:
+                if hasattr(view, '__call__'):
+                    callback = view
+                else:
+                    callback = getattr(resource, view)
+
+                response = callback(request, *args, **kwargs)
+
+                if request.is_xhr:
+                    # IE excessively caches XMLHttpRequests, so we're disabling
+                    # the browser cache here.
+                    # See http://www.enhanceie.com/ie/bugs.asp for details.
+                    response.cache_control = 'no-cache'
+
+                if isinstance(response, basestring):
+                    response = Response(body=response)
+
+                return response
+
+            except (BadRequest, ApiFieldError) as e:
+                return http.HttpBadRequest(e.args[0])
+            except Exception as e:
+                if hasattr(e, 'response'):
+                    return e.response
+
+                # Return a serialized error message.
+                return Api._handle_application_error(resource, request, e)
+
         return wrapper
 
-    def top_level(self, request):
-        """
-        A view that returns a serialized list of all resources registers
-        to the ``Api``. Useful for discovery.
-        """
-        serializer = Serializer()
-        available_resources = {}
+    @staticmethod
+    def _handle_application_error(resource, request, exception):
+        import traceback
+        import sys
+        the_trace = '\n'.join(traceback.format_exception(*(sys.exc_info())))
+        response_class = http.HttpApplicationError
 
-        for resource_name in sorted(self._registry.keys()):
-            available_resources[resource_name] = {
-                'list_endpoint': self.build_uri(request, self.build_route_name(resource_name, 'list')),
-                'schema': self.build_uri(request, self.build_route_name(resource_name, 'schema')),
+        if isinstance(exception, (NotFound, ObjectDoesNotExist)):
+            response_class = http.HttpNotFound
+
+        if request.registry.settings.debug_all:
+            data = {
+                "error_message": unicode(exception),
+                "traceback": the_trace
+            }
+        else:
+            data = {
+                "error_message": getattr(settings, 'TASTYMONGO_ERROR', "Sorry, this request could not be processed. Please try again later."),
             }
 
-        desired_format = determine_format(request, serializer)
-        options = {}
-
-        serialized = serializer.serialize(available_resources, desired_format, options)
-        return Response( body=serialized, content_type=build_content_type(desired_format) )
+        desired_format = resource.determine_format(request)
+        serialized = resource.serialize(request, data, desired_format)
+        return response_class(body=serialized, content_type=build_content_type(desired_format))

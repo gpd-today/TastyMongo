@@ -85,7 +85,7 @@ class ImmediateHttpResponse(TastyMongoError):
         * for throttling
 
     """
-    response = Response( body='Nothing provided.' )
+    response = Response(body='Nothing provided.')
 
     def __init__(self, response):
         self.response = response
