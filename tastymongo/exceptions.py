@@ -12,7 +12,6 @@ class TastyException(Exception):
         self.error_code = error_code
 
 
-
 class ConfigurationError( TastyException ):
     pass
 
@@ -31,7 +30,6 @@ class NotRegistered(ConfigurationError):
     pass
 
 
-
 class NotFound(TastyException):
     """
     Raised when the resource/object in question can't be found.
@@ -39,11 +37,9 @@ class NotFound(TastyException):
     pass
 
 
-
 class HydrationError(TastyException):
     """Raised when there is an error hydrating data."""
     pass
-
 
 
 class BadRequest(TastyException):
@@ -77,7 +73,6 @@ class InvalidSortError(BadRequest):
     explicitly allowed.
     """
     pass
-
 
 
 class ImmediateHttpResponse(TastyException):
