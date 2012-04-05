@@ -5,8 +5,8 @@ import warnings
 
 from pyramid.response import Response
 from pyramid.config import Configurator
+from pyramid import httpexceptions
 
-from . import http
 from .exceptions import NotRegistered, BadRequest, ConfigurationError, ObjectDoesNotExist, NotFound
 from .fields import ApiFieldError
 from .serializers import Serializer
@@ -67,6 +67,8 @@ class Api(object):
     def register(self, resource):
         """
         Registers an instance of a ``Resource`` subclass with the API.
+
+        @param resource {Resource}
         """
         resource_name = getattr(resource._meta, 'resource_name', None)
 
@@ -147,25 +149,25 @@ class Api(object):
                 return response
 
             except (BadRequest, ApiFieldError) as e:
-                return http.HttpBadRequest(e.args[0])
+                return httpexceptions.HTTPBadRequest( detail=e.args[0] )
             except Exception as e:
                 if hasattr(e, 'response'):
                     return e.response
 
                 # Return a serialized error message.
-                return Api._handle_application_error(resource, request, e)
+                return Api._handle_server_error(resource, request, e)
 
         return wrapper
 
     @staticmethod
-    def _handle_application_error(resource, request, exception):
+    def _handle_server_error(resource, request, exception):
         import traceback
         import sys
         the_trace = '\n'.join(traceback.format_exception(*(sys.exc_info())))
-        response_class = http.HttpApplicationError
+        response_class = httpexceptions.HTTPInternalServerError()
 
         if isinstance(exception, (NotFound, ObjectDoesNotExist)):
-            response_class = http.HttpNotFound
+            response_class = httpexceptions.HTTPNotFound()
 
         if request.registry.settings.debug_all:
             data = {
@@ -174,9 +176,9 @@ class Api(object):
             }
         else:
             data = {
-                "error_message": getattr(settings, 'TASTYMONGO_ERROR', "Sorry, this request could not be processed. Please try again later."),
+                "error_message": "Sorry, this request could not be processed. Please try again later."
             }
 
         desired_format = resource.determine_format(request)
         serialized = resource.serialize(request, data, desired_format)
-        return response_class(body=serialized, content_type=build_content_type(desired_format))
+        return response_class(detail=serialized, content_type=build_content_type(desired_format))
