@@ -90,6 +90,9 @@ class ImmediateHttpResponse(TastyException):
     """
     response = Response(body='Nothing provided.')
 
-    def __init__(self, response, *args, **kwargs):
-        super(TastyException, self ).__init__(*args, **kwargs)
+    def __init__( self, response, *args, **kwargs ):
+        super( TastyException, self ).__init__(*args, **kwargs)
         self.response = response
+
+    def __unicode__( self ):
+        return unicode( self.response )

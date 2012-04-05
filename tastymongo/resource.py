@@ -268,7 +268,7 @@ class Resource( object ):
 #        self.throttle_check(request)
         return self.create_response(request, self.build_schema())
 
-    def get_multiple(self, request, **kwargs):
+    def get_multiple( self, request, **kwargs ):
         """
         Returns a serialized list of resources based on the identifiers
         from the URL.
@@ -283,7 +283,7 @@ class Resource( object ):
 #        self.throttle_check(request)
 
         # Rip apart the list then iterate.
-        obj_pks = kwargs.get('pk_list', '').split(';')
+        obj_pks = kwargs.get( 'pk_list', '' ).split( ';' )
         objects = []
         not_found = []
 
@@ -311,7 +311,7 @@ class Resource( object ):
         """
         desired_format = self.determine_format(request)
         serialized = self.serialize(request, data, desired_format)
-        return response_class(body=serialized, content_type=build_content_type(desired_format), **response_kwargs)
+        return response_class( body=serialized, content_type=build_content_type( desired_format ), **response_kwargs )
 
     def error_response(self, errors, request):
         if request:

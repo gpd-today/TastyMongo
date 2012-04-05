@@ -151,28 +151,24 @@ class Api(object):
             except (BadRequest, ApiFieldError) as e:
                 return http.HTTPBadRequest( body=e.args[0] )
             except Exception as e:
+                # Return a raw error
                 if hasattr(e, 'response'):
                     return e.response
 
                 # Return a serialized error message.
-                return Api._handle_server_error(resource, request, e)
+                return Api._handle_server_error( resource, request, e )
 
         return wrapper
 
     @staticmethod
-    def _handle_server_error(resource, request, exception):
-        import traceback
-        import sys
-        the_trace = '\n'.join(traceback.format_exception(*(sys.exc_info())))
-        response_class = http.HTTPInternalServerError
-
-        if isinstance(exception, (NotFound, ObjectDoesNotExist)):
-            response_class = http.HTTPNotFound
-
+    def _handle_server_error( resource, request, exception ):
         if request.registry.settings.debug_all:
+            import sys, traceback
+            the_trace = '\r\n'.join( traceback.format_exception(*( sys.exc_info() )) )
+
             data = {
                 "error_code": getattr( exception, 'error_code', 0 ),
-                "error_message": unicode(exception),
+                "error_message": unicode( exception ),
                 "traceback": the_trace
             }
         else:
@@ -183,4 +179,9 @@ class Api(object):
 
         desired_format = resource.determine_format(request)
         serialized = resource.serialize(request, data, desired_format)
-        return response_class(body=serialized, content_type=build_content_type(desired_format))
+
+        response_class = http.HTTPInternalServerError
+        if isinstance( exception, (NotFound, ObjectDoesNotExist) ):
+            response_class = http.HTTPNotFound
+
+        return response_class( body=serialized, content_type=build_content_type( desired_format ) )
