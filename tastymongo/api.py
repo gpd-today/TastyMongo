@@ -5,8 +5,8 @@ import warnings
 
 from pyramid.response import Response
 from pyramid.config import Configurator
-from pyramid import httpexceptions
 
+from . import http
 from .exceptions import NotRegistered, BadRequest, ConfigurationError, ObjectDoesNotExist, NotFound
 from .fields import ApiFieldError
 from .serializers import Serializer
@@ -149,7 +149,7 @@ class Api(object):
                 return response
 
             except (BadRequest, ApiFieldError) as e:
-                return httpexceptions.HTTPBadRequest( detail=e.args[0] )
+                return http.HTTPBadRequest( body=e.args[0] )
             except Exception as e:
                 if hasattr(e, 'response'):
                     return e.response
@@ -164,10 +164,10 @@ class Api(object):
         import traceback
         import sys
         the_trace = '\n'.join(traceback.format_exception(*(sys.exc_info())))
-        response_class = httpexceptions.HTTPInternalServerError()
+        response_class = http.HTTPInternalServerError
 
         if isinstance(exception, (NotFound, ObjectDoesNotExist)):
-            response_class = httpexceptions.HTTPNotFound()
+            response_class = http.HTTPNotFound
 
         if request.registry.settings.debug_all:
             data = {
@@ -181,4 +181,4 @@ class Api(object):
 
         desired_format = resource.determine_format(request)
         serialized = resource.serialize(request, data, desired_format)
-        return response_class(detail=serialized, content_type=build_content_type(desired_format))
+        return response_class(body=serialized, content_type=build_content_type(desired_format))

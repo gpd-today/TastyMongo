@@ -2,11 +2,11 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 from . import fields
+from . import http
 from .serializers import Serializer
 from .exceptions import *
 from .utils import *
 
-from pyramid import httpexceptions
 from pyramid.response import Response
 
 from copy import deepcopy
@@ -155,7 +155,7 @@ class Resource( object ):
 
         if method is None:
             detail = 'Method="{}_{}" is not implemented for resource="{}"'.format(request_method, request_type, self._meta.resource_name)
-            raise ImmediateHttpResponse( response=httpexceptions.HTTPNotImplemented(detail=detail))
+            raise ImmediateHttpResponse( response=http.HTTPNotImplemented(body=detail))
 
 #        self.is_authenticated(request)
 #        self.is_authorized(request)
@@ -209,7 +209,7 @@ class Resource( object ):
 
         if not request_method in allowed:
             allows = ','.join(map(unicode.upper, allowed))
-            response = httpexceptions.HTTPMethodNotAllowed(detail='Allowed methods={}'.format(allows))
+            response = http.HTTPMethodNotAllowed(body='Allowed methods={}'.format(allows))
             raise ImmediateHttpResponse(response=response)
 
         return request_method
@@ -320,7 +320,7 @@ class Resource( object ):
             desired_format = self._meta.default_format
 
         serialized = self.serialize(request, errors, desired_format)
-        response = httpexceptions.HTTPBadRequest(detail=serialized, content_type=build_content_type(desired_format))
+        response = http.HTTPBadRequest(body=serialized, content_type=build_content_type(desired_format))
         raise ImmediateHttpResponse(response=response)
 
     def serialize(self, request, data, format, options=None):
@@ -357,7 +357,7 @@ class Resource( object ):
             raise ImmediateHttpResponse(response=auth_result)
 
         if not auth_result is True:
-            raise ImmediateHttpResponse(response=httpexceptions.HTTPUnauthorized())
+            raise ImmediateHttpResponse(response=http.HTTPUnauthorized())
 
     def is_authenticated(self, request):
         """
@@ -374,7 +374,7 @@ class Resource( object ):
             raise ImmediateHttpResponse(response=auth_result)
 
         if not auth_result is True:
-            raise ImmediateHttpResponse(response=httpexceptions.HTTPUnauthorized())
+            raise ImmediateHttpResponse(response=http.HTTPUnauthorized())
 
     def throttle_check(self, request):
         """
@@ -388,7 +388,7 @@ class Resource( object ):
         # Check to see if they should be throttled.
         if self._meta.throttle.should_be_throttled(identifier):
             # Throttle limit exceeded.
-            raise ImmediateHttpResponse(response=httpexceptions.HTTPForbidden())
+            raise ImmediateHttpResponse(response=http.HTTPForbidden())
 
 
 class DocumentResource( Resource ):
