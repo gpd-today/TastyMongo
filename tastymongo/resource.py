@@ -303,7 +303,7 @@ class Resource( object ):
 
         return self.create_response(request, object_list)
 
-    def create_response(self, request, data, response_class=Response, **response_kwargs):
+    def create_response(self, request, data, response_class=http.HTTPResponse, **response_kwargs):
         """
         Extracts the common "which-format/serialize/return-response" cycle.
 

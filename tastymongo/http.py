@@ -17,7 +17,6 @@ class HTTPCreated(HTTPResponse):
 
         super(HTTPCreated, self).__init__(*args, **kwargs)
         self.location = location
-        self.charset = 'utf-8'
         self.status_int = 201
 
 

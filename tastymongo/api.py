@@ -171,11 +171,13 @@ class Api(object):
 
         if request.registry.settings.debug_all:
             data = {
+                "error_code": getattr( exception, 'error_code', 0 ),
                 "error_message": unicode(exception),
                 "traceback": the_trace
             }
         else:
             data = {
+                "error_code": getattr( exception, 'error_code', 0 ),
                 "error_message": "Sorry, this request could not be processed. Please try again later."
             }
 

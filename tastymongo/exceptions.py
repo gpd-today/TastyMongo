@@ -3,52 +3,55 @@ from __future__ import unicode_literals
 
 from pyramid.response import Response
 
-class TastyMongoError(Exception):
+class TastyException(Exception):
     """A base exception for other tastypie-related errors."""
-    pass
+
+    def __init__( self, error_code=0, *args, **kwargs ):
+        super(TastyException, self ).__init__(*args, **kwargs)
+        self.error_code = error_code
 
 
-class ObjectDoesNotExist(TastyMongoError):
+class ObjectDoesNotExist(TastyException):
     """Object not found."""
     pass
 
-class ConfigurationError( TastyMongoError ):
+class ConfigurationError( TastyException ):
     pass
 
-class HydrationError(TastyMongoError):
+class HydrationError(TastyException):
     """Raised when there is an error hydrating data."""
     pass
 
 
-class NotRegistered(TastyMongoError):
+class NotRegistered(TastyException):
     """
     Raised when the requested resource isn't registered with the ``Api`` class.
     """
     pass
 
 
-class NotFound(TastyMongoError):
+class NotFound(TastyException):
     """
     Raised when the resource/object in question can't be found.
     """
     pass
 
 
-class ApiFieldError(TastyMongoError):
+class ApiFieldError(TastyException):
     """
     Raised when there is a configuration error with a ``ApiField``.
     """
     pass
 
 
-class UnsupportedFormat(TastyMongoError):
+class UnsupportedFormat(TastyException):
     """
     Raised when an unsupported serialization format is requested.
     """
     pass
 
 
-class BadRequest(TastyMongoError):
+class BadRequest(TastyException):
     """
     A generalized exception for indicating incorrect request parameters.
 
@@ -66,7 +69,7 @@ class InvalidFilterError(BadRequest):
     pass
 
 
-class InvalidSortError(TastyMongoError):
+class InvalidSortError(BadRequest):
     """
     Raised when the end user attempts to sort on a field that has not be
     explicitly allowed.
@@ -74,7 +77,7 @@ class InvalidSortError(TastyMongoError):
     pass
 
 
-class ImmediateHttpResponse(TastyMongoError):
+class ImmediateHttpResponse(TastyException):
     """
     This exception is used to interrupt the flow of processing to immediately
     return a custom HttpResponse.
@@ -87,5 +90,6 @@ class ImmediateHttpResponse(TastyMongoError):
     """
     response = Response(body='Nothing provided.')
 
-    def __init__(self, response):
+    def __init__(self, response, *args, **kwargs):
+        super(TastyException, self ).__init__(*args, **kwargs)
         self.response = response
