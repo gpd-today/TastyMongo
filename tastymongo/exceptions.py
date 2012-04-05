@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 
 from pyramid.response import Response
 
+
 class TastyException(Exception):
     """A base exception for other tastypie-related errors."""
 
@@ -11,23 +12,24 @@ class TastyException(Exception):
         self.error_code = error_code
 
 
-class ObjectDoesNotExist(TastyException):
-    """Object not found."""
-    pass
 
 class ConfigurationError( TastyException ):
     pass
 
-class HydrationError(TastyException):
-    """Raised when there is an error hydrating data."""
+
+class ApiFieldError(ConfigurationError):
+    """
+    Raised when there is a configuration error with a ``ApiField``.
+    """
     pass
 
 
-class NotRegistered(TastyException):
+class NotRegistered(ConfigurationError):
     """
     Raised when the requested resource isn't registered with the ``Api`` class.
     """
     pass
+
 
 
 class NotFound(TastyException):
@@ -37,18 +39,11 @@ class NotFound(TastyException):
     pass
 
 
-class ApiFieldError(TastyException):
-    """
-    Raised when there is a configuration error with a ``ApiField``.
-    """
+
+class HydrationError(TastyException):
+    """Raised when there is an error hydrating data."""
     pass
 
-
-class UnsupportedFormat(TastyException):
-    """
-    Raised when an unsupported serialization format is requested.
-    """
-    pass
 
 
 class BadRequest(TastyException):
@@ -57,6 +52,13 @@ class BadRequest(TastyException):
 
     Handled specially in that the message tossed by this exception will be
     presented to the end user.
+    """
+    pass
+
+
+class UnsupportedFormat(BadRequest):
+    """
+    Raised when an unsupported serialization format is requested.
     """
     pass
 
@@ -77,6 +79,7 @@ class InvalidSortError(BadRequest):
     pass
 
 
+
 class ImmediateHttpResponse(TastyException):
     """
     This exception is used to interrupt the flow of processing to immediately
@@ -88,10 +91,10 @@ class ImmediateHttpResponse(TastyException):
         * for throttling
 
     """
-    response = Response(body='Nothing provided.')
+    response = Response( body='No description provided.' )
 
     def __init__( self, response, *args, **kwargs ):
-        super( TastyException, self ).__init__(*args, **kwargs)
+        super( ImmediateHttpResponse, self ).__init__(*args, **kwargs)
         self.response = response
 
     def __unicode__( self ):

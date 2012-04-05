@@ -7,7 +7,7 @@ from pyramid.response import Response
 from pyramid.config import Configurator
 
 from . import http
-from .exceptions import NotRegistered, BadRequest, ConfigurationError, ObjectDoesNotExist, NotFound
+from .exceptions import NotRegistered, BadRequest, ConfigurationError, NotFound
 from .fields import ApiFieldError
 from .serializers import Serializer
 from .utils import *
@@ -164,7 +164,7 @@ class Api(object):
     def _handle_server_error( resource, request, exception ):
         if request.registry.settings.debug_all:
             import sys, traceback
-            the_trace = '\r\n'.join( traceback.format_exception(*( sys.exc_info() )) )
+            the_trace = '\n'.join( traceback.format_exception(*( sys.exc_info() )) )
 
             data = {
                 "error_code": getattr( exception, 'error_code', 0 ),
@@ -181,7 +181,7 @@ class Api(object):
         serialized = resource.serialize(request, data, desired_format)
 
         response_class = http.HTTPInternalServerError
-        if isinstance( exception, (NotFound, ObjectDoesNotExist) ):
+        if isinstance( exception, NotFound ):
             response_class = http.HTTPNotFound
 
         return response_class( body=serialized, content_type=build_content_type( desired_format ) )
