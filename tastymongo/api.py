@@ -7,6 +7,7 @@ from pyramid.response import Response
 from pyramid.config import Configurator
 
 from . import http
+from .resource import Resource
 from .exceptions import NotRegistered, BadRequest, ConfigurationError, NotFound
 from .fields import ApiFieldError
 from .serializers import Serializer
@@ -68,7 +69,7 @@ class Api(object):
         """
         Registers an instance of a ``Resource`` subclass with the API.
 
-        @param resource {Resource}
+        @type resource: Resource
         """
         resource_name = getattr(resource._meta, 'resource_name', None)
 
@@ -77,27 +78,23 @@ class Api(object):
 
         self._registry[resource_name] = resource
 
-        # TODO: This is messy, but makes URI resolution on FK/M2M fields work consistently.
-        resource._meta.api_name = self.api_name
-        resource.__class__.Meta.api_name = self.api_name
-
         # add 'list' action
-        list_name = self.build_route_name(resource_name, 'list')
+        list_name = self.build_route_name( resource_name, 'list' )
         self.config.add_route(list_name, '{}/{}/'.format(self.route, resource_name))
         self.config.add_view(Api.wrap_view(resource, resource.dispatch_list), route_name=list_name)
 
         # add 'schema' action
-        schema_name = self.build_route_name(resource_name, 'schema')
+        schema_name = self.build_route_name( resource_name, 'schema' )
         self.config.add_route(schema_name, '{}/{}/schema/'.format(self.route, resource_name))
         self.config.add_view(Api.wrap_view(resource, resource.get_schema), route_name=schema_name)
 
         # add 'get_multiple' action
-        multiple_name = self.build_route_name(resource_name, 'multiple')
+        multiple_name = self.build_route_name( resource_name, 'multiple' )
         self.config.add_route(multiple_name, '{}/{}/set/{{ids}}/'.format(self.route, resource_name))
         self.config.add_view(Api.wrap_view(resource, resource.get_multiple), route_name=multiple_name)
 
         # add 'detail' action
-        detail_name = self.build_route_name(resource_name, 'detail')
+        detail_name = self.build_route_name( resource_name, 'detail' )
         self.config.add_route(detail_name, '{}/{}/{{id}}/'.format(self.route, resource_name))
         self.config.add_view(Api.wrap_view(resource, resource.dispatch_detail), route_name=detail_name)
 
@@ -111,11 +108,14 @@ class Api(object):
             raise NotRegistered("No resource was registered for '%s'." % resource_name)
 
     @staticmethod
-    def resolve_uri(uri='/'):
+    def resolve_uri( uri='/' ):
         pass
 
     @staticmethod
-    def build_uri(request, route_name, *elements):
+    def build_uri( request, resource_name=None, request_method=None, route_name=None, *elements ):
+        if route_name is None:
+            route_name = self.build_route_name( resource_name, request_method )
+
         return request.route_path( route_name, *elements )
 
     @staticmethod
