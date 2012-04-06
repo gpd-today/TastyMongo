@@ -1,13 +1,9 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
-import warnings
-
 from pyramid.response import Response
-from pyramid.config import Configurator
 
 from . import http
-from .resource import Resource
 from .exceptions import NotRegistered, BadRequest, ConfigurationError, NotFound
 from .fields import ApiFieldError
 from .serializers import Serializer
@@ -77,20 +73,15 @@ class Api(object):
 
         self._registry[resource_name] = resource
 
-        # add 'list' action
-        list_name = self.build_route_name( resource_name, 'list' )
-        self.config.add_route( list_name, '{}/{}/'.format( self.route, resource_name ) )
-        self.config.add_view( Api.wrap_view( resource, resource.dispatch_list ), route_name=list_name )
-
         # add 'schema' action
         schema_name = self.build_route_name( resource_name, 'schema' )
         self.config.add_route( schema_name, '{}/{}/schema/'.format( self.route, resource_name ) )
         self.config.add_view( Api.wrap_view( resource, resource.get_schema ), route_name=schema_name )
 
-        # add 'get_multiple' action
-        multiple_name = self.build_route_name( resource_name, 'multiple' )
-        self.config.add_route( multiple_name, '{}/{}/set/{{ids}}/'.format( self.route, resource_name ) )
-        self.config.add_view( Api.wrap_view( resource, resource.get_multiple ), route_name=multiple_name )
+        # add 'list' action
+        list_name = self.build_route_name( resource_name, 'list' )
+        self.config.add_route( list_name, '{}/{}/'.format( self.route, resource_name ) )
+        self.config.add_view( Api.wrap_view( resource, resource.dispatch_list ), route_name=list_name )
 
         # add 'detail' action
         detail_name = self.build_route_name( resource_name, 'detail' )
