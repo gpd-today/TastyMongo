@@ -8,7 +8,7 @@ from .exceptions import NotRegistered, BadRequest, ConfigurationError, NotFound
 from .fields import ApiFieldError
 from .serializers import Serializer
 from .utils import *
-
+from .resource import Resource
 
 class Api(object):
     """
@@ -33,79 +33,9 @@ class Api(object):
         self.config.add_route(self.route, self.route + '/')
         self.config.add_view(Api.wrap_view(self, self.top_level), route_name=self.route)
 
-    def build_route_name(self, resource_name, operation):
-        if resource_name is not None:
-            route_name = '{}/{}/{}'.format(self.route, resource_name, operation)
-        else:
-            route_name = '{}/{}'.format(self.route, operation)
-
-        return route_name
-
-    def top_level(self, request):
-        """
-        A view that returns a serialized list of all resources registers
-        to the ``Api``. Useful for discovery.
-        """
-        serializer = Serializer()
-        available_resources = {}
-
-        for resource_name in sorted(self._registry.keys()):
-            available_resources[resource_name] = {
-                'list_endpoint': self.build_uri( request, resource_name=resource_name, operation='list' ),
-                'schema': self.build_uri( request, resource_name=resource_name, operation='schema' ),
-            }
-
-        desired_format = determine_format(request, serializer)
-
-        serialized = serializer.serialize( available_resources, format=desired_format )
-        return Response( body=serialized, content_type=build_content_type( desired_format ) )
-
-    def register( self, resource ):
-        """
-        Registers an instance of a ``Resource`` subclass with the API.
-
-        @type resource: Resource
-        """
-        resource_name = getattr( resource._meta, 'resource_name', None )
-
-        if resource_name is None:
-            raise ConfigurationError( "Resource='{}' must define a 'resource_name'.".format( resource ) )
-
-        self._registry[resource_name] = resource
-
-        # add 'schema' action
-        schema_name = self.build_route_name( resource_name, 'schema' )
-        self.config.add_route( schema_name, '{}/{}/schema/'.format( self.route, resource_name ) )
-        self.config.add_view( Api.wrap_view( resource, resource.get_schema ), route_name=schema_name )
-
-        # add 'list' action
-        list_name = self.build_route_name( resource_name, 'list' )
-        self.config.add_route( list_name, '{}/{}/'.format( self.route, resource_name ) )
-        self.config.add_view( Api.wrap_view( resource, resource.dispatch_list ), route_name=list_name )
-
-        # add 'detail' action
-        detail_name = self.build_route_name( resource_name, 'detail' )
-        self.config.add_route( detail_name, '{}/{}/{{id}}/'.format( self.route, resource_name ) )
-        self.config.add_view( Api.wrap_view( resource, resource.dispatch_detail ), route_name=detail_name )
-
-    def unregister(self, resource_name):
-        """
-        If present, unregisters a resource from the API.
-        """
-        if resource_name in self._registry:
-            del(self._registry[resource_name])
-        else:
-            raise NotRegistered( "No resource was registered for resource_name='{}'.".format( resource_name ) )
-
     @staticmethod
     def resolve_uri( uri='/' ):
         pass
-
-    def build_uri( self, request, resource_name=None, operation=None, route_name=None, *elements ):
-        if route_name is None:
-            route_name = self.build_route_name( resource_name, operation )
-
-        return request.route_path( route_name, *elements )
 
     @staticmethod
     def wrap_view( resource, view ):
@@ -182,3 +112,77 @@ class Api(object):
             response_class = http.HTTPNotFound
 
         return response_class( body=serialized, content_type=build_content_type( desired_format ) )
+
+    def register( self, resource ):
+        """
+        Registers an instance of a ``Resource`` subclass with the API.
+
+        @type resource: Resource
+        """
+        resource_name = getattr( resource._meta, 'resource_name', None )
+
+        # Also add a hook to the Api on the resource
+        resource._meta.api = self
+
+        if resource_name is None:
+            raise ConfigurationError( "Resource='{}' must define a 'resource_name'.".format( resource ) )
+
+        self._registry[resource_name] = resource
+
+        # add 'schema' action
+        schema_name = self.build_route_name( resource_name, 'schema' )
+        self.config.add_route( schema_name, '{}/{}/schema/'.format( self.route, resource_name ) )
+        self.config.add_view( Api.wrap_view( resource, resource.get_schema ), route_name=schema_name )
+
+        # add 'list' action
+        list_name = self.build_route_name( resource_name, 'list' )
+        self.config.add_route( list_name, '{}/{}/'.format( self.route, resource_name ) )
+        self.config.add_view( Api.wrap_view( resource, resource.dispatch_list ), route_name=list_name )
+
+        # add 'detail' action
+        detail_name = self.build_route_name( resource_name, 'detail' )
+        self.config.add_route( detail_name, '{}/{}/{{id}}/'.format( self.route, resource_name ) )
+        self.config.add_view( Api.wrap_view( resource, resource.dispatch_detail ), route_name=detail_name )
+
+    def unregister(self, resource_name):
+        """
+        If present, unregisters a resource from the API.
+        """
+        if resource_name in self._registry:
+            del(self._registry[resource_name])
+        else:
+            raise NotRegistered( "No resource was registered for resource_name='{}'.".format( resource_name ) )
+
+    def build_route_name(self, resource_name, operation):
+        if resource_name is not None:
+            route_name = '{}/{}/{}'.format(self.route, resource_name, operation)
+        else:
+            route_name = '{}/{}'.format(self.route, operation)
+
+        return route_name
+
+    def build_uri( self, request, id=None, resource_name=None, operation=None, route_name=None, ):
+        if route_name is None:
+            route_name = self.build_route_name( resource_name, operation )
+
+        return request.route_path( route_name, id=id)
+
+    def top_level(self, request):
+        """
+        A view that returns a serialized list of all resources registers
+        to the ``Api``. Useful for discovery.
+        """
+        serializer = Serializer()
+        available_resources = {}
+
+        for resource_name in sorted(self._registry.keys()):
+            available_resources[resource_name] = {
+                'list_endpoint': self.build_uri( request, resource_name=resource_name, operation='list' ),
+                'schema': self.build_uri( request, resource_name=resource_name, operation='schema' ),
+            }
+
+        desired_format = determine_format(request, serializer)
+
+        serialized = serializer.serialize( available_resources, format=desired_format )
+        return Response( body=serialized, content_type=build_content_type( desired_format ) )
+

@@ -9,6 +9,8 @@ from .utils import determine_format, build_content_type
 from .bundle import Bundle
 
 from pyramid.response import Response
+from mongoengine.base import BaseField
+import mongoengine.fields as mf
 
 from copy import deepcopy
 
@@ -36,7 +38,7 @@ class ResourceOptions(object):
     default_format = 'application/json'
     filtering = {}
     ordering = []
-    object_class = None
+    document_class = None
     queryset = None
     fields = []
     excludes = []
@@ -108,7 +110,7 @@ class DeclarativeMetaclass(type):
 
         if getattr(new_class._meta, 'include_absolute_url', True):
             if not 'absolute_url' in new_class.base_fields:
-                new_class.base_fields['absolute_url'] = fields.CharField(attribute='get_absolute_url', readonly=True)
+                new_class.base_fields['absolute_url'] = fields.StringField(attribute='get_absolute_url', readonly=True)
         elif 'absolute_url' in new_class.base_fields and not 'absolute_url' in attrs:
             del(new_class.base_fields['absolute_url'])
 
@@ -120,12 +122,13 @@ class DeclarativeMetaclass(type):
 
 
 class DocumentDeclarativeMetaclass(DeclarativeMetaclass):
+
     # Subclassed to handle specifics for MongoEngine Documents
     def __new__(cls, name, bases, attrs):
         meta = attrs.get('Meta')
 
         if meta and hasattr(meta, 'queryset'):
-            setattr(meta, 'document_type', meta.queryset.document._type)
+            setattr(meta, 'document_class', meta.queryset._document)
 
         new_class = super(DocumentDeclarativeMetaclass, cls).__new__(cls, name, bases, attrs)
         include_fields = getattr(new_class._meta, 'fields', [])
@@ -143,7 +146,8 @@ class DocumentDeclarativeMetaclass(DeclarativeMetaclass):
                 del(new_class.base_fields[field_name])
 
         # Add in the new fields.
-        new_class.base_fields.update(new_class.get_fields(include_fields, excludes))
+        # FIXME: something breaks down the road when adding in new fields
+        #new_class.base_fields.update(new_class.get_fields(include_fields, excludes))
 
         return new_class
 
@@ -179,6 +183,8 @@ class Resource( object ):
         allowed_methods = getattr(self._meta, '%s_allowed_methods' % request_type, None)
         request_method = self.check_method(request, allowed=allowed_methods)
         print( 'resource={}; request={}_{}'.format(self._meta.resource_name, request_method, request_type))
+
+        # Determine which callback we're going to use
         method = getattr(self, '{}_{}'.format(request_method, request_type), None)
 
         if method is None:
@@ -450,6 +456,19 @@ class Resource( object ):
 
         return Bundle(obj=obj, data=data, request=request)
 
+    def get_resource_uri( self, request, bundle_or_obj = None ):
+        """
+        This needs to be implemented at the user level.
+
+        A ``return reverse("api_dispatch_detail", kwargs={'resource_name':
+        self.resource_name, 'pk': object.id})`` should be all that would
+        be needed.
+
+        ``ModelResource`` includes a full working version specific to Django's
+        ``Models``.
+        """
+        raise NotImplementedError()
+
     def full_dehydrate(self, bundle):
         """
         Given a bundle with an object instance, extract the information from it
@@ -468,7 +487,7 @@ class Resource( object ):
             method = getattr(self, "dehydrate_%s" % field_name, None)
 
             if method:
-                bundle.data[field_name] = method(bundle)
+                bundle.data[field_name] = method( bundle.request, bundle)
 
         bundle = self.dehydrate(bundle)
         return bundle
@@ -484,6 +503,16 @@ class Resource( object ):
         Must return the modified bundle.
         """
         return bundle
+
+    def dehydrate_resource_uri( self, request, bundle ):
+        """
+        For the automatically included ``resource_uri`` field, dehydrate
+        the URI for the given bundle.
+        """
+        try:
+            return self.get_resource_uri( request, bundle )
+        except NotImplementedError:
+            return '<not implemented>'
 
     def get_object_list(self, request):
         if request and hasattr(request, 'user'):
@@ -624,14 +653,13 @@ class Resource( object ):
 
         Should return a HttpResponse (200 OK).
         """
-        import ipdb; ipdb.set_trace()
         objects = self.obj_get_list(request=request, **kwargs)
         sorted_objects = self.apply_sorting(objects, options=request.GET)
 
         #FIXME: this is easily done with the slice__method / with python slicing?
         #paginator = self._meta.paginator_class(request.GET, sorted_objects, resource_uri=self.get_resource_list_uri(), limit=self._meta.limit, max_limit=self._meta.max_limit, collection_name=self._meta.collection_name)
         #to_be_serialized = paginator.page()
-        to_be_serialized = { 'meta': 'test', 'objects': sorted_objects}
+        to_be_serialized = { 'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 'objects': sorted_objects, }
 
         # Dehydrate the bundles in preparation for serialization.
         bundles = [self.build_bundle(obj=obj, request=request) for obj in to_be_serialized['objects']]
@@ -695,8 +723,198 @@ class Resource( object ):
 
         return self.create_response(request, object_list)
 
+    def put_list(self, request, **kwargs):
+        """
+        Replaces a collection of resources with another collection.
+
+        - fetches the existing collection at the request URI with get_list
+        - updates objects in the union of the existing and new collection,
+          as determined by identical resource_uri's
+        - creates new objects (those without resource_uri)
+        - deletes objects not present in the new collection, honouring SQL-like
+          cascade settings: ON DELETE { PROTECT | SET NULL | CASCADE ) where
+          we're dealing with relations
+
+        NOTES: 
+          * the URI may be that of a 'filtered collection', 
+            e.g. /books?author=adams, or /books?name[]='Adams'&name[]='Apples'
+          * nested collections are converted into a filtered version at their
+            root resource URI, at least adding their relation to the 
+            objects in the request URI.
+
+        Return ``HttpNoContent`` (204 No Content) if
+        ``Meta.always_return_data = False`` (default).
+
+        Return ``HttpAccepted`` (202 Accepted) if
+        ``Meta.always_return_data = True``.
+        """
+        deserialized = self.deserialize(request, request.raw_post_data, format=request.META.get('CONTENT_TYPE', 'application/json'))
+        deserialized = self.alter_deserialized_list_data(request, deserialized)
+
+        if not 'objects' in deserialized:
+            raise BadRequest("Invalid data sent.")
+
+        for object_data in deserialized['objects']:
+            bundle = self.build_bundle(data=dict_strip_unicode_keys(object_data), request=request)
+
+        if not self._meta.always_return_data:
+            return http.HttpNoContent()
+        else:
+            to_be_serialized = {}
+            # FIXME: fix.
+            to_be_serialized['objects'] = [self.full_dehydrate(bundle) for bundle in bundles_seen]
+            to_be_serialized = self.alter_list_data_to_serialize(request, to_be_serialized)
+            return self.create_response(request, to_be_serialized, response_class=http.HttpAccepted)
+
 
 class DocumentResource( Resource ):
+    '''
+    A MongoEngine specific implementation of Resource
+    '''
+
+    __metaclass__ = DocumentDeclarativeMetaclass
+
+    @classmethod
+    def should_skip_field(cls, field):
+        """
+        Given a MongoDB field, return if it should be included in the
+        contributed ApiFields.
+        """
+        # Ignore certain fields (related fields).
+        if getattr(field, 'rel'):
+            return True
+
+        return False
+
+    @classmethod
+    def api_field_from_mongoengine_field(cls, f, default=fields.StringField):
+        """
+        Returns the field type that would likely be associated with each
+        MongoEngine type.
+
+        __all__ = ['StringField', 
+            'IntField', 'FloatField', 'BooleanField',
+           'DateTimeField', 'EmbeddedDocumentField', 'ListField', 'DictField',
+           'ObjectIdField', 'ReferenceField', 'ValidationError', 'MapField',
+           'DecimalField', 'ComplexDateTimeField', 'URLField',
+           'GenericReferenceField', 'FileField', 'BinaryField',
+           'SortedListField', 'EmailField', 'GeoPointField', 'ImageField',
+           'SequenceField', 'UUIDField', 'GenericEmbeddedDocumentField']
+
+
+        """
+        result = default
+
+        if type(f) in ( mf.DateTimeField, mf.ComplexDateTimeField ):
+            result = fields.DateTimeField
+        elif type(f) in ( mf.BooleanField, ):
+            result = fields.BooleanField
+        elif type(f) in ( mf.FloatField, ):
+            result = fields.FloatField
+        elif type(f) in ( mf.DecimalField, ):
+            result = fields.DecimalField
+        elif type(f) in ( mf.IntField, ):
+            result = fields.IntegerField
+        elif type(f) in (mf.FileField, mf.ImageField ):
+            result = fields.FileField
+        #elif type(f) == mf.TimeField:
+        #    result = fields.TimeField
+        # TODO: Perhaps enable these via introspection. The reason they're not enabled
+        #       by default is the very different ``__init__`` they have over
+        #       the other fields.
+        # elif f.get_internal_type() == 'ForeignKey':
+        #     result = ForeignKey
+        # elif f.get_internal_type() == 'ManyToManyField':
+        #     result = ManyToManyField
+
+        return result
+
+    @classmethod
+    def get_fields(cls, fields=None, excludes=None):
+        """
+        Given any explicit fields to include and fields to exclude, add
+        additional fields derived from the associated Document.
+        """
+        final_fields = {}
+        fields = fields or []
+        excludes = excludes or []
+
+        if not cls._meta.document_class:
+            return final_fields
+
+        for name, f in cls._meta.document_class._fields.items():
+            # If the field name is already present, skip
+            if name in cls.base_fields:
+                continue
+
+            # If field is not present in explicit field listing, skip
+            if fields and name not in fields:
+                continue
+
+            # If field is in exclude list, skip
+            if excludes and name in excludes:
+                continue
+
+            #if cls.should_skip_field(f):
+            #    continue
+
+            api_field_class = cls.api_field_from_mongoengine_field(f)
+
+            kwargs = {
+                'attribute': f.name,
+                'help_text': f.help_text,
+            }
+
+            # no such thing as null or blank in mongo
+            #if f.null is True:
+            #    kwargs['null'] = True
+
+            kwargs['unique'] = f.unique
+
+            #if not f.null and f.blank is True:
+            #    kwargs['default'] = ''
+            #    kwargs['blank'] = True
+
+            if type(f) == mf.StringField:
+                kwargs['default'] = ''
+
+            if f.default:
+                kwargs['default'] = f.default
+
+            if getattr(f, 'auto_now', False):
+                kwargs['default'] = f.auto_now
+
+            if getattr(f, 'auto_now_add', False):
+                kwargs['default'] = f.auto_now_add
+
+            final_fields[name] = api_field_class(**kwargs)
+            final_fields[name].instance_name = name
+
+        return final_fields
+
+    def get_resource_uri( self, request, bundle_or_obj = None ):
+        """
+        Returns the resource's uri per the given API.
+
+        *elements, if given, is used by Pyramid to specify instances 
+        """
+        kwargs = {
+            'resource_name': self._meta.resource_name,
+        }
+
+        if bundle_or_obj:
+            kwargs['operation'] = 'detail'
+            if isinstance(bundle_or_obj, Bundle):
+                kwargs['id'] = bundle_or_obj.obj.id
+            else:
+                kwargs['id'] = bundle_or_obj.id
+        else:
+            kwargs['operation'] = 'list'
+
+        if self._meta.api_name is not None:
+            kwargs['api_name'] = self._meta.api_name
+
+        return self._meta.api.build_uri( request, **kwargs)
 
     def build_filters(self, filters=None):
         """
@@ -706,6 +924,7 @@ class DocumentResource( Resource ):
         ``['startswith', 'exact', 'lte']``), the ``ALL`` constant or the
         ``ALL_WITH_RELATIONS`` constant.
         """
+        # FIXME: restructure to fit ``Document`` filtering in MongoEngine
         # At the declarative level:
         #     filtering = {
         #         'resource_field_name': ['exact', 'startswith', 'endswith', 'contains'],
