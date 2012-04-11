@@ -50,7 +50,7 @@ class Serializer(object):
             try:
                 self.supported_formats.append(self.content_types[format])
             except KeyError:
-                raise ConfigurationError("Content type for specified type '%s' not found. Please provide it at either the class level or via the arguments." % format)
+                raise ConfigurationError("Content type for specified type '{}' not found. Please provide it at either the class level or via the arguments.".format( format ) )
 
     def get_mime_for_format(self, format):
         """
@@ -105,9 +105,9 @@ class Serializer(object):
                     break
 
         if desired_format is None:
-            raise UnsupportedFormat("The format indicated '%s' had no available serialization method. Please check your ``formats`` and ``content_types`` on your Serializer." % format)
+            raise UnsupportedFormat("The format indicated '{}' had no available serialization method. Please check your ``formats`` and ``content_types`` on your Serializer.".format( format ) )
 
-        serialized = getattr(self, "to_%s" % desired_format)(bundle, options)
+        serialized = getattr(self, "to_{}".format( desired_format ) )(bundle, options)
         return serialized
 
     def deserialize(self, content, format='application/json'):
@@ -126,7 +126,7 @@ class Serializer(object):
                     break
 
         if desired_format is None:
-            raise UnsupportedFormat("The format indicated '%s' had no available deserialization method. Please check your ``formats`` and ``content_types`` on your Serializer." % format)
+            raise UnsupportedFormat("The format indicated '{}' had no available deserialization method. Please check your ``formats`` and ``content_types`` on your Serializer.".format( format ) )
 
         deserialized = getattr(self, "from_%s" % desired_format)(content)
         return deserialized

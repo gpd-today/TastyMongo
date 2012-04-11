@@ -55,15 +55,14 @@ class Api(object):
 
         for resource_name in sorted(self._registry.keys()):
             available_resources[resource_name] = {
-                'list_endpoint': self.build_uri(request, self.build_route_name(resource_name, 'list')),
-                'schema': self.build_uri(request, self.build_route_name(resource_name, 'schema')),
-                }
+                'list_endpoint': self.build_uri( request, resource_name=resource_name, operation='list' ),
+                'schema': self.build_uri( request, resource_name=resource_name, operation='schema' ),
+            }
 
         desired_format = determine_format(request, serializer)
-        options = {}
 
-        serialized = serializer.serialize(available_resources, desired_format, options)
-        return Response( body=serialized, content_type=build_content_type(desired_format) )
+        serialized = serializer.serialize( available_resources, format=desired_format )
+        return Response( body=serialized, content_type=build_content_type( desired_format ) )
 
     def register(self, resource):
         """
@@ -111,10 +110,9 @@ class Api(object):
     def resolve_uri( uri='/' ):
         pass
 
-    @staticmethod
-    def build_uri( request, resource_name=None, request_method=None, route_name=None, *elements ):
+    def build_uri( self, request, resource_name=None, operation=None, route_name=None, *elements ):
         if route_name is None:
-            route_name = self.build_route_name( resource_name, request_method )
+            route_name = self.build_route_name( resource_name, operation )
 
         return request.route_path( route_name, *elements )
 
@@ -162,7 +160,8 @@ class Api(object):
 
     @staticmethod
     def _handle_server_error( resource, request, exception ):
-        if request.registry.settings.debug_all:
+        settings = request.registry.settings
+        if settings.has_key( 'debug_api' ) and settings[ 'debug_api' ]:
             import sys, traceback
             the_trace = '\n'.join( traceback.format_exception(*( sys.exc_info() )) )
 
@@ -177,8 +176,15 @@ class Api(object):
                 "error_message": "Sorry, this request could not be processed. Please try again later."
             }
 
-        desired_format = resource.determine_format(request)
-        serialized = resource.serialize(request, data, desired_format)
+        if isinstance( resource, Resource ):
+            desired_format = resource.determine_format( request )
+            serialized = resource.serialize( request, data, desired_format )
+        elif isinstance( resource, Api ):
+            serializer = Serializer()
+            desired_format = determine_format( request, serializer )
+            serialized = serializer.serialize( data, format=desired_format )
+        else:
+            raise TypeError( "Argument 'resource' should be an instance of Api or Resource" )
 
         response_class = http.HTTPInternalServerError
         if isinstance( exception, NotFound ):
