@@ -199,12 +199,13 @@ class Serializer(object):
         """
         Reserved for future usage.
 
-        The desire is to provide HTML output of a resource, making an API
-        available to a browser. This is on the TODO list but not currently
-        implemented.
+        Provide HTML output of a resource, making an API available to a browser.
         """
         options = options or {}
-        return 'Sorry, not implemented yet. Please append "?format=json" to your URL.'
+        data = self.to_simple( data, options )
+        js = json.dumps( data, sort_keys=True, indent=4 )
+        html = '<html><body><pre>{}</pre></body></html>'.format( js );
+        return html
 
     def from_html(self, content):
         """
