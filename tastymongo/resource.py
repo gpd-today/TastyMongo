@@ -9,8 +9,7 @@ from .utils import determine_format, build_content_type
 from .bundle import Bundle
 
 from pyramid.response import Response
-from mongoengine.base import BaseField
-import mongoengine.fields as mf
+from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
 
 from copy import deepcopy
 
@@ -189,7 +188,7 @@ class Resource( object ):
 
         if method is None:
             detail = 'Method="{}_{}" is not implemented for resource="{}"'.format(request_method, request_type, self._meta.resource_name)
-            raise ImmediateHttpResponse( response=http.HTTPNotImplemented(body=detail))
+            raise ImmediateHTTPResponse( response=http.HTTPNotImplemented(body=detail))
 
         #self.is_authenticated(request)
         #self.is_authorized(request)
@@ -244,7 +243,7 @@ class Resource( object ):
         if not request_method in allowed:
             allows = ','.join(map(unicode.upper, allowed))
             response = http.HTTPMethodNotAllowed(body='Allowed methods={}'.format(allows))
-            raise ImmediateHttpResponse(response=response)
+            raise ImmediateHTTPResponse(response=response)
 
         return request_method
 
@@ -326,10 +325,10 @@ class Resource( object ):
         auth_result = self._meta.authentication.is_authenticated(request)
 
         if isinstance(auth_result, Response):
-            raise ImmediateHttpResponse(response=auth_result)
+            raise ImmediateHTTPResponse(response=auth_result)
 
         if not auth_result is True:
-            raise ImmediateHttpResponse(response=http.HTTPUnauthorized())
+            raise ImmediateHTTPResponse(response=http.HTTPUnauthorized())
 
     def is_authorized(self, request, object=None):
         """
@@ -341,10 +340,10 @@ class Resource( object ):
         auth_result = self._meta.authorization.is_authorized(request, object)
 
         if isinstance(auth_result, Response):
-            raise ImmediateHttpResponse(response=auth_result)
+            raise ImmediateHTTPResponse(response=auth_result)
 
         if not auth_result is True:
-            raise ImmediateHttpResponse(response=http.HTTPUnauthorized())
+            raise ImmediateHTTPResponse(response=http.HTTPUnauthorized())
 
     def check_throttle(self, request):
         """
@@ -358,7 +357,7 @@ class Resource( object ):
         # Check to see if they should be throttled.
         if self._meta.throttle.should_be_throttled(identifier):
             # Throttle limit exceeded.
-            raise ImmediateHttpResponse(response=http.HTTPForbidden())
+            raise ImmediateHTTPResponse(response=http.HTTPForbidden())
 
     def create_response(self, request, data, response_class=Response, **response_kwargs):
         """
@@ -378,7 +377,7 @@ class Resource( object ):
 
         serialized = self.serialize(request, errors, desired_format)
         response = http.HTTPBadRequest(body=serialized, content_type=build_content_type(desired_format))
-        raise ImmediateHttpResponse(response=response)
+        raise ImmediateHTTPResponse(response=response)
 
     def serialize(self, request, data, format, options=None):
         """
@@ -448,11 +447,11 @@ class Resource( object ):
         for use throughout the ``dehydrate/hydrate`` cycle.
 
         If no object is provided, an empty object from
-        ``Resource._meta.object_class`` is created so that attempts to access
+        ``Resource._meta.document_class`` is created so that attempts to access
         ``bundle.obj`` do not fail.
         """
         if obj is None:
-            obj = self._meta.object_class()
+            obj = self._meta.document_class()
 
         return Bundle(obj=obj, data=data, request=request)
 
@@ -514,12 +513,6 @@ class Resource( object ):
         except NotImplementedError:
             return '<not implemented>'
 
-    def get_object_list(self, request):
-        if request and hasattr(request, 'user'):
-            return self._meta.queryset.model.objects.for_user(request.user)
-        else:
-            return self._meta.queryset
-
     def obj_get(self, request=None, **kwargs):
         """
         Fetches an individual object on the resource.
@@ -578,19 +571,60 @@ class Resource( object ):
 
         return data
 
-    def get_schema(self, request, **kwargs):
+    def get_schema( self, request ):
         """
         Returns a serialized form of the schema of the resource.
 
         Calls ``build_schema`` to generate the data. This method only responds
         to HTTP GET.
 
-        Should return a HttpResponse (200 OK).
+        Should return a HTTPResponse (200 OK).
         """
         self.check_method(request, allowed=['get'])
 #        self.is_authenticated(request)
 #        self.check_throttle(request)
         return self.create_response(request, self.build_schema())
+
+    def get_list( self, request ):
+        """
+        Returns a serialized list of resources.
+
+        Calls ``obj_get_list`` to provide the data, then handles that result
+        set and serializes it.
+
+        Should return a HTTPResponse (200 OK).
+        """
+        objects = self.obj_get_list( request=request, **request.matchdict )
+        sorted_objects = self.apply_sorting(objects, options=request.GET)
+
+        #FIXME: this is easily done with the slice__method / with python slicing?
+        #paginator = self._meta.paginator_class(request.GET, sorted_objects, resource_uri=self.get_resource_list_uri(), limit=self._meta.limit, max_limit=self._meta.max_limit, collection_name=self._meta.collection_name)
+        #to_be_serialized = paginator.page()
+        to_be_serialized = { 'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 'objects': sorted_objects, }
+
+        # Dehydrate the bundles in preparation for serialization.
+        bundles = [self.build_bundle(obj=obj, request=request) for obj in to_be_serialized['objects']]
+        to_be_serialized['objects'] = [self.full_dehydrate(bundle) for bundle in bundles]
+        to_be_serialized = self.alter_list_data_to_serialize(request, to_be_serialized)
+        return self.create_response(request, to_be_serialized)
+
+    def get_detail( self, request ):
+        """
+        Returns a single serialized resource.
+
+        Should return a HTTPResponse (200 OK).
+        """
+        try:
+            obj = self.obj_get( request=request, **request.matchdict )
+        except DoesNotExist:
+            return http.HTTPNotFound()
+        except MultipleObjectsReturned:
+            return http.HTTPMultipleChoices("More than one resource is found at this URI.")
+
+        bundle = self.build_bundle(obj=obj, request=request)
+        bundle = self.full_dehydrate(bundle)
+        bundle = self.alter_detail_data_to_serialize(request, bundle)
+        return self.create_response(request, bundle)
 
     def apply_sorting(self, obj_list, options=None):
         """
@@ -644,134 +678,11 @@ class Resource( object ):
         #FIXME: the mongo-specific part!
         return obj_list.sort_by(*sort_by_args)
 
-    def get_list(self, request, **kwargs):
-        """
-        Returns a serialized list of resources.
-
-        Calls ``obj_get_list`` to provide the data, then handles that result
-        set and serializes it.
-
-        Should return a HttpResponse (200 OK).
-        """
-        objects = self.obj_get_list(request=request, **kwargs)
-        sorted_objects = self.apply_sorting(objects, options=request.GET)
-
-        #FIXME: this is easily done with the slice__method / with python slicing?
-        #paginator = self._meta.paginator_class(request.GET, sorted_objects, resource_uri=self.get_resource_list_uri(), limit=self._meta.limit, max_limit=self._meta.max_limit, collection_name=self._meta.collection_name)
-        #to_be_serialized = paginator.page()
-        to_be_serialized = { 'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 'objects': sorted_objects, }
-
-        # Dehydrate the bundles in preparation for serialization.
-        bundles = [self.build_bundle(obj=obj, request=request) for obj in to_be_serialized['objects']]
-        to_be_serialized['objects'] = [self.full_dehydrate(bundle) for bundle in bundles]
-        to_be_serialized = self.alter_list_data_to_serialize(request, to_be_serialized)
-        return self.create_response(request, to_be_serialized)
-
-    def get_detail(self, request, **kwargs):
-        """
-        Returns a single serialized resource.
-
-        Calls ``cached_obj_get/obj_get`` to provide the data, then handles that result
-        set and serializes it.
-
-        Should return a HttpResponse (200 OK).
-        """
-        try:
-            obj = self.cached_obj_get(request=request, **kwargs)
-        except ObjectDoesNotExist:
-            return http.HttpNotFound()
-        except MultipleObjectsReturned:
-            return http.HttpMultipleChoices("More than one resource is found at this URI.")
-
-        bundle = self.build_bundle(obj=obj, request=request)
-        bundle = self.full_dehydrate(bundle)
-        bundle = self.alter_detail_data_to_serialize(request, bundle)
-        return self.create_response(request, bundle)
-
-    def get_multiple(self, request, **kwargs):
-        """
-        Returns a serialized list of resources based on the identifiers
-        from the URL.
-
-        Calls ``obj_get`` to fetch only the objects requested. This method
-        only responds to HTTP GET.
-
-        Should return a HttpResponse (200 OK).
-        """
-        self.check_method(request, allowed=['get'])
-#        self.is_authenticated(request)
-#        self.check_throttle(request)
-
-        # Rip apart the list then iterate.
-        obj_pks = kwargs.get('pk_list', '').split(';')
-        objects = []
-        not_found = []
-
-        for pk in obj_pks:
-            try:
-                obj = self.obj_get(request, pk=pk)
-                bundle = self.build_bundle(obj=obj, request=request)
-                bundle = self.full_dehydrate(bundle)
-                objects.append(bundle)
-            except ObjectDoesNotExist:
-                not_found.append(pk)
-
-        object_list = { 'objects': objects }
-
-        if len(not_found):
-            object_list['not_found'] = not_found
-
-        return self.create_response(request, object_list)
-
-    def put_list(self, request, **kwargs):
-        """
-        Replaces a collection of resources with another collection.
-
-        - fetches the existing collection at the request URI with get_list
-        - updates objects in the union of the existing and new collection,
-          as determined by identical resource_uri's
-        - creates new objects (those without resource_uri)
-        - deletes objects not present in the new collection, honouring SQL-like
-          cascade settings: ON DELETE { PROTECT | SET NULL | CASCADE ) where
-          we're dealing with relations
-
-        NOTES: 
-          * the URI may be that of a 'filtered collection', 
-            e.g. /books?author=adams, or /books?name[]='Adams'&name[]='Apples'
-          * nested collections are converted into a filtered version at their
-            root resource URI, at least adding their relation to the 
-            objects in the request URI.
-
-        Return ``HttpNoContent`` (204 No Content) if
-        ``Meta.always_return_data = False`` (default).
-
-        Return ``HttpAccepted`` (202 Accepted) if
-        ``Meta.always_return_data = True``.
-        """
-        deserialized = self.deserialize(request, request.raw_post_data, format=request.META.get('CONTENT_TYPE', 'application/json'))
-        deserialized = self.alter_deserialized_list_data(request, deserialized)
-
-        if not 'objects' in deserialized:
-            raise BadRequest("Invalid data sent.")
-
-        for object_data in deserialized['objects']:
-            bundle = self.build_bundle(data=dict_strip_unicode_keys(object_data), request=request)
-
-        if not self._meta.always_return_data:
-            return http.HttpNoContent()
-        else:
-            to_be_serialized = {}
-            # FIXME: fix.
-            to_be_serialized['objects'] = [self.full_dehydrate(bundle) for bundle in bundles_seen]
-            to_be_serialized = self.alter_list_data_to_serialize(request, to_be_serialized)
-            return self.create_response(request, to_be_serialized, response_class=http.HttpAccepted)
-
 
 class DocumentResource( Resource ):
     '''
     A MongoEngine specific implementation of Resource
     '''
-
     __metaclass__ = DocumentDeclarativeMetaclass
 
     @classmethod
@@ -969,12 +880,40 @@ class DocumentResource( Resource ):
 
     def apply_filters(self, request, applicable_filters):
         """
-        A DRM-specific implementation of ``apply_filters``.
+        A MongoEngine-specific implementation of ``apply_filters``.
 
         The default simply applies the ``applicable_filters`` as ``**kwargs``,
         but should make it possible to do more advanced things.
         """
         return self.get_object_list(request).filter(**applicable_filters)
+
+    def get_object_list(self, request):
+        return self._meta.queryset.clone()
+
+    def obj_get(self, request=None, **kwargs):
+        """
+        A MongoEngine implementation of ``obj_get``.
+
+        Takes optional ``kwargs``, which are used to narrow the query to find
+        the instance.
+        """
+        try:
+            object_list = self.get_object_list(request).filter(**kwargs)
+
+            # FIXME: check if this does not trigger another query for the count
+            if len(object_list) == 1:
+                return object_list[0]
+
+            # We either found none or too many objects on this request URI
+            stringified_kwargs = ', '.join(["%s=%s" % (k, v) for k, v in kwargs.items()])
+
+            if len(object_list) <= 0:
+                raise self._meta.document_class.DoesNotExist("Couldn't find an instance of '%s' which matched '%s'." % (self._meta.document_class.__name__, stringified_kwargs))
+            elif len(object_list) > 1:
+                raise self._meta.document_class.MultipleObjectsReturned("More than '%s' matched '%s'." % (self._meta.document_class.__name__, stringified_kwargs))
+
+        except ValueError:
+            raise NotFound("Invalid resource lookup data provided (mismatched type).")
 
     def obj_get_list(self, request=None, **kwargs):
         """

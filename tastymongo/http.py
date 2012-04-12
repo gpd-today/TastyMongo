@@ -32,6 +32,10 @@ class HTTPNoContent(HTTPResponse):
         self.status_int = 204
 
 
+class HttpMultipleChoices(HTTPResponse):
+    status_code = 300
+
+
 class HTTPNotModified(HTTPResponse):
     def __init__(self, *args, **kwargs):
         super(HTTPNotModified, self).__init__(*args, **kwargs)
@@ -60,6 +64,7 @@ class HTTPNotFound(HTTPResponse):
     def __init__(self, *args, **kwargs):
         super(HTTPNotFound, self).__init__(*args, **kwargs)
         self.status_int = 404
+
 
 class HTTPMethodNotAllowed(HTTPResponse):
     def __init__(self, *args, **kwargs):
