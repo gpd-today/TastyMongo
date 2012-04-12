@@ -10,6 +10,7 @@ from .bundle import Bundle
 
 from pyramid.response import Response
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
+import mongoengine.fields as mf
 
 from copy import deepcopy
 
@@ -146,7 +147,7 @@ class DocumentDeclarativeMetaclass(DeclarativeMetaclass):
 
         # Add in the new fields.
         # FIXME: something breaks down the road when adding in new fields
-        #new_class.base_fields.update(new_class.get_fields(include_fields, excludes))
+        new_class.base_fields.update(new_class.get_fields(include_fields, excludes))
 
         return new_class
 
@@ -692,7 +693,7 @@ class DocumentResource( Resource ):
         contributed ApiFields.
         """
         # Ignore certain fields (related fields).
-        if getattr(field, 'rel'):
+        if isinstance(field, (mf.ListField, mf.ReferenceField, mf.EmbeddedDocumentField)):
             return True
 
         return False
@@ -711,7 +712,6 @@ class DocumentResource( Resource ):
            'GenericReferenceField', 'FileField', 'BinaryField',
            'SortedListField', 'EmailField', 'GeoPointField', 'ImageField',
            'SequenceField', 'UUIDField', 'GenericEmbeddedDocumentField']
-
 
         """
         result = default
@@ -766,8 +766,8 @@ class DocumentResource( Resource ):
             if excludes and name in excludes:
                 continue
 
-            #if cls.should_skip_field(f):
-            #    continue
+            if cls.should_skip_field(f):
+                continue
 
             api_field_class = cls.api_field_from_mongoengine_field(f)
 
