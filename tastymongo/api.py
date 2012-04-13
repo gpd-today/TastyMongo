@@ -123,6 +123,7 @@ class Api(object):
 
         # Also add a hook to the Api on the resource
         resource._meta.api = self
+        resource.__class__.Meta.api = self
 
         if resource_name is None:
             raise ConfigurationError( "Resource='{}' must define a 'resource_name'.".format( resource ) )

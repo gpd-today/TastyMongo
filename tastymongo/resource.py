@@ -146,7 +146,6 @@ class DocumentDeclarativeMetaclass(DeclarativeMetaclass):
                 del(new_class.base_fields[field_name])
 
         # Add in the new fields.
-        # FIXME: something breaks down the road when adding in new fields
         new_class.base_fields.update(new_class.get_fields(include_fields, excludes))
 
         return new_class
@@ -693,7 +692,7 @@ class DocumentResource( Resource ):
         contributed ApiFields.
         """
         # Ignore certain fields (related fields).
-        if isinstance(field, (mf.ListField, mf.ReferenceField, mf.EmbeddedDocumentField)):
+        if isinstance(field, (mf.ReferenceField, mf.BinaryField, mf.EmbeddedDocumentField)):
             return True
 
         return False
@@ -704,39 +703,35 @@ class DocumentResource( Resource ):
         Returns the field type that would likely be associated with each
         MongoEngine type.
 
-        __all__ = ['StringField', 
-            'IntField', 'FloatField', 'BooleanField',
-           'DateTimeField', 'EmbeddedDocumentField', 'ListField', 'DictField',
-           'ObjectIdField', 'ReferenceField', 'ValidationError', 'MapField',
-           'DecimalField', 'ComplexDateTimeField', 'URLField',
-           'GenericReferenceField', 'FileField', 'BinaryField',
-           'SortedListField', 'EmailField', 'GeoPointField', 'ImageField',
-           'SequenceField', 'UUIDField', 'GenericEmbeddedDocumentField']
-
         """
+        # The following fields map to StringField per default:
+        # 'ObjectIdField'
+        # 'URLField'
+        # 'UUIDField'
+        # 'BinaryField' is disabled alltogether
+
         result = default
 
-        if type(f) in ( mf.DateTimeField, mf.ComplexDateTimeField ):
-            result = fields.DateTimeField
-        elif type(f) in ( mf.BooleanField, ):
+        # Specify only those field types that differ from StringField
+        if type(f) in ( mf.BooleanField, ):
             result = fields.BooleanField
         elif type(f) in ( mf.FloatField, ):
             result = fields.FloatField
         elif type(f) in ( mf.DecimalField, ):
             result = fields.DecimalField
-        elif type(f) in ( mf.IntField, ):
+        elif type(f) in ( mf.IntField, mf.SequenceField ):
             result = fields.IntegerField
-        elif type(f) in (mf.FileField, mf.ImageField ):
+        elif type(f) in ( mf.FileField, mf.ImageField ):
             result = fields.FileField
-        #elif type(f) == mf.TimeField:
-        #    result = fields.TimeField
-        # TODO: Perhaps enable these via introspection. The reason they're not enabled
-        #       by default is the very different ``__init__`` they have over
-        #       the other fields.
-        # elif f.get_internal_type() == 'ForeignKey':
-        #     result = ForeignKey
-        # elif f.get_internal_type() == 'ManyToManyField':
-        #     result = ManyToManyField
+        elif type(f) in ( mf.DictField, mf.MapField ):
+            result = fields.DictField
+        elif type(f) in ( mf.DateTimeField, mf.ComplexDateTimeField ):
+            result = fields.DateTimeField
+        elif type(f) in ( mf.ListField, mf.SortedListField, mf.GeoPointField ):
+            # Is it a list of simple objects, complex objects, or references?
+            result = fields.ListField
+        elif type(f) in ( mf.ReferenceField, mf.EmbeddedDocumentField ):
+            result = fields.RelatedField
 
         return result
 
