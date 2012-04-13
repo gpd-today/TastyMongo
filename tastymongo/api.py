@@ -68,7 +68,7 @@ class Api(object):
                 return response
 
             except ( BadRequest, ApiFieldError ) as e:
-                return http.HTTPBadRequest( body=e.args[0] )
+                return http.HTTPBadRequest( body='%s<br>%s' % (e.message, e.error_code) )
             except Exception as e:
                 # Return a raw error
                 if hasattr(e, 'response'):
