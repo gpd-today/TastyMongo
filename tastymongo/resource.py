@@ -88,7 +88,17 @@ class DeclarativeMetaclass(type):
         except NameError:
             pass
 
+        # Find fields explicitly set on the Resource
+        for field_name, obj in attrs.items():
+            if isinstance(obj, fields.ApiField ):
+                field = attrs.pop(field_name)
+                declared_fields[field_name] = field
+
+        # Add the explicitly defined fields to our base_fields
+        attrs['base_fields'].update(declared_fields)
         attrs['declared_fields'] = declared_fields
+
+        # Create the class
         new_class = super(DeclarativeMetaclass, cls).__new__(cls, name, bases, attrs)
 
         # Create a new 'ResourceOptions' class based on the contents of a resource's 'Meta' class
