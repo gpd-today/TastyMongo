@@ -162,11 +162,15 @@ class Api(object):
 
         return route_name
 
-    def build_uri( self, request, id=None, resource_name=None, operation=None, route_name=None, ):
+    def build_uri( self, request, id=None, resource_name=None, operation=None, route_name=None, absolute=False ):
         if route_name is None:
             route_name = self.build_route_name( resource_name, operation )
 
-        return request.route_path( route_name, id=id)
+        if absolute:
+            return request.route_url( route_name, id=id)
+        else:
+            return request.route_path( route_name, id=id)
+
 
     def top_level(self, request):
         """

@@ -43,7 +43,7 @@ class ResourceOptions(object):
     fields = []
     excludes = []
     include_resource_uri = True
-    include_absolute_url = False
+    include_resource_url = False
     always_return_data = False
     collection_name = 'objects'
 
@@ -118,11 +118,11 @@ class DeclarativeMetaclass(type):
         elif 'resource_uri' in new_class.base_fields and not 'resource_uri' in attrs:
             del(new_class.base_fields['resource_uri'])
 
-        if getattr(new_class._meta, 'include_absolute_url', True):
-            if not 'absolute_url' in new_class.base_fields:
-                new_class.base_fields['absolute_url'] = fields.StringField(attribute='get_absolute_url', readonly=True)
-        elif 'absolute_url' in new_class.base_fields and not 'absolute_url' in attrs:
-            del(new_class.base_fields['absolute_url'])
+        if getattr(new_class._meta, 'include_resource_url', True):
+            if not 'resource_url' in new_class.base_fields:
+                new_class.base_fields['resource_url'] = fields.StringField(readonly=True)
+        elif 'resource_url' in new_class.base_fields and not 'resource_url' in attrs:
+            del(new_class.base_fields['resource_url'])
 
         for field_name, field_object in new_class.base_fields.items():
             if hasattr(field_object, 'contribute_to_class'):
@@ -467,14 +467,13 @@ class Resource( object ):
 
     def get_resource_uri( self, request, bundle_or_obj = None ):
         """
-        This needs to be implemented at the user level.
+        This is the `relative` uri of the object
+        """
+        raise NotImplementedError()
 
-        A ``return reverse("api_dispatch_detail", kwargs={'resource_name':
-        self.resource_name, 'pk': object.id})`` should be all that would
-        be needed.
-
-        ``ModelResource`` includes a full working version specific to Django's
-        ``Models``.
+    def get_resource_url( self, request, bundle_or_obj = None ):
+        """
+        This is the `absolute` uri of the object
         """
         raise NotImplementedError()
 
@@ -520,6 +519,19 @@ class Resource( object ):
         """
         try:
             return self.get_resource_uri( request, bundle )
+        except NotImplementedError:
+            return '<not implemented>'
+
+    def dehydrate_resource_url( self, request, bundle ):
+        """
+        For the automatically included ``resource_url`` field, dehydrate
+        the URL for the given bundle.
+        """
+        if not self._meta.include_resource_uri:
+            return ''
+
+        try:
+            return self.get_resource_url( request, bundle )
         except NotImplementedError:
             return '<not implemented>'
 
@@ -808,14 +820,15 @@ class DocumentResource( Resource ):
 
         return final_fields
 
-    def get_resource_uri( self, request, bundle_or_obj = None ):
+    def get_resource_uri( self, request, bundle_or_obj=None, absolute=False ):
         """
-        Returns the resource's uri per the given API.
+        Returns the resource's relative uri per the given API.
 
         *elements, if given, is used by Pyramid to specify instances 
         """
         kwargs = {
             'resource_name': self._meta.resource_name,
+            'absolute': not not absolute,
         }
 
         if bundle_or_obj:
@@ -831,6 +844,14 @@ class DocumentResource( Resource ):
             kwargs['api_name'] = self._meta.api_name
 
         return self._meta.api.build_uri( request, **kwargs)
+
+    def get_resource_url( self, request, bundle_or_obj=None ):
+        """
+        Returns the resource's absolute uri per the given API.
+
+        *elements, if given, is used by Pyramid to specify instances 
+        """
+        return self.get_resource_uri( request, bundle_or_obj, absolute=True )
 
     def build_filters(self, filters=None):
         """
