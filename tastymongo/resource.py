@@ -820,6 +820,9 @@ class DocumentResource( Resource ):
 
         return final_fields
 
+    def dehydrate_id( self, request, bundle ):
+        return bundle.obj.id
+
     def get_resource_uri( self, request, bundle_or_obj=None, absolute=False ):
         """
         Returns the resource's relative uri per the given API.
