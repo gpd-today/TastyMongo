@@ -821,6 +821,10 @@ class DocumentResource( Resource ):
         return final_fields
 
     def dehydrate_id( self, request, bundle ):
+        '''
+        id is present on objects, but not a MongoEngine field. Hence we need to
+        explicitly dehydrate it since it won't be included in _fields.
+        '''
         return bundle.obj.id
 
     def get_resource_uri( self, request, bundle_or_obj=None, absolute=False ):
