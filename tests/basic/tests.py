@@ -29,8 +29,3 @@ class MyTest( unittest.TestCase ):
         response = self.activity_resource.dispatch_list( request )
 
         self.assertTrue( isinstance( response, Response ) )
-
-
-if __name__ == '__main__' and __package__ is None:
-    __package__ = 'tests.basic'
-    MyTest()
