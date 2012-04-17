@@ -7,8 +7,8 @@ from pyramid.response import Response
 class TastyException(Exception):
     """A base exception for other tastypie-related errors."""
 
-    def __init__( self, error_code=0, *args, **kwargs ):
-        super(TastyException, self ).__init__(*args, **kwargs)
+    def __init__( self, message='', error_code=0, *args, **kwargs ):
+        super( TastyException, self ).__init__( message, *args, **kwargs )
         self.error_code = error_code
 
 
