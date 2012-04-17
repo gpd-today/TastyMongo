@@ -22,7 +22,6 @@ class ApiFieldError(ConfigurationError):
     """
     pass
 
-
 class NotRegistered(ConfigurationError):
     """
     Raised when the requested resource isn't registered with the ``Api`` class.
@@ -49,6 +48,10 @@ class BadRequest(TastyException):
     Handled specially in that the message tossed by this exception will be
     presented to the end user.
     """
+    pass
+
+
+class ValidationError( TastyException ):
     pass
 
 
