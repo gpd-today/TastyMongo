@@ -5,6 +5,8 @@ import unittest
 from pyramid import testing
 from pyramid.response import Response
 
+
+
 from .documents import Activity
 from .resources import ActivityResource
 
@@ -12,6 +14,8 @@ from tastymongo.api import Api
 
 class MyTest( unittest.TestCase ):
     def setUp( self ):
+
+
         self.config = testing.setUp()
 
         #self.api = Api( self.config )
