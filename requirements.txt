@@ -2,3 +2,4 @@ pyramid
 pymongo
 mongoengine
 blinker # events for mongoengine
+python-dateutil

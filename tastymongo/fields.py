@@ -377,9 +377,6 @@ class RelatedField(ApiField):
     """
     Provides access to data that is related within the database.
 
-    The ``RelatedField`` base class is not intended for direct use but provides
-    functionality that ``ToOneField`` and ``ToManyField`` build upon.
-
     The contents of this field actually point to another ``Resource``,
     rather than the related object. This allows the field to represent its data
     in different ways.
@@ -389,7 +386,7 @@ class RelatedField(ApiField):
     self_referential = False
     help_text = 'A related resource. Can be either a URI or set of nested resource data.'
 
-    def __init__(self, to, attribute, related_name=None, default=NOT_PROVIDED, null=False, blank=False, readonly=False, full=False, unique=False, help_text=None):
+    def __init__(self, to, attribute, default=NOT_PROVIDED, null=False, blank=False, readonly=False, full=False, unique=False, help_text=None):
         """
         Builds the field and prepares it to access the related data.
 
@@ -398,10 +395,6 @@ class RelatedField(ApiField):
 
         The ``attribute`` argument should specify what field/callable points to
         the related data on the instance object. Required.
-
-        Optionally accepts a ``related_name`` argument. Currently unused, as
-        unlike Django's ORM layer, reverse relations between ``Resource``
-        classes are not automatically created. Defaults to ``None``.
 
         Optionally accepts a ``null``, which indicated whether or not a
         ``None`` is allowable data on the field. Defaults to ``False``.
@@ -429,7 +422,6 @@ class RelatedField(ApiField):
         self._resource = None
         self.to = to
         self.attribute = attribute
-        self.related_name = related_name
         self._default = default
         self.null = null
         self.blank = blank
@@ -451,8 +443,6 @@ class RelatedField(ApiField):
         super(RelatedField, self).contribute_to_class(cls, name)
 
         # Check if we're self-referential and hook it up.
-        # We can't do this quite like Django because there's no ``AppCache``
-        # here (which I think we should avoid as long as possible).
         if self.self_referential or self.to == 'self':
             self._to_class = cls
 
@@ -588,7 +578,7 @@ class RelatedField(ApiField):
             raise ApiFieldError("The '%s' field has was given data that was not a URI, not a dictionary-alike and does not have a 'pk' attribute: %s." % (self.instance_name, value))
 
 
-class ToOneField(RelatedField):
+class EmbeddedDocumentField(RelatedField):
     """
     Provides access to related data via foreign key.
 
@@ -636,7 +626,7 @@ class ToOneField(RelatedField):
         return self.build_related_resource(value, request=bundle.request)
 
 
-class ToManyField(RelatedField):
+class EmbeddedCollectionField(RelatedField):
     """
     Provides access to related data via a join table.
 
@@ -736,5 +726,6 @@ class ToManyField(RelatedField):
             m2m_hydrated.append(self.build_related_resource(value, **kwargs))
 
         return m2m_hydrated
+
 
 

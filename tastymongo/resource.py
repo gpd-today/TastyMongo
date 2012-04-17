@@ -43,7 +43,7 @@ class ResourceOptions(object):
     fields = []
     excludes = []
     include_resource_uri = True
-    include_resource_url = False
+    include_resource_url = True
     always_return_data = False
     collection_name = 'objects'
 
@@ -257,7 +257,7 @@ class Resource( object ):
 
         return request_method
 
-    def check_filtering(self, field_name, filter_type='exact', filter_bits=None):
+    def FIXME_check_filtering(self, field_name, filter_type='exact', filter_bits=None):
         """
         Given a field name, a optional filter type and an optional list of
         additional relations, determine if a field can be filtered on.
@@ -484,11 +484,6 @@ class Resource( object ):
         """
         # Dehydrate each field.
         for field_name, field_object in self.fields.items():
-            # A touch leaky but it makes URI resolution work.
-            if getattr(field_object, 'dehydrated_type', None) == 'related':
-                field_object.api_name = self._meta.api_name
-                field_object.resource_name = self._meta.resource_name
-
             bundle.data[field_name] = field_object.dehydrate(bundle)
 
             # Check for an optional method to do further dehydration.
@@ -583,14 +578,6 @@ class Resource( object ):
                 'help_text': field_object.help_text,
                 'unique': field_object.unique,
             }
-            # TODO: replace
-            if field_object.dehydrated_type == 'related':
-                if getattr(field_object, 'is_m2m', False):
-                    related_type = 'to_many'
-                else:
-                    related_type = 'to_one'
-                data['fields'][field_name]['related_type'] = related_type
-
         return data
 
     def get_schema( self, request ):
@@ -643,6 +630,7 @@ class Resource( object ):
         except MultipleObjectsReturned:
             return http.HTTPMultipleChoices("More than one resource is found at this URI.")
 
+        # try to figure out how to get these related resources
         bundle = self.build_bundle(obj=obj, request=request)
         bundle = self.full_dehydrate(bundle)
         bundle = self.alter_detail_data_to_serialize(request, bundle)
@@ -955,6 +943,9 @@ class DocumentResource( Resource ):
         Takes an optional ``request`` object, whose ``GET`` dictionary can be
         used to narrow the query.
         """
+        # FIXME: Temporary until we re-enable filters
+        return self.get_object_list(request)
+
         filters = {}
 
         if hasattr(request, 'GET'):
