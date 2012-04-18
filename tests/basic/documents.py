@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 
 from mongoengine import *
 
+
 class Activity( Document ):
 
     name = StringField( required=True )

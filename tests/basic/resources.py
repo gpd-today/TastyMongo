@@ -8,6 +8,10 @@ from .documents import Activity, Person
 
 class ActivityResource( DocumentResource ):
 
+    person = fields.RelatedField(
+            'api.resources.PersonResource',
+            'person', )
+
     class Meta:
         resource_name = 'activity'
         queryset = Activity.objects
