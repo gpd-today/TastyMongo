@@ -90,12 +90,21 @@ class ApiField(object):
 
     def dehydrate(self, bundle):
         """
-        Takes data from the provided object and prepares it for the
-        resource.
+        Takes data from the object and prepares it for the corresponding field
+        on the resource.
         """
         if self.attribute is not None:
-            # Check for `__` in the field for looking through the relation.
-            attrs = self.attribute.split('__')
+            # ``attribute`` specifies which field on the model/document should
+            # be accessed to get data for this ApiField.
+            # ``attribute`` can contain Django-style (=MongoEngine style) 
+            # double underscores (`__`) to specify relations (of relations).
+            #
+            # For instance a 'store' can contain 'books' that have an 'author'.
+            # If we were to expose the names of authors whose books the store
+            # carries, we could say: 
+            #
+            #   StringField( attribute='books__author__name' )
+            attrs = self.attribute.split( '__' )
             current_object = bundle.obj
 
             for attr in attrs:
@@ -103,15 +112,13 @@ class ApiField(object):
                 current_object = getattr(current_object, attr, None)
 
                 if current_object is None:
+                    # We should fall out of the loop here because trying to 
+                    # access any further attributes on None will fail.
                     if self.has_default():
                         current_object = self._default
-                        # Fall out of the loop, given any further attempts at
-                        # accesses will fail miserably.
                         break
                     elif self.null:
                         current_object = None
-                        # Fall out of the loop, given any further attempts at
-                        # accesses will fail miserably.
                         break
                     else:
                         raise ApiFieldError("The object '%r' has an empty attribute '%s' and doesn't allow a default or null value." % (previous_object, attr))

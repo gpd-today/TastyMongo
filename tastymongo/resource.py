@@ -257,7 +257,7 @@ class Resource( object ):
 
         return request_method
 
-    def FIXME_check_filtering(self, field_name, filter_type='exact', filter_bits=None):
+    def check_filtering(self, field_name, filter_type='exact', filter_bits=None):
         """
         Given a field name, a optional filter type and an optional list of
         additional relations, determine if a field can be filtered on.
@@ -869,6 +869,7 @@ class DocumentResource( Resource ):
         if filters is None:
             filters = {}
 
+        # FIXME:
         qs_filters = {}
         return qs_filters
 
@@ -919,7 +920,9 @@ class DocumentResource( Resource ):
         the instance.
         """
         try:
-            object_list = self.get_object_list(request).filter(**kwargs)
+            # FIXME: Temporary until we re-enable filters
+            #object_list = self.get_object_list(request).filter(**kwargs)
+            object_list = self.get_object_list(request)
 
             # FIXME: check if this does not trigger another query for the count
             if len(object_list) == 1:
@@ -961,3 +964,19 @@ class DocumentResource( Resource ):
         except ValueError:
             raise BadRequest("Invalid resource lookup data provided (mismatched type).")
 
+    def put_list_FIXME():
+        # FIXME make according to comments, see discussion we had about this
+        """ 
+        - fetches the existing collection at the request URI with get_list
+
+        NOTES: 
+          * the URI may be that of a 'filtered collection', 
+            e.g. /books?author=adams, or /books?id__in[]=1&id__in[]=3
+          * nested collections are translated into a filtered version of their
+            root resource URI, at least adding their relation to the 
+            objects in the request URI.
+
+        - determines which
+        - updates the union of collection in this URI
+        - determines the union with the new collection
+        """
