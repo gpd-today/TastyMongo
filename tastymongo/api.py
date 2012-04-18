@@ -156,9 +156,9 @@ class Api(object):
 
     def build_route_name(self, resource_name, operation):
         if resource_name is not None:
-            route_name = '{}/{}/{}'.format(self.route, resource_name, operation)
+            route_name = '{}/{}/{}/'.format(self.route, resource_name, operation)
         else:
-            route_name = '{}/{}'.format(self.route, operation)
+            route_name = '{}/{}/'.format(self.route, operation)
 
         return route_name
 
@@ -170,7 +170,6 @@ class Api(object):
             return request.route_url( route_name, id=id)
         else:
             return request.route_path( route_name, id=id)
-
 
     def top_level(self, request):
         """

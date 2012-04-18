@@ -9,6 +9,7 @@ from .utils import determine_format, build_content_type
 from .bundle import Bundle
 
 from pyramid.response import Response
+from pyramid.request import Request
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
 import mongoengine.fields as mf
 
@@ -33,7 +34,7 @@ class ResourceOptions(object):
     detail_allowed_methods = None
     limit = 20
     max_limit = 1000
-    api_name = None
+    api = None
     resource_name = None
     default_format = 'application/json'
     filtering = {}
@@ -164,11 +165,11 @@ class DocumentDeclarativeMetaclass(DeclarativeMetaclass):
 class Resource( object ):
     __metaclass__ = DeclarativeMetaclass
 
-    def __init__(self, api_name=None):
+    def __init__(self, api=None):
         self.fields = deepcopy(self.base_fields)
 
-        if not api_name is None:
-            self._meta.api_name = api_name
+        if not api is None:
+            self._meta.api = api
 
     def __getattr__(self, name):
         if name in self.fields:
@@ -463,7 +464,8 @@ class Resource( object ):
         if obj is None:
             obj = self._meta.document_class()
 
-        return Bundle(obj=obj, data=data, request=request)
+        b = Bundle(obj=obj, data=data, request=request)
+        return b
 
     def get_resource_uri( self, request, bundle_or_obj = None ):
         """
@@ -702,8 +704,12 @@ class DocumentResource( Resource ):
         contributed ApiFields.
         """
         # Ignore certain fields (related fields).
-        if isinstance(field, (mf.ReferenceField, mf.BinaryField, mf.EmbeddedDocumentField)):
+        if isinstance( field, ( mf.ReferenceField, mf.BinaryField, mf.EmbeddedDocumentField )):
             return True
+        if isinstance( field, mf.ListField ):
+            # If the ListField contains EmbeddedDocuments or References we'll skip this one.
+            if isinstance( field.field, ( mf.ReferenceField, mf.EmbeddedDocumentField ) ):
+                return True
 
         return False
 
@@ -721,27 +727,27 @@ class DocumentResource( Resource ):
         # 'BinaryField' is disabled alltogether
 
         result = default
+        field_type = type(f)
 
         # Specify only those field types that differ from StringField
-        if type(f) in ( mf.BooleanField, ):
+        if field_type in ( mf.BooleanField, ):
             result = fields.BooleanField
-        elif type(f) in ( mf.FloatField, ):
+        elif field_type in ( mf.FloatField, ):
             result = fields.FloatField
-        elif type(f) in ( mf.DecimalField, ):
+        elif field_type in ( mf.DecimalField, ):
             result = fields.DecimalField
-        elif type(f) in ( mf.IntField, mf.SequenceField ):
+        elif field_type in ( mf.IntField, mf.SequenceField ):
             result = fields.IntegerField
-        elif type(f) in ( mf.FileField, mf.ImageField ):
+        elif field_type in ( mf.FileField, mf.ImageField ):
             result = fields.FileField
-        elif type(f) in ( mf.DictField, mf.MapField ):
+        elif field_type in ( mf.DictField, mf.MapField ):
             result = fields.DictField
-        elif type(f) in ( mf.DateTimeField, mf.ComplexDateTimeField ):
+        elif field_type in ( mf.DateTimeField, mf.ComplexDateTimeField ):
             result = fields.DateTimeField
-        elif type(f) in ( mf.ListField, mf.SortedListField, mf.GeoPointField ):
-            # Is it a list of simple objects, complex objects, or references?
+        elif field_type in ( mf.ListField, mf.SortedListField, mf.GeoPointField ):
+            # This will be lists of simple objects as references have been
+            # thrown out already by skip.
             result = fields.ListField
-        elif type(f) in ( mf.ReferenceField, mf.EmbeddedDocumentField ):
-            result = fields.RelatedField
 
         return result
 
@@ -834,9 +840,6 @@ class DocumentResource( Resource ):
                 kwargs['id'] = bundle_or_obj.id
         else:
             kwargs['operation'] = 'list'
-
-        if self._meta.api_name is not None:
-            kwargs['api_name'] = self._meta.api_name
 
         return self._meta.api.build_uri( request, **kwargs)
 

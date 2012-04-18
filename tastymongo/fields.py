@@ -2,12 +2,14 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import datetime
+import importlib
 from dateutil.parser import parse
 from decimal import Decimal
 import re
 
 from .exceptions import ApiFieldError
 from .utils import *
+from .bundle import Bundle
 
 
 class NOT_PROVIDED:
@@ -150,11 +152,6 @@ class ApiField(object):
         if self.readonly:
             return None
         if not bundle.data.has_key(self.instance_name):
-            if getattr(self, 'is_related', False) and not getattr(self, 'is_m2m', False):
-                # We've got an FK (or alike field) & a possible parent object.
-                # Check for it.
-                if bundle.related_obj and bundle.related_name in (self.attribute, self.instance_name):
-                    return bundle.related_obj
             if self.blank:
                 return None
             elif self.attribute and getattr(bundle.obj, self.attribute, None):
@@ -379,8 +376,7 @@ class TimeField(ApiField):
         return value
 
 
-# And now for the difficult parts...
-class RelatedField(ApiField):
+class RelatedField( ApiField ):
     """
     Provides access to data that is related within the database.
 
@@ -434,7 +430,7 @@ class RelatedField(ApiField):
         self.blank = blank
         self.readonly = readonly
         self.full = full
-        self.api_name = None
+        self.api = None
         self.resource_name = None
         self.unique = unique
         self._to_class = None
@@ -459,10 +455,10 @@ class RelatedField(ApiField):
         """
         related_resource = self.to_class()
 
-        # Fix the ``api_name`` if it's not present.
-        if related_resource._meta.api_name is None:
-            if self._resource and not self._resource._meta.api_name is None:
-                related_resource._meta.api_name = self._resource._meta.api_name
+        # Fix the ``api`` if it's not present.
+        if related_resource._meta.api is None:
+            if self._resource and not self._resource._meta.api is None:
+                related_resource._meta.api = self._resource._meta.api
 
         # Try to be efficient about DB queries.
         related_resource.instance = related_instance
@@ -504,88 +500,81 @@ class RelatedField(ApiField):
         """
         if not self.full:
             # Be a good netizen.
-            return related_resource.get_resource_uri(bundle)
+            return related_resource.get_resource_uri(bundle.request, bundle)
         else:
             # ZOMG extra data and big payloads.
             bundle = related_resource.build_bundle(obj=related_resource.instance, request=bundle.request)
             return related_resource.full_dehydrate(bundle)
 
-    def resource_from_uri(self, fk_resource, uri, request=None, related_obj=None, related_name=None):
+    def resource_from_uri(self, related_resource, uri, request=None ):
         """
         Given a URI is provided, the related resource is attempted to be
         loaded based on the identifiers in the URI.
         """
         try:
-            obj = fk_resource.get_via_uri(uri, request=request)
-            bundle = fk_resource.build_bundle(obj=obj, request=request)
-            return fk_resource.full_dehydrate(bundle)
+            obj = related_resource.get_via_uri(uri, request=request)
+            bundle = related_resource.build_bundle(obj=obj, request=request)
+            return related_resource.full_dehydrate(bundle)
         except ObjectDoesNotExist:
             raise ApiFieldError("Could not find the provided object via resource URI '%s'." % uri)
 
-    def resource_from_data(self, fk_resource, data, request=None, related_obj=None, related_name=None):
+    def resource_from_data(self, related_resource, data, request=None ):
         """
         Given a dictionary-like structure is provided, a fresh related
         resource is created using that data.
         """
         # Try to hydrate the data provided.
         data = dict_strip_unicode_keys(data)
-        fk_bundle = fk_resource.build_bundle(data=data, request=request)
-
-        if related_obj:
-            fk_bundle.related_obj = related_obj
-            fk_bundle.related_name = related_name
+        related_bundle = related_resource.build_bundle(data=data, request=request)
 
         # We need to check to see if updates are allowed on the FK
         # resource. If not, we'll just return a populated bundle instead
         # of mistakenly updating something that should be read-only.
-        if not fk_resource.can_update():
-            return fk_resource.full_hydrate(fk_bundle)
+        if not related_resource.can_update():
+            return related_resource.full_hydrate(related_bundle)
 
         try:
-            return fk_resource.obj_update(fk_bundle, skip_errors=True, **data)
+            return related_resource.obj_update(related_bundle, skip_errors=True, **data)
         except NotFound:
             try:
                 # Attempt lookup by primary key
-                lookup_kwargs = dict((k, v) for k, v in data.iteritems() if getattr(fk_resource, k).unique)
+                lookup_kwargs = dict((k, v) for k, v in data.iteritems() if getattr(related_resource, k).unique)
 
                 if not lookup_kwargs:
                     raise NotFound()
-                return fk_resource.obj_update(fk_bundle, skip_errors=True, **lookup_kwargs)
+                return related_resource.obj_update(related_bundle, skip_errors=True, **lookup_kwargs)
             except NotFound:
-                fk_bundle = fk_resource.full_hydrate(fk_bundle)
-                fk_resource.is_valid(fk_bundle, request)
-                return fk_bundle
+                related_bundle = related_resource.full_hydrate(related_bundle)
+                related_resource.is_valid(related_bundle, request)
+                return related_bundle
         except MultipleObjectsReturned:
-            return fk_resource.full_hydrate(fk_bundle)
+            return related_resource.full_hydrate(related_bundle)
 
-    def build_related_resource(self, value, request=None, related_obj=None, related_name=None):
+    def build_related_resource(self, value, request=None ):
         """
         Returns a bundle of data built by the related resource, usually via
         ``hydrate`` with the data provided.
 
-        Accepts either a URI, a data dictionary (or dictionary-like structure)
-        or an object with a ``pk``.
+        Accepts either a URI or a data dictionary (or dictionary-like structure)
         """
-        self.fk_resource = self.to_class()
+        self.related_resource = self.to_class()
         kwargs = {
             'request': request,
-            'related_obj': related_obj,
-            'related_name': related_name,
         }
 
         if isinstance(value, basestring):
             # We got a URI. Load the object and assign it.
-            return self.resource_from_uri(self.fk_resource, value, **kwargs)
+            return self.resource_from_uri(self.related_resource, value, **kwargs)
         elif hasattr(value, 'items'):
             # We've got a data dictionary.
             # Since this leads to creation, this is the only one of these
             # methods that might care about "parent" data.
-            return self.resource_from_data(self.fk_resource, value, **kwargs)
+            return self.resource_from_data(self.related_resource, value, **kwargs)
         else:
-            raise ApiFieldError("The '%s' field has was given data that was not a URI, not a dictionary-alike and does not have a 'pk' attribute: %s." % (self.instance_name, value))
+            raise ApiFieldError("The '%s' field was given data that was not a URI and not a dictionary-alike: %s." % (self.instance_name, value))
 
 
-class EmbeddedDocumentField(RelatedField):
+class ToOneField( RelatedField ):
     """
     Provides access to related data via foreign key.
 
@@ -593,15 +582,15 @@ class EmbeddedDocumentField(RelatedField):
     """
     help_text = 'A single related resource. Can be either a URI or set of nested resource data.'
 
-    def __init__(self, to, attribute, related_name=None, default=NOT_PROVIDED,
+    def __init__(self, to, attribute, default=NOT_PROVIDED,
                  null=False, blank=False, readonly=False, full=False,
                  unique=False, help_text=None):
         super(ToOneField, self).__init__(
-            to, attribute, related_name=related_name, default=default,
+            to, attribute, default=default,
             null=null, blank=blank, readonly=readonly, full=full,
             unique=unique, help_text=help_text
         )
-        self.fk_resource = None
+        self.related_resource = None
 
     def dehydrate(self, bundle):
         attrs = self.attribute.split('__')
@@ -620,9 +609,9 @@ class EmbeddedDocumentField(RelatedField):
 
                 return None
 
-        self.fk_resource = self.get_related_resource(to_obj)
-        fk_bundle = Bundle(obj=to_obj, request=bundle.request)
-        return self.dehydrate_related(fk_bundle, self.fk_resource)
+        self.related_resource = self.get_related_resource(to_obj)
+        related_bundle = Bundle(obj=to_obj, request=bundle.request)
+        return self.dehydrate_related(related_bundle, self.related_resource)
 
     def hydrate(self, bundle):
         value = super(ToOneField, self).hydrate(bundle)
@@ -633,9 +622,10 @@ class EmbeddedDocumentField(RelatedField):
         return self.build_related_resource(value, request=bundle.request)
 
 
-class EmbeddedCollectionField(RelatedField):
+class ToManyField( ListField ):
+    #FIXME fix this thing.
     """
-    Provides access to related data via a join table.
+    A listfield containing embedded documents or references.
 
     This subclass requires Django's ORM layer to work properly.
 
@@ -646,9 +636,9 @@ class EmbeddedCollectionField(RelatedField):
     is_m2m = True
     help_text = 'Many related resources. Can be either a list of URIs or list of individually nested resource data.'
 
-    def __init__(self, to, attribute, related_name=None, default=NOT_PROVIDED, null=False, blank=False, readonly=False, full=False, unique=False, help_text=None):
+    def __init__(self, to, attribute, default=NOT_PROVIDED, null=False, blank=False, readonly=False, full=False, unique=False, help_text=None):
         super(ToManyField, self).__init__(
-            to, attribute, related_name=related_name, default=default,
+            to, attribute, default=default,
             null=null, blank=blank, readonly=readonly, full=full,
             unique=unique, help_text=help_text
         )
@@ -725,10 +715,6 @@ class EmbeddedCollectionField(RelatedField):
             kwargs = {
                 'request': bundle.request,
             }
-
-            if self.related_name:
-                kwargs['related_obj'] = bundle.obj
-                kwargs['related_name'] = self.related_name
 
             m2m_hydrated.append(self.build_related_resource(value, **kwargs))
 
