@@ -17,4 +17,4 @@ class Bundle( object ):
         self.errors = {}
 
     def __repr__( self ):
-        return "<Bundle for obj='%s' with data='%s' and request=%s>" % ( self.obj, self.data, self.request )
+        return "<Bundle for obj='%s' with data='%s'>" % ( self.obj, self.data )
