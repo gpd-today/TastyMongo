@@ -8,13 +8,15 @@ from pyramid import testing
 from pyramid.request import Request
 
 from .documents import Activity, Person
-from .resources import ActivityResource
+from .resources import ActivityResource, PersonResource
 
 from tastymongo.api import Api
+
 
 class db_proxy:
     # an empty class to stuff references
     pass
+
 
 class DetailTests( unittest.TestCase ):
 
@@ -42,7 +44,9 @@ class DetailTests( unittest.TestCase ):
 
         # Create some resources
         self.activity_resource = ActivityResource()
+        self.person_resource = PersonResource()
         self.api.register( self.activity_resource )
+        self.api.register( self.person_resource )
 
         self.setup_test_data()
 
@@ -62,5 +66,5 @@ class DetailTests( unittest.TestCase ):
         self.assertEqual( deserialized['id'], unicode(self.proxy.activity.id) )
 
         # Check if the activity contains the person
-        self.assertEqual( deserialized['person']['id'], unicode(self.proxy.person.id) )
+        self.assertEqual( deserialized['person'].split('/')[-2], unicode(self.proxy.person.id) )
 

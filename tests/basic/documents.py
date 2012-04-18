@@ -9,6 +9,7 @@ class Activity( Document ):
     name = StringField( required=True )
     person = ReferenceField( 'Person', required=True )
     finished = BooleanField( default=False )
+    tags = ListField( StringField() )
 
     def __unicode__( self ):
         return unicode( self.name )
