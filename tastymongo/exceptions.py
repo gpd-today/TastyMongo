@@ -22,6 +22,7 @@ class ApiFieldError(ConfigurationError):
     """
     pass
 
+
 class NotRegistered(ConfigurationError):
     """
     Raised when the requested resource isn't registered with the ``Api`` class.
