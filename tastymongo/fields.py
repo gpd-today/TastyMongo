@@ -92,8 +92,8 @@ class ApiField(object):
 
     def dehydrate(self, bundle):
         """
-        Takes data from the object and prepares it for the corresponding field
-        on the resource.
+        Takes data from the object in the bundle and prepares it for the 
+        corresponding field on the resource.
         """
         if self.attribute is not None:
             # ``attribute`` specifies which field on the model/document should
@@ -106,24 +106,27 @@ class ApiField(object):
             # carries, we could say: 
             #
             #   StringField( attribute='books__author__name' )
-            attrs = self.attribute.split( '__' )
             current_object = bundle.obj
+            attr = self.attribute
 
-            for attr in attrs:
-                previous_object = current_object
-                current_object = getattr(current_object, attr, None)
+            if isinstance( attr, basestring ):
+                attrs = self.attribute.split( '__' )
+                for attr in attrs:
+                    previous_object = current_object
+                    current_object = getattr(current_object, attr, None)
 
-                if current_object is None:
-                    # We should fall out of the loop here because trying to 
-                    # access any further attributes on None will fail.
-                    if self.has_default():
-                        current_object = self._default
-                        break
-                    elif self.null:
-                        current_object = None
-                        break
-                    else:
-                        raise ApiFieldError("The object '%r' has an empty attribute '%s' and doesn't allow a default or null value." % (previous_object, attr))
+                    if current_object is None:
+                        # We should fall out of the loop here because trying to 
+                        # access any further attributes on None will fail.
+                        if self.has_default():
+                            current_object = self._default
+                            break
+                        elif self.null:
+                            current_object = None
+                            break
+                        else:
+                            raise ApiFieldError("The object '%r' has an empty attribute '%s' and doesn't allow a default or null value." % (previous_object, attr))
+            elif callable( 
 
             if callable(current_object):
                 current_object = current_object()
@@ -499,17 +502,16 @@ class RelatedField( ApiField ):
         Returns either the endpoint or the data from ``full_dehydrate`` for the related resource.
         """
         if not self.full:
-            # Be a good netizen.
+            # Return only the URI of the related resource
             return related_resource.get_resource_uri(bundle.request, bundle)
         else:
-            # ZOMG extra data and big payloads.
+            # Return a fully dehydrated related resource
             bundle = related_resource.build_bundle(obj=related_resource.instance, request=bundle.request)
             return related_resource.full_dehydrate(bundle)
 
     def resource_from_uri(self, related_resource, uri, request=None ):
         """
-        Given a URI is provided, the related resource is attempted to be
-        loaded based on the identifiers in the URI.
+        The related resource is attempted to be loaded based on the identifiers in the URI.
         """
         try:
             obj = related_resource.get_via_uri(uri, request=request)
@@ -523,11 +525,9 @@ class RelatedField( ApiField ):
         Given a dictionary-like structure is provided, a fresh related
         resource is created using that data.
         """
-        # Try to hydrate the data provided.
-        data = dict_strip_unicode_keys(data)
         related_bundle = related_resource.build_bundle(data=data, request=request)
 
-        # We need to check to see if updates are allowed on the FK
+        # We need to check to see if updates are allowed on the related
         # resource. If not, we'll just return a populated bundle instead
         # of mistakenly updating something that should be read-only.
         if not related_resource.can_update():
@@ -566,9 +566,7 @@ class RelatedField( ApiField ):
             # We got a URI. Load the object and assign it.
             return self.resource_from_uri(self.related_resource, value, **kwargs)
         elif hasattr(value, 'items'):
-            # We've got a data dictionary.
-            # Since this leads to creation, this is the only one of these
-            # methods that might care about "parent" data.
+            # We've got a data dictionary. Construct the new object.
             return self.resource_from_data(self.related_resource, value, **kwargs)
         else:
             raise ApiFieldError("The '%s' field was given data that was not a URI and not a dictionary-alike: %s." % (self.instance_name, value))
@@ -576,21 +574,9 @@ class RelatedField( ApiField ):
 
 class ToOneField( RelatedField ):
     """
-    Provides access to related data via foreign key.
-
-    This subclass requires Django's ORM layer to work properly.
+    Provides access to singular related data.
     """
-    help_text = 'A single related resource. Can be either a URI or set of nested resource data.'
-
-    def __init__(self, to, attribute, default=NOT_PROVIDED,
-                 null=False, blank=False, readonly=False, full=False,
-                 unique=False, help_text=None):
-        super(ToOneField, self).__init__(
-            to, attribute, default=default,
-            null=null, blank=blank, readonly=readonly, full=full,
-            unique=unique, help_text=help_text
-        )
-        self.related_resource = None
+    help_text = 'A single related resource. Can be either a URI or nested resource data.'
 
     def dehydrate(self, bundle):
         attrs = self.attribute.split('__')
@@ -622,27 +608,11 @@ class ToOneField( RelatedField ):
         return self.build_related_resource(value, request=bundle.request)
 
 
-class ToManyField( ListField ):
-    #FIXME fix this thing.
+class ToManyField( RelatedField ):
     """
-    A listfield containing embedded documents or references.
-
-    This subclass requires Django's ORM layer to work properly.
-
-    Note that the ``hydrate`` portions of this field are quite different than
-    any other field. ``hydrate_m2m`` actually handles the data and relations.
-    This is due to the way Django implements M2M relationships.
+    Provides access to a list of related data.
     """
-    is_m2m = True
-    help_text = 'Many related resources. Can be either a list of URIs or list of individually nested resource data.'
-
-    def __init__(self, to, attribute, default=NOT_PROVIDED, null=False, blank=False, readonly=False, full=False, unique=False, help_text=None):
-        super(ToManyField, self).__init__(
-            to, attribute, default=default,
-            null=null, blank=blank, readonly=readonly, full=full,
-            unique=unique, help_text=help_text
-        )
-        self.m2m_bundles = []
+    help_text = 'Many related resources. Can be either a list of URIs or a list of individually nested resource data.'
 
     def dehydrate(self, bundle):
         if not bundle.obj or not bundle.obj.pk:
@@ -651,50 +621,49 @@ class ToManyField( ListField ):
 
             return []
 
-        the_m2ms = None
+        # Find out 
         previous_obj = bundle.obj
         attr = self.attribute
 
-        if isinstance(self.attribute, basestring):
+        if isinstance(attr, basestring):
             attrs = self.attribute.split('__')
-            the_m2ms = bundle.obj
 
             for attr in attrs:
-                previous_obj = the_m2ms
+                previous_obj = current_obj
                 try:
-                    the_m2ms = getattr(the_m2ms, attr, None)
+                    current_obj = getattr(current_obj, attr, None)
                 except ObjectDoesNotExist:
-                    the_m2ms = None
+                    current_obj = None
 
-                if not the_m2ms:
+                if not current_obj:
                     break
 
-        elif callable(self.attribute):
-            the_m2ms = self.attribute(bundle)
+        elif callable(attr):
+            current_obj = attr(bundle)
 
-        if not the_m2ms:
+        import ipdb; ipdb.set_trace()
+        if not current_obj:
             if not self.null:
                 raise ApiFieldError("The model '%r' has an empty attribute '%s' and doesn't allow a null value." % (previous_obj, attr))
 
             return []
 
-        self.m2m_resources = []
-        m2m_dehydrated = []
+        self.related_resources = []
+        tomany_dehydrated = []
 
-        # TODO: Also model-specific and leaky. Relies on there being a
-        #       ``Manager`` there.
-        for m2m in the_m2ms.all():
-            m2m_resource = self.get_related_resource(m2m)
-            m2m_bundle = Bundle(obj=m2m, request=bundle.request)
-            self.m2m_resources.append(m2m_resource)
-            m2m_dehydrated.append(self.dehydrate_related(m2m_bundle, m2m_resource))
+        #FIXME
+        for tomany in the_tomanys.all():
+            tomany_resource = self.get_related_resource(tomany)
+            tomany_bundle = Bundle(obj=tomany, request=bundle.request)
+            self.tomany_resources.append(tomany_resource)
+            tomany_dehydrated.append(self.dehydrate_related(tomany_bundle, tomany_resource))
 
-        return m2m_dehydrated
+        return tomany_dehydrated
 
     def hydrate(self, bundle):
         pass
 
-    def hydrate_m2m(self, bundle):
+    def hydrate_tomany(self, bundle):
         if self.readonly:
             return None
 
@@ -706,7 +675,7 @@ class ToManyField( ListField ):
             else:
                 raise ApiFieldError("The '%s' field has no data and doesn't allow a null value." % self.instance_name)
 
-        m2m_hydrated = []
+        tomany_hydrated = []
 
         for value in bundle.data.get(self.instance_name):
             if value is None:
@@ -716,9 +685,9 @@ class ToManyField( ListField ):
                 'request': bundle.request,
             }
 
-            m2m_hydrated.append(self.build_related_resource(value, **kwargs))
+            tomany_hydrated.append(self.build_related_resource(value, **kwargs))
 
-        return m2m_hydrated
+        return tomany_hydrated
 
 
 

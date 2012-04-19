@@ -198,6 +198,62 @@ class Resource( object ):
         """
         return self.dispatch( 'detail', request, **kwargs )
 
+    def get_schema( self, request ):
+        """
+        Returns a serialized form of the schema of the resource.
+
+        Calls ``build_schema`` to generate the data. This method only responds
+        to HTTP GET.
+
+        Should return a HTTPResponse (200 OK).
+        """
+        self.check_method(request, allowed=['get'])
+#        self.is_authenticated(request)
+#        self.check_throttle(request)
+        return self.create_response(request, self.build_schema())
+
+    def get_list( self, request ):
+        """
+        Returns a serialized list of resources.
+
+        Calls ``obj_get_list`` to provide the data, then handles that result
+        set and serializes it.
+
+        Should return a HTTPResponse (200 OK).
+        """
+        objects = self.obj_get_list( request=request, **request.matchdict )
+        sorted_objects = self.apply_sorting(objects, options=request.GET)
+
+        #FIXME: this is easily done with the slice__method / with python slicing?
+        #paginator = self._meta.paginator_class(request.GET, sorted_objects, resource_uri=self.get_resource_list_uri(), limit=self._meta.limit, max_limit=self._meta.max_limit, collection_name=self._meta.collection_name)
+        #to_be_serialized = paginator.page()
+        to_be_serialized = { 'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 'objects': sorted_objects, }
+
+        # Dehydrate the bundles in preparation for serialization.
+        bundles = [self.build_bundle(obj=obj, request=request) for obj in to_be_serialized['objects']]
+        to_be_serialized['objects'] = [self.full_dehydrate(bundle) for bundle in bundles]
+        to_be_serialized = self.alter_list_data_to_serialize(request, to_be_serialized)
+        return self.create_response(request, to_be_serialized)
+
+    def get_detail( self, request ):
+        """
+        Returns a single serialized resource.
+
+        Should return a HTTPResponse (200 OK).
+        """
+        try:
+            obj = self.obj_get( request=request, **request.matchdict )
+        except DoesNotExist:
+            return http.HTTPNotFound()
+        except MultipleObjectsReturned:
+            return http.HTTPMultipleChoices("More than one resource is found at this URI.")
+
+        # try to figure out how to get these related resources
+        bundle = self.build_bundle(obj=obj, request=request)
+        bundle = self.full_dehydrate(bundle)
+        bundle = self.alter_detail_data_to_serialize(request, bundle)
+        return self.create_response(request, bundle)
+
     def check_method(self, request, allowed=None):
         """
         Ensures that the HTTP method used on the request is allowed to be
@@ -227,6 +283,29 @@ class Resource( object ):
             raise ImmediateHTTPResponse(response=response)
 
         return request_method
+
+    def can_create(self):
+        """
+        Checks to ensure ``post`` is within ``allowed_methods``.
+        """
+        allowed = set(self._meta.list_allowed_methods + self._meta.detail_allowed_methods)
+        return 'post' in allowed
+
+    def can_update(self):
+        """
+        Checks to ensure ``put`` is within ``allowed_methods``.
+
+        Used when hydrating related data.
+        """
+        allowed = set(self._meta.list_allowed_methods + self._meta.detail_allowed_methods)
+        return 'put' in allowed
+
+    def can_delete(self):
+        """
+        Checks to ensure ``delete`` is within ``allowed_methods``.
+        """
+        allowed = set(self._meta.list_allowed_methods + self._meta.detail_allowed_methods)
+        return 'delete' in allowed
 
     def check_filtering(self, field_name, filter_type='exact', filter_bits=None):
         """
@@ -551,62 +630,6 @@ class Resource( object ):
                 'unique': field_object.unique,
             }
         return data
-
-    def get_schema( self, request ):
-        """
-        Returns a serialized form of the schema of the resource.
-
-        Calls ``build_schema`` to generate the data. This method only responds
-        to HTTP GET.
-
-        Should return a HTTPResponse (200 OK).
-        """
-        self.check_method(request, allowed=['get'])
-#        self.is_authenticated(request)
-#        self.check_throttle(request)
-        return self.create_response(request, self.build_schema())
-
-    def get_list( self, request ):
-        """
-        Returns a serialized list of resources.
-
-        Calls ``obj_get_list`` to provide the data, then handles that result
-        set and serializes it.
-
-        Should return a HTTPResponse (200 OK).
-        """
-        objects = self.obj_get_list( request=request, **request.matchdict )
-        sorted_objects = self.apply_sorting(objects, options=request.GET)
-
-        #FIXME: this is easily done with the slice__method / with python slicing?
-        #paginator = self._meta.paginator_class(request.GET, sorted_objects, resource_uri=self.get_resource_list_uri(), limit=self._meta.limit, max_limit=self._meta.max_limit, collection_name=self._meta.collection_name)
-        #to_be_serialized = paginator.page()
-        to_be_serialized = { 'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 'objects': sorted_objects, }
-
-        # Dehydrate the bundles in preparation for serialization.
-        bundles = [self.build_bundle(obj=obj, request=request) for obj in to_be_serialized['objects']]
-        to_be_serialized['objects'] = [self.full_dehydrate(bundle) for bundle in bundles]
-        to_be_serialized = self.alter_list_data_to_serialize(request, to_be_serialized)
-        return self.create_response(request, to_be_serialized)
-
-    def get_detail( self, request ):
-        """
-        Returns a single serialized resource.
-
-        Should return a HTTPResponse (200 OK).
-        """
-        try:
-            obj = self.obj_get( request=request, **request.matchdict )
-        except DoesNotExist:
-            return http.HTTPNotFound()
-        except MultipleObjectsReturned:
-            return http.HTTPMultipleChoices("More than one resource is found at this URI.")
-
-        # try to figure out how to get these related resources
-        bundle = self.build_bundle(obj=obj, request=request)
-        bundle = self.full_dehydrate(bundle)
-        bundle = self.alter_detail_data_to_serialize(request, bundle)
-        return self.create_response(request, bundle)
 
     def apply_sorting(self, obj_list, options=None):
         """

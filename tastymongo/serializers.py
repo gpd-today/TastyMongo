@@ -3,7 +3,6 @@ from __future__ import unicode_literals
 
 import datetime
 import json
-from StringIO import StringIO
 
 from .exceptions import *
 from .bundle import Bundle
