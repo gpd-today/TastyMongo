@@ -923,9 +923,7 @@ class DocumentResource( Resource ):
         the instance.
         """
         try:
-            # FIXME: Temporary until we re-enable filters
-            #object_list = self.get_object_list(request).filter(**kwargs)
-            object_list = self.get_object_list(request)
+            object_list = self.get_object_list(request).filter(**kwargs)
 
             # FIXME: check if this does not trigger another query for the count
             if len(object_list) == 1:
