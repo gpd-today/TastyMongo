@@ -132,36 +132,6 @@ class DeclarativeMetaclass(type):
         return new_class
 
 
-class DocumentDeclarativeMetaclass(DeclarativeMetaclass):
-
-    # Subclassed to handle specifics for MongoEngine Documents
-    def __new__(cls, name, bases, attrs):
-        meta = attrs.get('Meta')
-
-        if meta and hasattr(meta, 'queryset'):
-            setattr(meta, 'document_class', meta.queryset._document)
-
-        new_class = super(DocumentDeclarativeMetaclass, cls).__new__(cls, name, bases, attrs)
-        include_fields = getattr(new_class._meta, 'fields', [])
-        excludes = getattr(new_class._meta, 'excludes', [])
-        field_names = new_class.base_fields.keys()
-
-        for field_name in field_names:
-            if field_name == 'resource_uri':
-                continue
-            if field_name in new_class.declared_fields:
-                continue
-            if len(include_fields) and not field_name in include_fields:
-                del(new_class.base_fields[field_name])
-            if len(excludes) and field_name in excludes:
-                del(new_class.base_fields[field_name])
-
-        # Add in the new fields.
-        new_class.base_fields.update(new_class.get_fields(include_fields, excludes))
-
-        return new_class
-
-
 class Resource( object ):
     __metaclass__ = DeclarativeMetaclass
 
@@ -689,6 +659,36 @@ class Resource( object ):
 
         #FIXME: the mongo-specific part!
         return obj_list.sort_by(*sort_by_args)
+
+
+class DocumentDeclarativeMetaclass(DeclarativeMetaclass):
+
+    # Subclassed to handle specifics for MongoEngine Documents
+    def __new__(cls, name, bases, attrs):
+        meta = attrs.get('Meta')
+
+        if meta and hasattr(meta, 'queryset'):
+            setattr(meta, 'document_class', meta.queryset._document)
+
+        new_class = super(DocumentDeclarativeMetaclass, cls).__new__(cls, name, bases, attrs)
+        include_fields = getattr(new_class._meta, 'fields', [])
+        excludes = getattr(new_class._meta, 'excludes', [])
+        field_names = new_class.base_fields.keys()
+
+        for field_name in field_names:
+            if field_name == 'resource_uri':
+                continue
+            if field_name in new_class.declared_fields:
+                continue
+            if len(include_fields) and not field_name in include_fields:
+                del(new_class.base_fields[field_name])
+            if len(excludes) and field_name in excludes:
+                del(new_class.base_fields[field_name])
+
+        # Add in the new fields.
+        new_class.base_fields.update(new_class.get_fields(include_fields, excludes))
+
+        return new_class
 
 
 class DocumentResource( Resource ):
