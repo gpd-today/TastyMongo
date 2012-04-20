@@ -90,51 +90,67 @@ class ApiField(object):
 
         return self._default
 
-    def dehydrate(self, bundle):
-        """
-        Takes data from the object in the bundle and prepares it for the 
-        corresponding field on the resource.
-        """
-        if self.attribute is not None:
-            # ``attribute`` specifies which field on the model/document should
-            # be accessed to get data for this ApiField.
-            # ``attribute`` can contain Django-style (=MongoEngine style) 
-            # double underscores (`__`) to specify relations (of relations).
-            #
-            # For instance a 'store' can contain 'books' that have an 'author'.
-            # If we were to expose the names of authors whose books the store
-            # carries, we could say: 
-            #
-            #   StringField( attribute='books__author__name' )
+    def get_field_attribute( self, bundle ):
+        '''
+        Returns the corresponding instance attribute
+        ``attribute`` specifies which field on the model/document should
+        be accessed to get data for this corresponding ApiField.
+        ``attribute`` can contain Django-style (=MongoEngine style) 
+        double underscores (`__`) to specify relations (of relations).
+        
+        For instance a 'store' can contain 'books' that have an 'author'.
+        If we were to expose the names of authors whose books the store
+        carries, we could say: 
+          
+          StringField( attribute='books__author__name' )
+        '''
+        if self.attribute is None:
+            # This attribute should be manually accessed
+            return None
+
+        if callable( self.attribute ):
+            return self.attribute()
+
+        if isinstance( self.attribute, basestring ):
+            attr_chain = self.attribute.split( '__' )
+
             current_object = bundle.obj
-            attr = self.attribute
-
-            if isinstance( attr, basestring ):
-                attrs = self.attribute.split( '__' )
-                for attr in attrs:
-                    previous_object = current_object
+            for attr in attr_chain:
+                try:
                     current_object = getattr(current_object, attr, None)
+                except ObjectDoesNotExist:
+                    current_object = None
 
-                    if current_object is None:
-                        # We should fall out of the loop here because trying to 
-                        # access any further attributes on None will fail.
-                        if self.has_default():
-                            current_object = self._default
-                            break
-                        elif self.null:
-                            current_object = None
-                            break
-                        else:
-                            raise ApiFieldError("The object '%r' has an empty attribute '%s' and doesn't allow a default or null value." % (previous_object, attr))
-            elif callable( 
+                if current_object is None:
+                    # We should fall out of the loop here since we cannot 
+                    # access any more attributes down the chain.
+                    if self.has_default():
+                        current_object = self._default
+                        break
+                    elif self.null:
+                        current_object = None
+                        break
+                    else:
+                        raise ApiFieldError("The object '%r' has an empty attribute '%s' and doesn't allow a default or null value." % (previous_object, attr))
 
             if callable(current_object):
-                current_object = current_object()
+                return current_object()
+            else:
+                return current_object
 
-            return self.convert(current_object)
+    def dehydrate(self, bundle):
+        """
+        Takes data from the object and prepares it for the corresponding field
+        on the resource.
+        """
+        obj = self.get_field_attribute( bundle )
+        if obj:
+            return self.convert(obj)
+        elif self.has_default():
+            if callable( self._default ):
+                return self._default()
 
-        if self.has_default():
-            return self.convert(self.default)
+            return self.convert(self._default)
         else:
             return None
 
@@ -150,7 +166,7 @@ class ApiField(object):
     def hydrate(self, bundle):
         """
         Takes data stored in the bundle for the field and returns it. Used for
-        taking simple data and building a instance object.
+        taking simple data and building an instance object.
         """
         if self.readonly:
             return None
@@ -579,24 +595,14 @@ class ToOneField( RelatedField ):
     help_text = 'A single related resource. Can be either a URI or nested resource data.'
 
     def dehydrate(self, bundle):
-        attrs = self.attribute.split('__')
-        to_obj = bundle.obj
 
-        for attr in attrs:
-            from_obj = to_obj
-            try:
-                to_obj = getattr(to_obj, attr, None)
-            except ObjectDoesNotExist:
-                to_obj = None
+        related_obj = self.get_field_attribute( bundle )
 
-            if not to_obj:
-                if not self.null:
-                    raise ApiFieldError("The model '%r' has an empty attribute '%s' and doesn't allow a null value." % (from_obj, attr))
+        if not related_obj:
+            return None
 
-                return None
-
-        self.related_resource = self.get_related_resource(to_obj)
-        related_bundle = Bundle(obj=to_obj, request=bundle.request)
+        self.related_resource = self.get_related_resource(related_obj)
+        related_bundle = Bundle(obj=related_obj, request=bundle.request)
         return self.dehydrate_related(related_bundle, self.related_resource)
 
     def hydrate(self, bundle):
@@ -610,84 +616,30 @@ class ToOneField( RelatedField ):
 
 class ToManyField( RelatedField ):
     """
-    Provides access to a list of related data.
+    Provides access to a list of related resources.
     """
     help_text = 'Many related resources. Can be either a list of URIs or a list of individually nested resource data.'
 
     def dehydrate(self, bundle):
         if not bundle.obj or not bundle.obj.pk:
-            if not self.null:
-                raise ApiFieldError("The model '%r' does not have a primary key and can not be used in a ToMany context." % bundle.obj)
+            if self.null:
+                return []
 
+            raise ApiFieldError("The model '%r' does not have a primary key and can not be used in a ToMany context." % bundle.obj)
+
+        related_objs = self.get_field_attribute( bundle )
+
+        if not related_objs:
             return []
 
-        # Find out 
-        previous_obj = bundle.obj
-        attr = self.attribute
+        dehydrated_bundles = []
 
-        if isinstance(attr, basestring):
-            attrs = self.attribute.split('__')
+        for related_obj in related_objs:
+            related_resource = self.get_related_resource( related_obj )
+            related_bundle = Bundle( obj=related_obj, request=bundle.request )
+            self.related_resources.append( related_resource )
+            dehydrated_bundles.append(self.dehydrate_related( related_bundle, related_resource ))
 
-            for attr in attrs:
-                previous_obj = current_obj
-                try:
-                    current_obj = getattr(current_obj, attr, None)
-                except ObjectDoesNotExist:
-                    current_obj = None
+        return dehydrated_bundles 
 
-                if not current_obj:
-                    break
-
-        elif callable(attr):
-            current_obj = attr(bundle)
-
-        import ipdb; ipdb.set_trace()
-        if not current_obj:
-            if not self.null:
-                raise ApiFieldError("The model '%r' has an empty attribute '%s' and doesn't allow a null value." % (previous_obj, attr))
-
-            return []
-
-        self.related_resources = []
-        tomany_dehydrated = []
-
-        #FIXME
-        for tomany in the_tomanys.all():
-            tomany_resource = self.get_related_resource(tomany)
-            tomany_bundle = Bundle(obj=tomany, request=bundle.request)
-            self.tomany_resources.append(tomany_resource)
-            tomany_dehydrated.append(self.dehydrate_related(tomany_bundle, tomany_resource))
-
-        return tomany_dehydrated
-
-    def hydrate(self, bundle):
-        pass
-
-    def hydrate_tomany(self, bundle):
-        if self.readonly:
-            return None
-
-        if bundle.data.get(self.instance_name) is None:
-            if self.blank:
-                return []
-            elif self.null:
-                return []
-            else:
-                raise ApiFieldError("The '%s' field has no data and doesn't allow a null value." % self.instance_name)
-
-        tomany_hydrated = []
-
-        for value in bundle.data.get(self.instance_name):
-            if value is None:
-                continue
-
-            kwargs = {
-                'request': bundle.request,
-            }
-
-            tomany_hydrated.append(self.build_related_resource(value, **kwargs))
-
-        return tomany_hydrated
-
-
-
+        
