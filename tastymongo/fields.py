@@ -637,9 +637,7 @@ class ToManyField( RelatedField ):
         for related_obj in related_objs:
             related_resource = self.get_related_resource( related_obj )
             related_bundle = Bundle( obj=related_obj, request=bundle.request )
-            self.related_resources.append( related_resource )
             dehydrated_bundles.append(self.dehydrate_related( related_bundle, related_resource ))
 
         return dehydrated_bundles 
 
-        
