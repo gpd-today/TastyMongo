@@ -114,10 +114,10 @@ class ApiField(object):
         if isinstance( self.attribute, basestring ):
             attr_chain = self.attribute.split( '__' )
 
-            current_object = bundle.obj
+            previous_object = bundle.obj
             for attr in attr_chain:
                 try:
-                    current_object = getattr(current_object, attr, None)
+                    current_object = getattr(previous_object, attr, None)
                 except ObjectDoesNotExist:
                     current_object = None
 
@@ -189,6 +189,18 @@ class ApiField(object):
 
         return bundle.data[self.instance_name]
 
+
+class ObjectIdField( ApiField ):
+    """
+    Field for representing the ObjectId from MongoDB.
+    """
+    
+    help_text = "ObjectId field that corresponds to MongoDB's ObjectId"
+    
+    def __init__(self, attribute=None, default=NOT_PROVIDED, null=False, blank=False, readonly=False, unique=False, help_text=None):
+        super(ObjectIdField, self).__init__(
+                readonly=True, unique=True, blank=False, null=False, help_text=help_text)
+        
 
 class StringField( ApiField ):
     """
