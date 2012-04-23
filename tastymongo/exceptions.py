@@ -79,7 +79,7 @@ class InvalidSortError(BadRequest):
     pass
 
 
-class ImmediateHttpResponse(TastyException):
+class ImmediateHTTPResponse(TastyException):
     """
     This exception is used to interrupt the flow of processing to immediately
     return a custom HttpResponse.
@@ -93,7 +93,7 @@ class ImmediateHttpResponse(TastyException):
     response = Response( body='No description provided.' )
 
     def __init__( self, response, *args, **kwargs ):
-        super( ImmediateHttpResponse, self ).__init__(*args, **kwargs)
+        super( ImmediateHTTPResponse, self ).__init__(*args, **kwargs)
         self.response = response
 
     def __unicode__( self ):
