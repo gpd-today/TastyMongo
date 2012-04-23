@@ -11,9 +11,11 @@ from .bundle import Bundle
 from pyramid.response import Response
 from pyramid.request import Request
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
+import mongoengine.document 
 import mongoengine.fields as mf
 
 from copy import deepcopy
+
 
 class ResourceOptions(object):
     """
@@ -29,7 +31,7 @@ class ResourceOptions(object):
 #    throttle = BaseThrottle()
 #    validation = Validation()
 #    paginator_class = Paginator
-    allowed_methods = ['get', 'post', 'put', 'delete', 'patch']
+    allowed_methods = [ 'get', 'post', 'put', 'delete' ]
     list_allowed_methods = None
     detail_allowed_methods = None
     limit = 20
@@ -39,12 +41,12 @@ class ResourceOptions(object):
     default_format = 'application/json'
     filtering = {}
     ordering = []
-    document_class = None
+    object_class = None
     queryset = None
     fields = []
     excludes = []
     include_resource_uri = True
-    include_resource_url = True
+    include_resource_url = False
     always_return_data = False
     collection_name = 'objects'
 
@@ -58,7 +60,7 @@ class ResourceOptions(object):
                 if not override_name.startswith('_'):
                     overrides[override_name] = getattr(meta, override_name)
 
-        allowed_methods = overrides.get('allowed_methods', ['get', 'post', 'put', 'delete', 'patch'])
+        allowed_methods = overrides.get('allowed_methods', [ 'get', 'post', 'put', 'delete' ])
 
         if overrides.get('list_allowed_methods', None) is None:
             overrides['list_allowed_methods'] = allowed_methods
@@ -75,16 +77,16 @@ class DeclarativeMetaclass(type):
         attrs['base_fields'] = {}
         declared_fields = {}
 
-        # Inherit any fields from parent(s).
+        # Inherit any fields from parent clas(ses).
         try:
-            parents = [b for b in bases if issubclass(b, Resource)]
+            parent_classes = [b for b in bases if issubclass(b, Resource)]
             # Simulate the MRO.
-            parents.reverse()
+            parent_classes.reverse()
 
-            for p in parents:
-                parent_fields = getattr(p, 'base_fields', {})
+            for p in parent_classes:
+                parent_class_fields = getattr(p, 'base_fields', {})
 
-                for field_name, field_object in parent_fields.items():
+                for field_name, field_object in parent_class_fields.items():
                     attrs['base_fields'][field_name] = deepcopy(field_object)
         except NameError:
             pass
@@ -119,7 +121,7 @@ class DeclarativeMetaclass(type):
         elif 'resource_uri' in new_class.base_fields and not 'resource_uri' in attrs:
             del(new_class.base_fields['resource_uri'])
 
-        if getattr(new_class._meta, 'include_resource_url', True):
+        if getattr(new_class._meta, 'include_resource_url', False):
             if not 'resource_url' in new_class.base_fields:
                 new_class.base_fields['resource_url'] = fields.StringField(readonly=True)
         elif 'resource_url' in new_class.base_fields and not 'resource_url' in attrs:
@@ -507,11 +509,11 @@ class Resource( object ):
         for use throughout the ``dehydrate/hydrate`` cycle.
 
         If no object is provided, an empty object from
-        ``Resource._meta.document_class`` is created so that attempts to access
+        ``Resource._meta.object_class`` is created so that attempts to access
         ``bundle.obj`` do not fail.
         """
         if obj is None:
-            obj = self._meta.document_class()
+            obj = self._meta.object_class()
 
         b = Bundle(obj=obj, data=data, request=request)
         return b
@@ -684,14 +686,19 @@ class Resource( object ):
         return obj_list.sort_by(*sort_by_args)
 
 
-class DocumentDeclarativeMetaclass(DeclarativeMetaclass):
+class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
 
     # Subclassed to handle specifics for MongoEngine Documents
     def __new__(cls, name, bases, attrs):
         meta = attrs.get('Meta')
 
-        if meta and hasattr(meta, 'queryset'):
-            setattr(meta, 'document_class', meta.queryset._document)
+        if meta:
+            if hasattr(meta, 'queryset') and not hasattr(meta, 'object_class'):
+                setattr(meta, 'object_class', meta.queryset._document)
+            
+            if hasattr( meta, 'object_class' ) and not hasattr( meta, 'queryset' ):
+                if hasattr( meta.object_class, 'objects' ):
+                    setattr( meta, 'queryset', meta.object_class.objects )
 
         new_class = super(DocumentDeclarativeMetaclass, cls).__new__(cls, name, bases, attrs)
         include_fields = getattr(new_class._meta, 'fields', [])
@@ -699,7 +706,10 @@ class DocumentDeclarativeMetaclass(DeclarativeMetaclass):
         field_names = new_class.base_fields.keys()
 
         for field_name in field_names:
-            if field_name == 'resource_uri':
+            if field_name in ( 'resource_uri', 'resource_url' ):
+                # Embedded documents don't have their own resource_uri
+                if meta and hasattr( meta, 'object_class' ) and issubclass(meta.object_class, mongoengine.EmbeddedDocument):
+                    del( new_class.base_fields[field_name] )
                 continue
             if field_name in new_class.declared_fields:
                 continue
@@ -726,12 +736,15 @@ class DocumentResource( Resource ):
         Given a MongoDB field, return if it should be included in the
         contributed ApiFields.
         """
-        # Ignore certain fields (related fields).
-        if isinstance( field, ( mf.ReferenceField, mf.BinaryField, mf.EmbeddedDocumentField )):
+        # Ignore reference fields for now, because documents know nothing about 
+        # any API through which they're exposed. 
+        if isinstance( field, ( mf.ReferenceField )):
+            # The equivalent of ToOne
             return True
+
         if isinstance( field, mf.ListField ):
-            # If the ListField contains EmbeddedDocuments or References we'll skip this one.
-            if isinstance( field.field, ( mf.ReferenceField, mf.EmbeddedDocumentField ) ):
+            if isinstance( field.field, ( mf.ReferenceField ) ):
+                # The equivalent of ToMany (many ToOne's)
                 return True
 
         return False
@@ -743,12 +756,6 @@ class DocumentResource( Resource ):
         MongoEngine type.
 
         """
-        # The following fields map to StringField per default:
-        # 'ObjectIdField'
-        # 'URLField'
-        # 'UUIDField'
-        # 'BinaryField' is disabled alltogether
-
         result = default
         field_type = type(f)
 
@@ -761,16 +768,18 @@ class DocumentResource( Resource ):
             result = fields.DecimalField
         elif field_type in ( mf.IntField, mf.SequenceField ):
             result = fields.IntegerField
-        elif field_type in ( mf.FileField, mf.ImageField ):
+        elif field_type in ( mf.FileField, mf.ImageField, mf.BinaryField ):
             result = fields.FileField
         elif field_type in ( mf.DictField, mf.MapField ):
             result = fields.DictField
         elif field_type in ( mf.DateTimeField, mf.ComplexDateTimeField ):
             result = fields.DateTimeField
         elif field_type in ( mf.ListField, mf.SortedListField, mf.GeoPointField ):
-            # This will be lists of simple objects as references have been
-            # thrown out already by skip.
+            # This will be lists of simple objects, since references have been
+            # discarded already by should_skip_fields. 
             result = fields.ListField
+        elif field_type in ( mf.ObjectIdField, ):
+            result = fields.ObjectIdField
 
         return result
 
@@ -784,10 +793,10 @@ class DocumentResource( Resource ):
         fields = fields or []
         excludes = excludes or []
 
-        if not cls._meta.document_class:
+        if not cls._meta.object_class:
             return final_fields
 
-        for name, f in cls._meta.document_class._fields.items():
+        for name, f in cls._meta.object_class._fields.items():
             # If the field name is already present, skip
             if name in cls.base_fields:
                 continue
@@ -810,12 +819,13 @@ class DocumentResource( Resource ):
                 'help_text': f.help_text,
             }
 
-            # no such thing as null or blank in mongo
+            # TODO
             #if f.null is True:
             #    kwargs['null'] = True
 
             kwargs['unique'] = f.unique
 
+            # TODO
             #if not f.null and f.blank is True:
             #    kwargs['default'] = ''
             #    kwargs['blank'] = True
@@ -858,7 +868,10 @@ class DocumentResource( Resource ):
         if bundle_or_obj:
             kwargs['operation'] = 'detail'
             if isinstance(bundle_or_obj, Bundle):
-                kwargs['id'] = bundle_or_obj.obj.id
+                try:
+                    kwargs['id'] = bundle_or_obj.obj.id
+                except AttributeError:
+                    raise NotImplementedError()
             else:
                 kwargs['id'] = bundle_or_obj.id
         else:
@@ -936,7 +949,10 @@ class DocumentResource( Resource ):
         return self.get_object_list(request).filter(**applicable_filters)
 
     def get_object_list(self, request):
-        return self._meta.queryset.clone()
+        if self._meta.queryset:
+            return self._meta.queryset.clone()
+        else:
+            raise NotImplementedError()
 
     def obj_get(self, request=None, **kwargs):
         """
@@ -956,14 +972,14 @@ class DocumentResource( Resource ):
             stringified_kwargs = ', '.join(["%s=%s" % (k, v) for k, v in kwargs.items()])
 
             if len(object_list) <= 0:
-                raise self._meta.document_class.DoesNotExist("Couldn't find an instance of '%s' which matched '%s'." % (self._meta.document_class.__name__, stringified_kwargs))
+                raise self._meta.object_class.DoesNotExist("Couldn't find an instance of '%s' which matched '%s'." % (self._meta.object_class.__name__, stringified_kwargs))
             elif len(object_list) > 1:
-                raise self._meta.document_class.MultipleObjectsReturned("More than '%s' matched '%s'." % (self._meta.document_class.__name__, stringified_kwargs))
+                raise self._meta.object_class.MultipleObjectsReturned("More than '%s' matched '%s'." % (self._meta.object_class.__name__, stringified_kwargs))
 
         except ValueError:
             raise NotFound("Invalid resource lookup data provided (mismatched type).")
 
-    def obj_get_list(self, request=None, **kwargs):
+    def obj_get_list(self, request=None):
         """
         A MongoEngine implementation of ``obj_get_list``.
 
