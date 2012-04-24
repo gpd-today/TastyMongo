@@ -979,7 +979,7 @@ class DocumentResource( Resource ):
         except ValueError:
             raise NotFound("Invalid resource lookup data provided (mismatched type).")
 
-    def obj_get_list(self, request=None):
+    def obj_get_list(self, request=None, **kwargs):
         """
         A MongoEngine implementation of ``obj_get_list``.
 
@@ -1020,3 +1020,6 @@ class DocumentResource( Resource ):
         - updates the union of collection in this URI
         - determines the union with the new collection
         """
+
+
+
