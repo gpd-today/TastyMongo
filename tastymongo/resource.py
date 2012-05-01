@@ -169,7 +169,7 @@ class Resource( object ):
             detail = 'Method="{}_{}" is not implemented for resource="{}"'.format( request_method, request_type, self._meta.resource_name )
             raise ImmediateHTTPResponse( response=http.HTTPNotImplemented( body=detail ))
 
-        #self.is_authenticated( request )
+        self.is_authenticated( request )
         #self.is_authorized( request )
         #self.check_throttle( request )
 
@@ -206,7 +206,7 @@ class Resource( object ):
         Should return a HTTPResponse ( 200 OK ).
         """
         self.check_method( request, allowed=['get'] )
-#        self.is_authenticated( request )
+        self.is_authenticated( request )
 #        self.check_throttle( request )
         return self.create_response( request, self.build_schema() )
 
