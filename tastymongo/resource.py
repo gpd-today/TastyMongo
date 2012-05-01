@@ -5,8 +5,11 @@ from . import fields
 from . import http
 from .serializers import Serializer
 from .exceptions import *
+from .constants import ALL, ALL_WITH_RELATIONS, QUERY_TERMS, LOOKUP_SEP
 from .utils import determine_format, build_content_type
 from .bundle import Bundle
+from .authentication import Authentication
+from .authorization import ReadOnlyAuthorization
 
 from pyramid.response import Response
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
@@ -14,7 +17,6 @@ import mongoengine.document
 import mongoengine.fields as mf
 
 from copy import deepcopy
-
 
 class ResourceOptions( object ):
     """
@@ -24,17 +26,14 @@ class ResourceOptions( object ):
     the internal ``class Meta`` used on ``Resource`` subclasses.
     """
     serializer = Serializer()
-#    authentication = Authentication()
-#    authorization = ReadOnlyAuthorization()
-#    cache = NoCache()
+    authentication = Authentication()
+    authorization = ReadOnlyAuthorization()
 #    throttle = BaseThrottle()
 #    validation = Validation()
-#    paginator_class = Paginator
     allowed_methods = [ 'get', 'post', 'put', 'delete' ]
     list_allowed_methods = None
     detail_allowed_methods = None
     limit = 20
-    max_limit = 1000
     api = None
     resource_name = None
     default_format = 'application/json'
@@ -46,8 +45,6 @@ class ResourceOptions( object ):
     excludes = []
     include_resource_uri = True
     include_resource_url = False
-    always_return_data = False
-    collection_name = 'objects'
 
     def __new__( cls, meta=None ):
         overrides = {}
@@ -225,9 +222,6 @@ class Resource( object ):
         objects = self.obj_get_list( request=request, **request.matchdict )
         sorted_objects = self.apply_sorting( objects, options=request.GET )
 
-        #FIXME: this is easily done with the slice__method / with python slicing?
-        #paginator = self._meta.paginator_class( request.GET, sorted_objects, resource_uri=self.get_resource_list_uri(), limit=self._meta.limit, max_limit=self._meta.max_limit, collection_name=self._meta.collection_name )
-        #to_be_serialized = paginator.page()
         to_be_serialized = { 'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 'objects': sorted_objects, }
 
         # Dehydrate the bundles in preparation for serialization.
@@ -881,34 +875,29 @@ class DocumentResource( Resource ):
 
     def build_filters( self, filters=None ):
         """
-        Given a dictionary of filters, create the necessary ORM-level filters.
+        Given a dictionary of filters, create the corresponding DRM filters,
+        checking whether filtering on the field is allowed in the Resource
+        definition.
 
         Valid values are either a list of MongoEngine filter types ( i.e.
         ``['startswith', 'exact', 'lte']`` ), the ``ALL`` constant or the
         ``ALL_WITH_RELATIONS`` constant.
+
+        At the declarative level:
+            filtering = {
+                'resource_field_name': ['exact', 'startswith', 'endswith', 'contains'],
+                'resource_field_name_2': ['exact', 'gt', 'gte', 'lt', 'lte', 'range'],
+                'resource_field_name_3': ALL,
+                'resource_field_name_4': ALL_WITH_RELATIONS,
+                ...
+            }
+
+        Accepts the filters as a dict. None by default, meaning no filters.
         """
-        # FIXME: restructure to fit ``Document`` filtering in MongoEngine
-        # At the declarative level:
-        #     filtering = {
-        #         'resource_field_name': ['exact', 'startswith', 'endswith', 'contains'],
-        #         'resource_field_name_2': ['exact', 'gt', 'gte', 'lt', 'lte', 'range'],
-        #         'resource_field_name_3': ALL,
-        #         'resource_field_name_4': ALL_WITH_RELATIONS,
-        #         ...
-        #     }
-        # Accepts the filters as a dict. None by default, meaning no filters.
         if filters is None:
             filters = {}
 
-        # FIXME:
         qs_filters = {}
-        return qs_filters
-
-        if hasattr( self._meta, 'queryset' ):
-            # Get the possible query terms from the current QuerySet.
-            query_terms = self._meta.queryset.query.query_terms.keys()
-        else:
-            query_terms = QUERY_TERMS.keys()
 
         for filter_expr, value in filters.items():
             filter_bits = filter_expr.split( LOOKUP_SEP )
@@ -916,10 +905,10 @@ class DocumentResource( Resource ):
             filter_type = 'exact'
 
             if not field_name in self.fields:
-                # It's not a field we know about. Move along citizen.
+                # Not a field the Resource knows about, so ignore it.
                 continue
 
-            if len( filter_bits ) and filter_bits[-1] in query_terms:
+            if len( filter_bits ) and filter_bits[-1] in QUERY_TERMS:
                 filter_type = filter_bits.pop()
 
             lookup_bits = self.check_filtering( field_name, filter_type, filter_bits )
@@ -929,19 +918,16 @@ class DocumentResource( Resource ):
             qs_filter = "%s%s%s" % ( db_field_name, LOOKUP_SEP, filter_type )
             qs_filters[qs_filter] = value
 
-        return dict_strip_unicode_keys( qs_filters )
+        return qs_filters
 
     def apply_filters( self, request, applicable_filters ):
         """
         A MongoEngine-specific implementation of ``apply_filters``.
-
-        The default simply applies the ``applicable_filters`` as ``**kwargs``,
-        but should make it possible to do more advanced things.
         """
         return self.get_object_list( request ).filter( **applicable_filters )
 
     def get_object_list( self, request ):
-        if self._meta.queryset:
+        if hasattr( self._meta, "queryset" ):
             return self._meta.queryset.clone()
         else:
             raise NotImplementedError()
@@ -973,19 +959,13 @@ class DocumentResource( Resource ):
 
     def obj_get_list( self, request=None, **kwargs ):
         """
-        A MongoEngine implementation of ``obj_get_list``.
-
-        Takes an optional ``request`` object, whose ``GET`` dictionary can be
-        used to narrow the query.
+        A Pyramid/MongoEngine implementation of ``obj_get_list``.
         """
-        # FIXME: Temporary until we re-enable filters
-        return self.get_object_list( request )
-
         filters = {}
-
-        if hasattr( request, 'GET' ):
-            # Grab a mutable copy.
-            filters = request.GET.copy()
+        if request and hasattr( request, 'GET' ):
+            # Pyramid's Request object uses a Multidict for its representation.
+            # Transform this into an 'ordinary' dict for further processing.
+            filters = request.GET.mixed()
 
         # Update with the provided kwargs.
         filters.update( kwargs )
