@@ -85,7 +85,7 @@ class ApiField( object ):
 
         return self._default
 
-    def get_field_attribute( self, bundle ):
+    def get_attribute( self, bundle ):
         '''
         Returns the corresponding instance attribute
         ``attribute`` specifies which field on the model/document should
@@ -138,7 +138,7 @@ class ApiField( object ):
         Takes data from the object and prepares it for the corresponding field
         on the resource.
         """
-        obj = self.get_field_attribute( bundle )
+        obj = self.get_attribute( bundle )
         if obj:
             return self.convert( obj )
         elif self.has_default():
@@ -441,18 +441,12 @@ class RelatedField( ApiField ):
         human-readable description of the field exposed at the schema level.
         Defaults to the per-Field definition.
         """
-        self.instance_name = None
-        self._resource = None
+        super( RelatedField, self ).__init__( attribute=attribute, default=default, required=required, readonly=readonly, unique=unique, help_text=help_text ) 
+
+        # Set some properties specific to RelatedFields
         self.to = to
-        self.attribute = attribute
-        self._default = default
-        self.required = required
-        self.readonly = readonly
-        self.full = full
-        self.api = None
-        self.resource_name = None
-        self.unique = unique
         self._to_class = None
+        self.full = full
 
         if self.to == 'self':
             self.self_referential = True
@@ -596,7 +590,7 @@ class ToOneField( RelatedField ):
 
     def dehydrate( self, bundle ):
 
-        related_obj = self.get_field_attribute( bundle )
+        related_obj = self.get_attribute( bundle )
 
         if not related_obj:
             return None
@@ -627,7 +621,7 @@ class ToManyField( RelatedField ):
 
             raise ApiFieldError( "The model '%r' does not have a primary key and can not be used in a ToMany context." % bundle.obj )
 
-        related_objs = self.get_field_attribute( bundle )
+        related_objs = self.get_attribute( bundle )
 
         if not related_objs:
             return []
