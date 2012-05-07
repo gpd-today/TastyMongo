@@ -19,6 +19,6 @@ class Authentication(object):
 
         This implementation returns a combination of IP address and hostname.
         """
-        return "%s_%s" % (request.META.get('REMOTE_ADDR', 'noaddr'), request.META.get('REMOTE_HOST', 'nohost'))
+        return "%s_%s" % (request.remote_addr, request.host)
 
 

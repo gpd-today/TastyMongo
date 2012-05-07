@@ -10,6 +10,7 @@ from .utils import determine_format, build_content_type
 from .bundle import Bundle
 from .authentication import Authentication
 from .authorization import ReadOnlyAuthorization
+from .throttle import BaseThrottle
 
 from pyramid.response import Response
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
@@ -28,7 +29,7 @@ class ResourceOptions( object ):
     serializer = Serializer()
     authentication = Authentication()
     authorization = ReadOnlyAuthorization()
-#    throttle = BaseThrottle()
+    throttle = BaseThrottle()
 #    validation = Validation()
     allowed_methods = [ 'get', 'post', 'put', 'delete' ]
     list_allowed_methods = None
@@ -170,8 +171,7 @@ class Resource( object ):
             raise ImmediateHTTPResponse( response=http.HTTPNotImplemented( body=detail ))
 
         self.is_authenticated( request )
-        #self.is_authorized( request )
-        #self.check_throttle( request )
+        self.check_throttle( request )
 
         # All clear. Process the request.
         response = method( request, **kwargs )
@@ -207,7 +207,7 @@ class Resource( object ):
         """
         self.check_method( request, allowed=['get'] )
         self.is_authenticated( request )
-#        self.check_throttle( request )
+        self.check_throttle( request )
         return self.create_response( request, self.build_schema() )
 
     def get_list( self, request ):
@@ -278,29 +278,6 @@ class Resource( object ):
             raise ImmediateHTTPResponse( response=response )
 
         return request_method
-
-    def can_create( self ):
-        """
-        Checks to ensure ``post`` is within ``allowed_methods``.
-        """
-        allowed = set( self._meta.list_allowed_methods + self._meta.detail_allowed_methods )
-        return 'post' in allowed
-
-    def can_update( self ):
-        """
-        Checks to ensure ``put`` is within ``allowed_methods``.
-
-        Used when hydrating related data.
-        """
-        allowed = set( self._meta.list_allowed_methods + self._meta.detail_allowed_methods )
-        return 'put' in allowed
-
-    def can_delete( self ):
-        """
-        Checks to ensure ``delete`` is within ``allowed_methods``.
-        """
-        allowed = set( self._meta.list_allowed_methods + self._meta.detail_allowed_methods )
-        return 'delete' in allowed
 
     def check_filtering( self, field_name, filter_type='exact', filter_bits=None ):
         """
@@ -378,21 +355,6 @@ class Resource( object ):
         """
         # Authenticate the request as needed.
         auth_result = self._meta.authentication.is_authenticated( request )
-
-        if isinstance( auth_result, Response ):
-            raise ImmediateHTTPResponse( response=auth_result )
-
-        if not auth_result is True:
-            raise ImmediateHTTPResponse( response=http.HTTPUnauthorized() )
-
-    def is_authorized( self, request, object=None ):
-        """
-        Handles checking of permissions to see if the user has authorization
-        to GET, POST, PUT, or DELETE this resource.  If ``object`` is provided,
-        the authorization backend can apply additional row-level permissions
-        checking.
-        """
-        auth_result = self._meta.authorization.is_authorized( request, object )
 
         if isinstance( auth_result, Response ):
             raise ImmediateHTTPResponse( response=auth_result )
