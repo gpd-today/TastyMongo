@@ -11,6 +11,7 @@ from .bundle import Bundle
 from .authentication import Authentication
 from .authorization import ReadOnlyAuthorization
 from .throttle import BaseThrottle
+from .validation import Validation
 
 from pyramid.response import Response
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
@@ -30,7 +31,7 @@ class ResourceOptions( object ):
     authentication = Authentication()
     authorization = ReadOnlyAuthorization()
     throttle = BaseThrottle()
-#    validation = Validation()
+    validation = Validation()
     allowed_methods = [ 'get', 'post', 'put', 'delete' ]
     list_allowed_methods = None
     detail_allowed_methods = None
@@ -361,6 +362,24 @@ class Resource( object ):
 
         if not auth_result is True:
             raise ImmediateHTTPResponse( response=http.HTTPUnauthorized() )
+
+    def is_valid(self, bundle, request=None):
+        """
+        Handles checking if the data provided by the user is valid.
+
+        Mostly a hook, this uses class assigned to ``validation`` from
+        ``Resource._meta``.
+
+        If validation fails, an error is raised with the error messages
+        serialized inside it.
+        """
+        errors = self._meta.validation.is_valid(bundle, request)
+
+        if errors:
+            bundle.errors[self._meta.resource_name] = errors
+            return False
+
+        return True
 
     def check_throttle( self, request ):
         """
