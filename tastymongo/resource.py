@@ -177,6 +177,9 @@ class Resource( object ):
         # All clear. Process the request.
         response = method( request, **kwargs )
 
+        # Add the throttled request.
+        self.log_throttled_access(request)
+
         return response
 
     def dispatch_list( self, request, **kwargs ):
@@ -197,6 +200,16 @@ class Resource( object ):
         """
         return self.dispatch( 'detail', request, **kwargs )
 
+    def log_throttled_access(self, request):
+        """
+        Handles the recording of the user's access for throttling purposes.
+
+        Mostly a hook, this uses class assigned to ``throttle`` from
+        ``Resource._meta``.
+        """
+        request_method = request.method.lower()
+        self._meta.throttle.accessed( self._meta.authentication.get_identifier(request), url=request.path_url, request_method=request_method )
+
     def get_schema( self, request ):
         """
         Returns a serialized form of the schema of the resource.
@@ -209,6 +222,7 @@ class Resource( object ):
         self.check_method( request, allowed=['get'] )
         self.is_authenticated( request )
         self.check_throttle( request )
+        self.log_throttled_access(request)
         return self.create_response( request, self.build_schema() )
 
     def get_list( self, request ):
