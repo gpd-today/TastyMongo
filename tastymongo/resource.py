@@ -936,18 +936,24 @@ class DocumentResource( Resource ):
         """
         try:
             object_list = self.get_object_list( request ).filter( **kwargs )
+            obj = None
 
-            # FIXME: check if this does not trigger another query for the count
-            if len( object_list ) == 1:
-                return object_list[0]
+            # Be smart about queries: every len() causes one.
+            for o in object_list:
+                if obj:
+                    # We've already set obj, so shouldn't get here unless
+                    # there's more than one object at this (possibly filtered) URI
+                    stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
+                    raise self._meta.object_class.MultipleObjectsReturned( "More than '%s' matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
+                obj = o
 
-            # We either found none or too many objects on this request URI
-            stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
-
-            if len( object_list ) <= 0:
+            if obj is None:
+                # We should have exactly 1 object at this point
+                stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
                 raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of '%s' which matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
-            elif len( object_list ) > 1:
-                raise self._meta.object_class.MultipleObjectsReturned( "More than '%s' matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
+
+            # Okay, we're good to go without superfluous queries
+            return obj
 
         except ValueError:
             raise NotFound( "Invalid resource lookup data provided ( mismatched type )." )
@@ -987,6 +993,4 @@ class DocumentResource( Resource ):
         - updates the union of collection in this URI
         - determines the union with the new collection
         """
-
-
-
+        pass
