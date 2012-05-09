@@ -55,6 +55,7 @@ class DetailTests( unittest.TestCase ):
         testing.tearDown()
 
     def test_get_detail( self ):
+        import ipdb; ipdb.set_trace()
         request = Request.blank('/api/v1/')
 
         # Get a single activity
@@ -67,4 +68,7 @@ class DetailTests( unittest.TestCase ):
 
         # Check if the activity contains the person
         self.assertEqual( deserialized['person'].split('/')[-2], unicode(self.proxy.person.id) )
+
+    def test_post_object( self ):
+        request = Request.blank( '/api/v1/' )
 
