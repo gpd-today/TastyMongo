@@ -603,8 +603,9 @@ class ToOneField( RelatedField ):
         value = super( ToOneField, self ).hydrate( bundle )
 
         if value is None:
-            return value
+            return None
 
+        # Return a fully populated related resource
         return self.build_related_resource( value, request=bundle.request )
 
 

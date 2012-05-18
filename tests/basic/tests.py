@@ -55,8 +55,8 @@ class DetailTests( unittest.TestCase ):
         testing.tearDown()
 
     def test_get_detail( self ):
-        import ipdb; ipdb.set_trace()
         request = Request.blank('/api/v1/')
+        request.user = 'dummy'
 
         # Get a single activity
         request.matchdict = { 'id': self.proxy.activity.id }
@@ -71,4 +71,9 @@ class DetailTests( unittest.TestCase ):
 
     def test_post_object( self ):
         request = Request.blank( '/api/v1/' )
+        request.user = 'dude'
+        request.body = b'{ "name": "harry" }'
+
+        # Create a new activity
+        response = self.activity_resource.post_list( request )
 

@@ -264,90 +264,6 @@ class Resource( object ):
         bundle = self.alter_detail_data_to_serialize( request, bundle )
         return self.create_response( request, bundle )
 
-    def put_list(self, request, **kwargs):
-        """
-        Replaces a collection of resources with another collection.
-
-        Calls ``delete_list`` to clear out the collection then ``obj_create``
-        with the provided the data to create the new collection.
-
-        Return ``HttpNoContent`` (204 No Content) if
-        ``Meta.always_return_data = False`` (default).
-
-        Return ``HttpAccepted`` (202 Accepted) if
-        ``Meta.always_return_data = True``.
-        """
-        deserialized = self.deserialize(request, request.raw_post_data, format=request.META.get('CONTENT_TYPE', 'application/json'))
-        deserialized = self.alter_deserialized_list_data(request, deserialized)
-
-        if not 'objects' in deserialized:
-            raise BadRequest("Invalid data sent.")
-        self.obj_delete_list(request=request, **self.remove_api_resource_names(kwargs))
-        bundles_seen = []
-
-        for object_data in deserialized['objects']:
-            bundle = self.build_bundle(data=dict_strip_unicode_keys(object_data), request=request)
-
-            # Attempt to be transactional, deleting any previously created
-            # objects if validation fails.
-            try:
-                self.obj_create(bundle, request=request, **self.remove_api_resource_names(kwargs))
-                bundles_seen.append(bundle)
-            except ImmediateHttpResponse:
-                self.rollback(bundles_seen)
-                raise
-
-        if not self._meta.always_return_data:
-            return http.HttpNoContent()
-        else:
-            to_be_serialized = {}
-            to_be_serialized['objects'] = [self.full_dehydrate(bundle) for bundle in bundles_seen]
-            to_be_serialized = self.alter_list_data_to_serialize(request, to_be_serialized)
-            return self.create_response(request, to_be_serialized, response_class=http.HttpAccepted)
-
-    def put_detail(self, request, **kwargs):
-        """
-        Either updates an existing resource or creates a new one with the
-        provided data.
-
-        Calls ``obj_update`` with the provided data first, but falls back to
-        ``obj_create`` if the object does not already exist.
-
-        If a new resource is created, return ``HttpCreated`` (201 Created).
-        If ``Meta.always_return_data = True``, there will be a populated body
-        of serialized data.
-
-        If an existing resource is modified and
-        ``Meta.always_return_data = False`` (default), return ``HttpNoContent``
-        (204 No Content).
-        If an existing resource is modified and
-        ``Meta.always_return_data = True``, return ``HttpAccepted`` (202
-        Accepted).
-        """
-        deserialized = self.deserialize(request, request.raw_post_data, format=request.META.get('CONTENT_TYPE', 'application/json'))
-        deserialized = self.alter_deserialized_detail_data(request, deserialized)
-        bundle = self.build_bundle(data=dict_strip_unicode_keys(deserialized), request=request)
-
-        try:
-            updated_bundle = self.obj_update(bundle, request=request, **self.remove_api_resource_names(kwargs))
-
-            if not self._meta.always_return_data:
-                return http.HttpNoContent()
-            else:
-                updated_bundle = self.full_dehydrate(updated_bundle)
-                updated_bundle = self.alter_detail_data_to_serialize(request, updated_bundle)
-                return self.create_response(request, updated_bundle, response_class=http.HttpAccepted)
-        except (NotFound, MultipleObjectsReturned):
-            updated_bundle = self.obj_create(bundle, request=request, **self.remove_api_resource_names(kwargs))
-            location = self.get_resource_uri(updated_bundle)
-
-            if not self._meta.always_return_data:
-                return http.HttpCreated(location=location)
-            else:
-                updated_bundle = self.full_dehydrate(updated_bundle)
-                updated_bundle = self.alter_detail_data_to_serialize(request, updated_bundle)
-                return self.create_response(request, updated_bundle, response_class=http.HttpCreated, location=location)
-
     def post_list(self, request, **kwargs):
         """
         Creates a new resource/object with the provided data.
@@ -359,10 +275,10 @@ class Resource( object ):
         If ``Meta.always_return_data = True``, there will be a populated body
         of serialized data.
         """
-        deserialized = self.deserialize(request, request.raw_post_data, format=request.META.get('CONTENT_TYPE', 'application/json'))
+        deserialized = self.deserialize(request, request.body, format=request.content_type)
         deserialized = self.alter_deserialized_detail_data(request, deserialized)
-        bundle = self.build_bundle(data=dict_strip_unicode_keys(deserialized), request=request)
-        updated_bundle = self.obj_create(bundle, request=request, **self.remove_api_resource_names(kwargs))
+        bundle = self.build_bundle(data=deserialized, request=request)
+        updated_bundle = self.obj_create(bundle, request=request, **kwargs)
         location = self.get_resource_uri(updated_bundle)
 
         if not self._meta.always_return_data:
@@ -380,14 +296,9 @@ class Resource( object ):
     
     def delete_list(self, request, **kwargs):
         """
-        Destroys a collection of resources/objects.
-
-        Calls ``obj_delete_list``.
-
-        If the resources are deleted, return ``HttpNoContent`` (204 No Content).
+        Not implemented since we don't allow destroying whole lists
         """
-        self.obj_delete_list(request=request, **self.remove_api_resource_names(kwargs))
-        return http.HttpNoContent()
+        return http.HttpNotImplemented()
 
     def delete_detail(self, request, **kwargs):
         """
@@ -399,142 +310,10 @@ class Resource( object ):
         If the resource did not exist, return ``Http404`` (404 Not Found).
         """
         try:
-            self.obj_delete(request=request, **self.remove_api_resource_names(kwargs))
+            self.obj_delete(request=request, **kwargs)
             return http.HttpNoContent()
         except NotFound:
             return http.HttpNotFound()
-
-    def patch_list(self, request, **kwargs):
-        """
-        Updates a collection in-place.
-
-        The exact behavior of ``PATCH`` to a list resource is still the matter of
-        some debate in REST circles, and the ``PATCH`` RFC isn't standard. So the
-        behavior this method implements (described below) is something of a
-        stab in the dark. It's mostly cribbed from GData, with a smattering
-        of ActiveResource-isms and maybe even an original idea or two.
-
-        The ``PATCH`` format is one that's similar to the response returned from
-        a ``GET`` on a list resource::
-
-            {
-              "objects": [{object}, {object}, ...],
-              "deleted_objects": ["URI", "URI", "URI", ...],
-            }
-
-        For each object in ``objects``:
-
-            * If the dict does not have a ``resource_uri`` key then the item is
-              considered "new" and is handled like a ``POST`` to the resource list.
-
-            * If the dict has a ``resource_uri`` key and the ``resource_uri`` refers
-              to an existing resource then the item is a update; it's treated
-              like a ``PATCH`` to the corresponding resource detail.
-
-            * If the dict has a ``resource_uri`` but the resource *doesn't* exist,
-              then this is considered to be a create-via-``PUT``.
-
-        Each entry in ``deleted_objects`` referes to a resource URI of an existing
-        resource to be deleted; each is handled like a ``DELETE`` to the relevent
-        resource.
-
-        In any case:
-
-            * If there's a resource URI it *must* refer to a resource of this
-              type. It's an error to include a URI of a different resource.
-
-            * ``PATCH`` is all or nothing. If a single sub-operation fails, the
-              entire request will fail and all resources will be rolled back.
-        """
-        request = convert_post_to_patch(request)
-        deserialized = self.deserialize(request, request.raw_post_data, format=request.META.get('CONTENT_TYPE', 'application/json'))
-
-        if "objects" not in deserialized:
-            raise BadRequest("Invalid data sent.")
-
-        if len(deserialized["objects"]) and 'put' not in self._meta.detail_allowed_methods:
-            raise ImmediateHttpResponse(response=http.HttpMethodNotAllowed())
-
-        for data in deserialized["objects"]:
-            # If there's a resource_uri then this is either an
-            # update-in-place or a create-via-PUT.
-            if "resource_uri" in data:
-                uri = data.pop('resource_uri')
-
-                try:
-                    obj = self.get_via_uri(uri, request=request)
-
-                    # The object does exist, so this is an update-in-place.
-                    bundle = self.build_bundle(obj=obj, request=request)
-                    bundle = self.full_dehydrate(bundle)
-                    bundle = self.alter_detail_data_to_serialize(request, bundle)
-                    self.update_in_place(request, bundle, data)
-                except (ObjectDoesNotExist, MultipleObjectsReturned):
-                    # The object referenced by resource_uri doesn't exist,
-                    # so this is a create-by-PUT equivalent.
-                    data = self.alter_deserialized_detail_data(request, data)
-                    bundle = self.build_bundle(data=dict_strip_unicode_keys(data))
-                    self.obj_create(bundle, request=request)
-            else:
-                # There's no resource URI, so this is a create call just
-                # like a POST to the list resource.
-                data = self.alter_deserialized_detail_data(request, data)
-                bundle = self.build_bundle(data=dict_strip_unicode_keys(data))
-                self.obj_create(bundle, request=request)
-
-        if len(deserialized.get('deleted_objects', [])) and 'delete' not in self._meta.detail_allowed_methods:
-            raise ImmediateHttpResponse(response=http.HttpMethodNotAllowed())
-
-        for uri in deserialized.get('deleted_objects', []):
-            obj = self.get_via_uri(uri, request=request)
-            self.obj_delete(request=request, _obj=obj)
-
-        return http.HttpAccepted()
-
-    def patch_detail(self, request, **kwargs):
-        """
-        Updates a resource in-place.
-
-        Calls ``obj_update``.
-
-        If the resource is updated, return ``HttpAccepted`` (202 Accepted).
-        If the resource did not exist, return ``HttpNotFound`` (404 Not Found).
-        """
-        request = convert_post_to_patch(request)
-
-        # We want to be able to validate the update, but we can't just pass
-        # the partial data into the validator since all data needs to be
-        # present. Instead, we basically simulate a PUT by pulling out the
-        # original data and updating it in-place.
-        # So first pull out the original object. This is essentially
-        # ``get_detail``.
-        try:
-            obj = self.cached_obj_get(request=request, **self.remove_api_resource_names(kwargs))
-        except ObjectDoesNotExist:
-            return http.HttpNotFound()
-        except MultipleObjectsReturned:
-            return http.HttpMultipleChoices("More than one resource is found at this URI.")
-
-        bundle = self.build_bundle(obj=obj, request=request)
-        bundle = self.full_dehydrate(bundle)
-        bundle = self.alter_detail_data_to_serialize(request, bundle)
-
-        # Now update the bundle in-place.
-        deserialized = self.deserialize(request, request.raw_post_data, format=request.META.get('CONTENT_TYPE', 'application/json'))
-        self.update_in_place(request, bundle, deserialized)
-        return http.HttpAccepted()
-
-    def update_in_place(self, request, original_bundle, new_data):
-        """
-        Update the object in original_bundle in-place using new_data.
-        """
-        original_bundle.data.update(**dict_strip_unicode_keys(new_data))
-
-        # Now we've got a bundle with the new data sitting in it and we're
-        # we're basically in the same spot as a PUT request. SO the rest of this
-        # function is cribbed from put_detail.
-        self.alter_deserialized_detail_data(request, original_bundle.data)
-        return self.obj_update(original_bundle, request=request, pk=original_bundle.obj.pk)
 
     def check_method( self, request, allowed=None ):
         """
@@ -751,17 +530,17 @@ class Resource( object ):
         """
         return data
 
-    def deserialize( self, request, data, format='application/json' ):
+    def deserialize( self, request, data, format=None ):
         """
         Given a request, data and a format, deserializes the given data.
 
         It relies on the request properly sending a ``CONTENT_TYPE`` header,
-        falling back to ``application/json`` if not provided.
+        falling back to the default format if not provided.
 
         Mostly a hook, this uses the ``Serializer`` from ``Resource._meta``.
         """
-        deserialized = self._meta.serializer.deserialize( data, format=getattr( request.content_type, format ))
-        return deserialized
+        format = format or request.content_type or self._meta.default_format
+        return self._meta.serializer.deserialize( data, format )
 
     def build_bundle( self, obj=None, data=None, request=None ):
         """
@@ -789,6 +568,53 @@ class Resource( object ):
         This is the `absolute` uri of the object
         """
         raise NotImplementedError()
+
+    def hydrate(self, bundle):
+        """
+        Given a populated bundle, distill it and turn it back into
+        a full-fledged object instance.
+        """
+        if bundle.obj is None:
+            bundle.obj = self._meta.object_class()
+
+        bundle = self.hydrate(bundle)
+        for field_name, field_object in self.fields.items():
+            if field_object.readonly is True:
+                continue
+
+            # Check for an optional field_specific method on the resource 
+            # to do any further hydration for the field before calling the
+            # field's own hydrate method.
+            method = getattr(self, "hydrate_%s" % field_name, None)
+            if method:
+                bundle = method(bundle)
+
+            if field_object.attribute:
+                # Use the field's hydrate method to obtain a possibly complex
+                # value from its corresponding simple deserialized json data
+                value = field_object.hydrate(bundle)
+
+                if value is not None or not field_object.required:
+                    # For non-related fields, set `value` to the corresponding
+                    # document attribute and get on with it.
+                    if not getattr(field_object, 'is_related', False):
+                        setattr(bundle.obj, field_object.attribute, value)
+                    else:
+                        # We're related to another /resource/.  
+
+                    elif not getattr(field_object, 'is_m2m', False):
+                        if isinstance(value, Bundle) and value.errors.get(field_name):
+                            # copy errors from our hydrated field to the main bundle
+                            bundle.errors[field_name] = value.errors[field_name]
+
+                        if value is not None:
+                            setattr(bundle.obj, field_object.attribute, value.obj)
+                        elif field_object.blank:
+                            continue
+                        elif field_object.null:
+                            setattr(bundle.obj, field_object.attribute, value)
+
+        return bundle
 
     def full_dehydrate( self, bundle ):
         """
@@ -1293,6 +1119,115 @@ class DocumentResource( Resource ):
             return self.apply_filters( request, applicable_filters )
         except ValueError:
             raise BadRequest( "Invalid resource lookup data provided ( mismatched type )." )
+
+    def obj_create(self, bundle, request=None, **kwargs):
+        """
+        A MongoEngine-specific implementation of ``obj_create``.
+        """
+
+        # Create an object of the right type
+        bundle.obj = self._meta.object_class()
+
+        for key, value in kwargs.items():
+            setattr(bundle.obj, key, value)
+
+        bundle = self.full_hydrate(bundle)
+        self.is_valid(bundle,request)
+
+        if bundle.errors:
+            self.error_response(bundle.errors, request)
+
+        # Save FKs just in case.
+        self.save_related(bundle)
+
+        # Save parent
+        bundle.obj.save()
+
+        # Now pick up the M2M bits.
+        m2m_bundle = self.hydrate_m2m(bundle)
+        self.save_m2m(m2m_bundle)
+        return bundle
+
+    def obj_update(self, bundle, request=None, skip_errors=False, **kwargs):
+        """
+        A DRM-specific implementation of ``obj_update``.
+        """
+        if not bundle.obj or not bundle.obj.pk:
+            # Attempt to hydrate data from kwargs before doing a lookup for the object.
+            # This step is needed so certain values (like datetime) will pass model validation.
+            try:
+                bundle.obj = self.get_object_list(bundle.request).model()
+                bundle.data.update(kwargs)
+                bundle = self.full_hydrate(bundle)
+                lookup_kwargs = kwargs.copy()
+
+                for key in kwargs.keys():
+                    if key == 'pk':
+                        continue
+                    elif getattr(bundle.obj, key, NOT_AVAILABLE) is not NOT_AVAILABLE:
+                        lookup_kwargs[key] = getattr(bundle.obj, key)
+                    else:
+                        del lookup_kwargs[key]
+            except:
+                # if there is trouble hydrating the data, fall back to just
+                # using kwargs by itself (usually it only contains a "pk" key
+                # and this will work fine.
+                lookup_kwargs = kwargs
+
+            try:
+                bundle.obj = self.obj_get(bundle.request, **lookup_kwargs)
+            except ObjectDoesNotExist:
+                raise NotFound("A model instance matching the provided arguments could not be found.")
+
+        bundle = self.full_hydrate(bundle)
+        self.is_valid(bundle,request)
+
+        if bundle.errors and not skip_errors:
+            self.error_response(bundle.errors, request)
+
+        # Save FKs just in case.
+        self.save_related(bundle)
+
+        # Save the main object.
+        bundle.obj.save()
+
+        # Now pick up the M2M bits.
+        m2m_bundle = self.hydrate_m2m(bundle)
+        self.save_m2m(m2m_bundle)
+        return bundle
+
+    def obj_delete_list(self, request=None, **kwargs):
+        """
+        A DRM-specific implementation of ``obj_delete_list``.
+
+        Takes optional ``kwargs``, which can be used to narrow the query.
+        """
+        base_object_list = self.get_object_list(request).filter(**kwargs)
+        authed_object_list = self.apply_authorization_limits(request, base_object_list)
+
+        if hasattr(authed_object_list, 'delete'):
+            # It's likely a ``QuerySet``. Call ``.delete()`` for efficiency.
+            authed_object_list.delete()
+        else:
+            for authed_obj in authed_object_list:
+                authed_obj.delete()
+
+    def obj_delete(self, request=None, **kwargs):
+        """
+        A DRM-specific implementation of ``obj_delete``.
+
+        Takes optional ``kwargs``, which are used to narrow the query to find
+        the instance.
+        """
+        obj = kwargs.pop('_obj', None)
+
+        if not hasattr(obj, 'delete'):
+            try:
+                obj = self.obj_get(request, **kwargs)
+            except ObjectDoesNotExist:
+                raise NotFound("A model instance matching the provided arguments could not be found.")
+
+        obj.delete()
 
     def put_list_FIXME():
         # FIXME make according to comments, see discussion we had about this
