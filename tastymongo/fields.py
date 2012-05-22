@@ -165,7 +165,7 @@ class ApiField( object ):
         """
         if self.readonly:
             return None
-        if not bundle.data.has_key( self.instance_name ):
+        if self.instance_name not in bundle.data:
             if self.attribute and getattr( bundle.obj, self.attribute, None ):
                 return getattr( bundle.obj, self.attribute )
             elif self.instance_name and hasattr( bundle.obj, self.instance_name ):
@@ -494,7 +494,10 @@ class RelatedField( ApiField ):
             # Try to import.
             module_bits = self.to.split( '.' )
             module_path, class_name = '.'.join( module_bits[:-1] ), module_bits[-1]
-            module = importlib.import_module( module_path )
+            try:
+                module = importlib.import_module( module_path )
+            except ImportError:
+                raise ImportError( "TastyMongo could not resolve the path `%s` for resource `%s`" % ( self.to, class_name ) )
         else:
             # We've got a bare class name here, which won't work ( No AppCache
             # to rely on ). Try to throw a useful error.
@@ -544,7 +547,7 @@ class RelatedField( ApiField ):
             return related_resource.full_hydrate( related_bundle )
 
         try:
-            return related_resource.obj_update( related_bundle, skip_errors=True, **data )
+            return related_resource.obj_update( related_bundle, **data )
         except NotFound:
             try:
                 # Attempt lookup by primary key
@@ -552,10 +555,9 @@ class RelatedField( ApiField ):
 
                 if not lookup_kwargs:
                     raise NotFound()
-                return related_resource.obj_update( related_bundle, skip_errors=True, **lookup_kwargs )
+                return related_resource.obj_update( related_bundle, **lookup_kwargs )
             except NotFound:
                 related_bundle = related_resource.full_hydrate( related_bundle )
-                related_resource.is_valid( related_bundle, request )
                 return related_bundle
         except MultipleObjectsReturned:
             return related_resource.full_hydrate( related_bundle )
