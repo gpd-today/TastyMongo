@@ -23,9 +23,9 @@ class DetailTests( unittest.TestCase ):
     def setup_test_data( self ):
 
         # Index our database objects
-        db = self.proxy = db_proxy()
-        db.person, created = Person.objects.get_or_create( name='Dude', defaults={ 'email': 'dude@progressivecompany.com', 'password': 'dude' } )
-        db.activity, created = Activity.objects.get_or_create( name='Act!', person=self.proxy.person )
+        self.data = db_proxy()
+        self.data.person, created = Person.objects.get_or_create( name='Dude', defaults={ 'email': 'dude@progressivecompany.com', 'password': 'dude' } )
+        self.data.activity, created = Activity.objects.get_or_create( name='Act!', person=self.data.person )
 
     def teardown_test_data( self ):
 
@@ -54,24 +54,28 @@ class DetailTests( unittest.TestCase ):
         self.teardown_test_data()
         testing.tearDown()
 
+
     def test_get_detail( self ):
         request = Request.blank('/api/v1/')
-        request.user = 'dummy'
+        self.config.testing_securitypolicy( userid='1', permissive=True )
+        request.user = self.data.person
 
         # Get a single activity
-        request.matchdict = { 'id': self.proxy.activity.id }
+        request.matchdict = { 'id': self.data.activity.id }
         response = self.activity_resource.dispatch_detail( request )
         deserialized = json.loads( response.body )
 
         # Check if the correct activity has been returned
-        self.assertEqual( deserialized['id'], unicode(self.proxy.activity.id) )
+        self.assertEqual( deserialized['id'], unicode(self.data.activity.id) )
 
         # Check if the activity contains the person
-        self.assertEqual( deserialized['person'].split('/')[-2], unicode(self.proxy.person.id) )
+        self.assertEqual( deserialized['person'].split('/')[-2], unicode(self.data.person.id) )
+
 
     def test_post_object( self ):
         request = Request.blank( '/api/v1/' )
-        request.user = 'dude'
+        self.config.testing_securitypolicy( userid='1', permissive=True )
+        request.user = self.data.person
         request.body = b'{ "name": "harry" }'
 
         # Create a new activity

@@ -9,7 +9,7 @@ from .documents import Activity, Person
 class ActivityResource( DocumentResource ):
 
     person = fields.ToOneField(
-            'tests.basic.resources.PersonResource',
+            'basic.resources.PersonResource',
             'person', )
 
     class Meta:
