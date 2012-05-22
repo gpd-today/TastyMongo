@@ -46,7 +46,7 @@ class ResourceOptions( object ):
     fields = []
     excludes = []
     include_resource_uri = True
-    include_resource_url = False
+    use_absolute_uris = False
 
     def __new__( cls, meta=None ):
         overrides = {}
@@ -119,12 +119,6 @@ class DeclarativeMetaclass( type ):
         elif 'resource_uri' in new_class.base_fields and not 'resource_uri' in attrs:
             del( new_class.base_fields['resource_uri'] )
 
-        if getattr( new_class._meta, 'include_resource_url', False ):
-            if not 'resource_url' in new_class.base_fields:
-                new_class.base_fields['resource_url'] = fields.StringField( readonly=True )
-        elif 'resource_url' in new_class.base_fields and not 'resource_url' in attrs:
-            del( new_class.base_fields['resource_url'] )
-
         for field_name, field_object in new_class.base_fields.items():
             if hasattr( field_object, 'contribute_to_class' ):
                 field_object.contribute_to_class( new_class, field_name )
@@ -146,6 +140,58 @@ class Resource( object ):
             return self.fields[name]
         raise AttributeError( name )
 
+
+    def get_resource_uri( self, request, bundle_or_obj = None, absolute=None ):
+        """
+        This function should return the relative or absolute uri of the 
+        bundle or object.
+        """
+        raise NotImplementedError()
+
+    def dehydrate_resource_uri( self, request, bundle ):
+        """
+        For the automatically included ``resource_uri`` field, dehydrate
+        the relative URI for the given bundle.
+        """
+        try:
+            return self.get_resource_uri( request, bundle )
+        except NotImplementedError:
+            return '<not implemented>'
+
+    def build_schema( self ):
+        """
+        Returns a dictionary of all the fields on the resource and some
+        properties about those fields.
+
+        Used by the ``schema/`` endpoint to describe what will be available.
+        """
+        data = {
+            'fields': {},
+            'default_format': self._meta.default_format,
+            'allowed_list_http_methods': self._meta.list_allowed_methods,
+            'allowed_detail_http_methods': self._meta.detail_allowed_methods,
+            'default_limit': self._meta.limit,
+        }
+
+        if self._meta.ordering:
+            data['ordering'] = self._meta.ordering
+
+        if self._meta.filtering:
+            data['filtering'] = self._meta.filtering
+
+        for field_name, field_object in self.fields.items():
+            data['fields'][field_name] = {
+                'default': field_object.default,
+                'type': field_object.dehydrated_type,
+                'required': field_object.required,
+                'readonly': field_object.readonly,
+                'help_text': field_object.help_text,
+                'unique': field_object.unique,
+            }
+        return data
+    
+
+
     def determine_format( self, request ):
         """
         Used to determine the desired format.
@@ -154,166 +200,6 @@ class Resource( object ):
         as a point of extension.
         """
         return determine_format( request, self._meta.serializer, default_format=self._meta.default_format )
-
-    def dispatch( self, request_type, request, **kwargs ):
-        """
-        Handles the common operations ( allowed HTTP method, authentication,
-        throttling, method lookup ) surrounding most CRUD interactions.
-        """
-        allowed_methods = getattr( self._meta, '%s_allowed_methods' % request_type, None )
-        request_method = self.check_method( request, allowed=allowed_methods )
-        print( 'resource={}; request={}_{}'.format( self._meta.resource_name, request_method, request_type ))
-
-        # Determine which callback we're going to use
-        method = getattr( self, '{}_{}'.format( request_method, request_type ), None )
-
-        if method is None:
-            detail = 'Method="{}_{}" is not implemented for resource="{}"'.format( request_method, request_type, self._meta.resource_name )
-            raise ImmediateHTTPResponse( response=http.HTTPNotImplemented( body=detail ))
-
-        self.is_authenticated( request )
-        self.check_throttle( request )
-
-        # All clear. Process the request.
-        response = method( request, **kwargs )
-
-        # Add the throttled request.
-        self.log_throttled_access(request)
-
-        return response
-
-    def dispatch_list( self, request, **kwargs ):
-        """
-        A view for handling the various HTTP methods ( GET/POST/PUT/DELETE ) over
-        the entire list of resources.
-        
-        Relies on ``Resource.dispatch`` for the heavy-lifting.
-        """
-        return self.dispatch( 'list', request, **kwargs )
-
-    def dispatch_detail( self, request, **kwargs ):
-        """
-        A view for handling the various HTTP methods ( GET/POST/PUT/DELETE ) on
-        a single resource.
-
-        Relies on ``Resource.dispatch`` for the heavy-lifting.
-        """
-        return self.dispatch( 'detail', request, **kwargs )
-
-    def log_throttled_access(self, request):
-        """
-        Handles the recording of the user's access for throttling purposes.
-
-        Mostly a hook, this uses class assigned to ``throttle`` from
-        ``Resource._meta``.
-        """
-        request_method = request.method.lower()
-        self._meta.throttle.accessed( self._meta.authentication.get_identifier(request), url=request.path_url, request_method=request_method )
-
-    def get_schema( self, request ):
-        """
-        Returns a serialized form of the schema of the resource.
-
-        Calls ``build_schema`` to generate the data. This method only responds
-        to HTTP GET.
-
-        Should return a HTTPResponse ( 200 OK ).
-        """
-        self.check_method( request, allowed=['get'] )
-        self.is_authenticated( request )
-        self.check_throttle( request )
-        self.log_throttled_access(request)
-        return self.create_response( request, self.build_schema() )
-
-    def get_list( self, request ):
-        """
-        Returns a serialized list of resources.
-
-        Calls ``obj_get_list`` to provide the data, then handles that result
-        set and serializes it.
-
-        Should return a HTTPResponse ( 200 OK ).
-        """
-        objects = self.obj_get_list( request=request, **request.matchdict )
-        sorted_objects = self.apply_sorting( objects, options=request.GET )
-
-        to_be_serialized = { 'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 'objects': sorted_objects, }
-
-        # Dehydrate the bundles in preparation for serialization.
-        bundles = [self.build_bundle( obj=obj, request=request ) for obj in to_be_serialized['objects']]
-        to_be_serialized['objects'] = [self.full_dehydrate( bundle ) for bundle in bundles]
-        to_be_serialized = self.alter_list_data_to_serialize( request, to_be_serialized )
-        return self.create_response( request, to_be_serialized )
-
-    def get_detail( self, request ):
-        """
-        Returns a single serialized resource.
-
-        Should return a HTTPResponse ( 200 OK ).
-        """
-        try:
-            obj = self.obj_get( request=request, **request.matchdict )
-        except DoesNotExist:
-            return http.HTTPNotFound()
-        except MultipleObjectsReturned:
-            return http.HTTPMultipleChoices( "More than one resource is found at this URI." )
-
-        # try to figure out how to get these related resources
-        bundle = self.build_bundle( obj=obj, request=request )
-        bundle = self.full_dehydrate( bundle )
-        bundle = self.alter_detail_data_to_serialize( request, bundle )
-        return self.create_response( request, bundle )
-
-    def post_list(self, request, **kwargs):
-        """
-        Creates a new resource/object with the provided data.
-
-        Calls ``obj_create`` with the provided data and returns a response
-        with the new resource's location.
-
-        If a new resource is created, return ``HttpCreated`` (201 Created).
-        If ``Meta.always_return_data = True``, there will be a populated body
-        of serialized data.
-        """
-        deserialized = self.deserialize(request, request.body, format=request.content_type)
-        deserialized = self.alter_deserialized_detail_data(request, deserialized)
-        bundle = self.build_bundle(data=deserialized, request=request)
-        updated_bundle = self.obj_create(bundle, request=request, **kwargs)
-        location = self.get_resource_uri(updated_bundle)
-
-        if not self._meta.always_return_data:
-            return http.HttpCreated(location=location)
-        else:
-            updated_bundle = self.full_dehydrate(updated_bundle)
-            updated_bundle = self.alter_detail_data_to_serialize(request, updated_bundle)
-            return self.create_response(request, updated_bundle, response_class=http.HttpCreated, location=location)
-
-    def post_detail(self, request, **kwargs):
-        """
-        Not implemented since we don't allow self-referential nested URLs
-        """
-        return http.HttpNotImplemented()
-    
-    def delete_list(self, request, **kwargs):
-        """
-        Not implemented since we don't allow destroying whole lists
-        """
-        return http.HttpNotImplemented()
-
-    def delete_detail(self, request, **kwargs):
-        """
-        Destroys a single resource/object.
-
-        Calls ``obj_delete``.
-
-        If the resource is deleted, return ``HttpNoContent`` (204 No Content).
-        If the resource did not exist, return ``Http404`` (404 Not Found).
-        """
-        try:
-            self.obj_delete(request=request, **kwargs)
-            return http.HttpNoContent()
-        except NotFound:
-            return http.HttpNotFound()
 
     def check_method( self, request, allowed=None ):
         """
@@ -345,9 +231,361 @@ class Resource( object ):
 
         return request_method
 
+    def is_authenticated( self, request ):
+        """
+        Handles checking if the user is authenticated and dealing with
+        unauthenticated users.
+
+        Mostly a hook, this uses class assigned to ``authentication`` from
+        ``Resource._meta``.
+        """
+        # Authenticate the request as needed.
+        auth_result = self._meta.authentication.is_authenticated( request )
+
+        if isinstance( auth_result, Response ):
+            raise ImmediateHTTPResponse( response=auth_result )
+
+        if not auth_result is True:
+            raise ImmediateHTTPResponse( response=http.HTTPUnauthorized() )
+
+    def check_throttle( self, request ):
+        """
+        Handles checking if the user should be throttled.
+
+        Mostly a hook, this uses class assigned to ``throttle`` from
+        ``Resource._meta``.
+        """
+        identifier = self._meta.authentication.get_identifier( request )
+
+        # Check to see if they should be throttled.
+        if self._meta.throttle.should_be_throttled( identifier ):
+            # Throttle limit exceeded.
+            raise ImmediateHTTPResponse( response=http.HTTPForbidden() )
+
+    def log_throttled_access(self, request):
+        """
+        Handles the recording of the user's access for throttling purposes.
+
+        Mostly a hook, this uses class assigned to ``throttle`` from
+        ``Resource._meta``.
+        """
+        request_method = request.method.lower()
+        self._meta.throttle.accessed( self._meta.authentication.get_identifier(request), url=request.path_url, request_method=request_method )
+
+    def create_response( self, request, data, response_class=Response, **response_kwargs ):
+        """
+        Extracts the common "which-format/serialize/return-response" cycle.
+        """
+        if request:
+            desired_format = self.determine_format( request )
+        else:
+            desired_format = self._meta.default_format
+
+        serialized = self.serialize( request, data, desired_format )
+        return response_class( body=serialized, content_type=build_content_type( desired_format ), **response_kwargs )
+
+
+
+    def deserialize( self, request, data, format=None ):
+        """
+        Analogous to python 'unpickle': translates serialized `data` in a given 
+        `format` to python data structures.
+
+        It relies on the request properly sending a ``CONTENT_TYPE`` header,
+        falling back to the default format if not provided.
+
+        Mostly a hook, this uses the ``Serializer`` from ``Resource._meta``.
+        """
+        format = format or request.content_type or self._meta.default_format
+        return self._meta.serializer.deserialize( data, format )
+
+    def post_deserialize( self, request, data ):
+        """
+        A hook to alter data just after it has been received from the user &
+        gets deserialized.
+
+        Useful for altering the user data before any hydration is applied.
+        """
+        return data
+
+    def build_bundle( self, obj=None, data=None, request=None ):
+        """
+        Given either an object, a data dictionary or both, builds a ``Bundle``
+        for use throughout the ``dehydrate/hydrate`` cycle.
+
+        If no object is provided, an empty object from
+        ``Resource._meta.object_class`` is created so that attempts to access
+        ``bundle.obj`` do not fail.
+        """
+        if obj is None:
+            obj = self._meta.object_class()
+
+        b = Bundle( obj=obj, data=data, request=request )
+        return b
+
+    def pre_hydrate( self, bundle ):
+        '''
+        A hook for allowing some custom hydration on the whole object before 
+        each field's hydrate function is called.
+        '''
+        return bundle
+
+    def hydrate(self, bundle):
+        """
+        Hydrating a resource produces a ready-to-be-saved Document.
+
+        Hydration is the process of taking posted data on the resource and
+        putting it in the corresponding Document's fields, converting from 
+        simple to complex types if necessary and making sure that all required 
+        fields have received appropriate data (or raise an ApiFieldError).
+
+        Both the data and the document are contained in the Bundle.
+        """
+        if bundle.obj is None:
+            bundle.obj = self._meta.object_class()
+
+        bundle = self.pre_hydrate( bundle )
+        for field_name, field_object in self.fields.items():
+
+            # Hook to do any custom hydration on the field
+            method = getattr(self, "hydrate_%s" % field_name, None)
+            if method:
+                bundle = method(bundle)
+
+            if field_object.attribute:
+                # `attribute` points to a corresponding field's method or property.
+                # Use the field's hydrate method to obtain a possibly complex
+                # value from its corresponding simple deserialized json data
+                value = field_object.hydrate(bundle)
+
+                # Set the corresponding object's attribute and move on.
+                # `value` could be None: the field's `hydrate` method will 
+                # have raised an ApiFieldError if it couldn't hydrate itself
+                # or if the field was required but not given.
+                setattr(bundle.obj, field_object.attribute, value)
+
+        return bundle
+
+    def dehydrate( self, bundle ):
+        """
+        Given a bundle with an object instance, extract the information from it
+        to populate the resource` data.
+        """
+        # Dehydrate each field.
+        for field_name, field_object in self.fields.items():
+            bundle.data[field_name] = field_object.dehydrate( bundle )
+
+            # Check for an optional method to do further dehydration.
+            method = getattr( self, "dehydrate_%s" % field_name, None )
+
+            if method:
+                bundle.data[field_name] = method( bundle.request, bundle )
+
+        return self.post_dehydrate( bundle )
+
+    def post_dehydrate( self, bundle ):
+        '''
+        A hook for allowing some custom dehydration on the whole resource after 
+        each field's dehydrate function has been called.
+        '''
+        return bundle
+
+    def pre_serialize( self, request, bundle_or_data ):
+        """
+        A hook to alter data just before it gets serialized & sent to the user.
+
+        Useful for restructuring/renaming aspects of the what's going to be
+        sent.
+        """
+        return bundle_or_data
+
+    def serialize( self, request, data, format, options=None ):
+        """
+        Analogous to python 'pickle': translates python `data` to a given 
+        output `format` suitable for transfer over the wire.
+
+        Given a request, data and a desired format, produces a serialized
+        version suitable for transfer over the wire.
+
+        Mostly a hook, this uses the ``Serializer`` from ``Resource._meta``.
+        """
+        return self._meta.serializer.serialize( data, format, options )
+
+
+
+    def dispatch_list( self, request, **kwargs ):
+        """
+        A view for handling the various HTTP methods ( GET/POST/PUT/DELETE ) over
+        the entire list of resources.
+        
+        Relies on ``Resource.dispatch`` for the heavy-lifting.
+        """
+        return self.dispatch( 'list', request, **kwargs )
+
+    def dispatch_detail( self, request, **kwargs ):
+        """
+        A view for handling the various HTTP methods ( GET/POST/PUT/DELETE ) on
+        a single resource.
+
+        Relies on ``Resource.dispatch`` for the heavy-lifting.
+        """
+        return self.dispatch( 'detail', request, **kwargs )
+
+    def dispatch( self, request_type, request, **kwargs ):
+        """
+        Handles the common operations ( allowed HTTP method, authentication,
+        throttling, method lookup ) surrounding most CRUD interactions.
+        """
+        allowed_methods = getattr( self._meta, '%s_allowed_methods' % request_type, None )
+        request_method = self.check_method( request, allowed=allowed_methods )
+        print( 'resource={}; request={}_{}'.format( self._meta.resource_name, request_method, request_type ))
+
+        # Determine which callback we're going to use
+        method = getattr( self, '{}_{}'.format( request_method, request_type ), None )
+
+        if method is None:
+            error = 'Method="{}_{}" is not implemented for resource="{}"'.format( request_method, request_type, self._meta.resource_name )
+            raise ImmediateHTTPResponse( response=http.HTTPNotImplemented( body=error ))
+
+        self.is_authenticated( request )
+        self.check_throttle( request )
+
+        # All clear. Process the request.
+        response = method( request, **kwargs )
+        self.log_throttled_access(request)
+
+        return response
+
+    def get_schema( self, request ):
+        """
+        Returns a serialized form of the schema of the resource.
+
+        Calls ``build_schema`` to generate the data. This method only responds
+        to HTTP GET.
+
+        Should return a HTTPResponse ( 200 OK ).
+        """
+        self.check_method( request, allowed=['get'] )
+        self.is_authenticated( request )
+        self.check_throttle( request )
+        self.log_throttled_access(request)
+        return self.create_response( request, self.build_schema() )
+
+    def get_list( self, request ):
+        """
+        Returns a serialized list of resources.
+
+        Calls ``obj_get_list`` to provide the data, then handles that result
+        set and serializes it.
+
+        Should return a HTTPResponse ( 200 OK ).
+        """
+        objects = self.obj_get_list( request=request, **request.matchdict )
+
+        to_be_serialized = { 'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 'objects': objects, }
+
+        # Dehydrate the bundles in preparation for serialization.
+        bundles = [self.build_bundle( obj=obj, request=request ) for obj in to_be_serialized['objects']]
+        to_be_serialized['objects'] = [self.dehydrate( bundle ) for bundle in bundles]
+        to_be_serialized = self.pre_serialize( request, to_be_serialized )
+        return self.create_response( request, to_be_serialized )
+
+    def get_detail( self, request ):
+        """
+        Returns a single serialized resource.
+
+        Should return a HTTPResponse ( 200 OK ).
+        """
+        try:
+            obj = self.obj_get( request=request, **request.matchdict )
+        except DoesNotExist:
+            return http.HTTPNotFound()
+        except MultipleObjectsReturned:
+            return http.HTTPMultipleChoices( "More than one resource is found at this URI." )
+
+        # try to figure out how to get these related resources
+        bundle = self.build_bundle( obj=obj, request=request )
+        bundle = self.dehydrate( bundle )
+        bundle = self.pre_serialize( request, bundle )
+        return self.create_response( request, bundle )
+
+    def put_list(self, request, **kwargs):
+        # FIXME make according to comments, see discussion we had about this
+        """ 
+        - fetches the existing collection at the request URI with get_list
+
+        NOTES: 
+          * the URI may be that of a 'filtered collection', 
+            e.g. /books?author=adams, or /books?id__in[]=1&id__in[]=3
+          * nested collections are translated into a filtered version of their
+            root resource URI, at least adding their relation to the 
+            objects in the request URI.
+
+        - determines which
+        - updates the union of collection in this URI
+        - determines the union with the new collection
+        """
+        pass
+
+    def put_detail(self, request, **kwargs):
+        """
+        Updates an existing resource/document with the provided data.
+        """
+        pass
+
+    def post_list(self, request, **kwargs):
+        """
+        Creates a new resource/object with the provided data.
+
+        If a new resource is created, return ``HttpCreated`` (201 Created).
+        If ``Meta.always_return_data = True``, there will be a populated body
+        of serialized data.
+        """
+        deserialized = self.deserialize(request, request.body, format=request.content_type)
+        deserialized = self.post_deserialize(request, deserialized)
+        bundle = self.build_bundle(data=deserialized, request=request)
+        updated_bundle = self.obj_create(bundle, request=request, **kwargs)
+        location = self.get_resource_uri(updated_bundle)
+
+        if not self._meta.always_return_data:
+            return http.HttpCreated(location=location)
+        else:
+            updated_bundle = self.dehydrate(updated_bundle)
+            updated_bundle = self.pre_serialize(request, updated_bundle)
+            return self.create_response(request, updated_bundle, response_class=http.HttpCreated, location=location)
+
+    def post_detail(self, request, **kwargs):
+        """
+        Not implemented since we don't allow self-referential nested URLs
+        """
+        return http.HttpNotImplemented()
+
+    def delete_list(self, request, **kwargs):
+        """
+        Not implemented since we don't allow destroying whole lists
+        """
+        return http.HttpNotImplemented()
+
+    def delete_detail(self, request, **kwargs):
+        """
+        Destroys a single resource/object.
+
+        Calls ``obj_delete``.
+
+        If the resource is deleted, return ``HttpNoContent`` (204 No Content).
+        If the resource did not exist, return ``Http404`` (404 Not Found).
+        """
+        try:
+            self.obj_delete(request=request, **kwargs)
+            return http.HttpNoContent()
+        except NotFound:
+            return http.HttpNotFound()
+
+
+
     def check_filtering( self, field_name, filter_type='exact', filter_bits=None ):
         """
-        Given a field name, a optional filter type and an optional list of
+        Given a field name, an optional filter type and an optional list of
         additional relations, determine if a field can be filtered on.
 
         If a filter does not meet the needed conditions, it should raise an
@@ -369,7 +607,7 @@ class Resource( object ):
                 raise InvalidFilterError( "'%s' is not an allowed filter on the '%s' field." % ( filter_type, field_name ))
 
         if self.fields[field_name].attribute is None:
-            raise InvalidFilterError( "The '%s' field has no 'attribute' for searching with." % field_name )
+            raise InvalidFilterError( "The '%s' field has no 'attribute' to apply a filter on." % field_name )
 
         # Check to see if it's a relational lookup and if that's allowed.
         if len( filter_bits ):
@@ -411,296 +649,30 @@ class Resource( object ):
 
         return value
 
-    def is_authenticated( self, request ):
-        """
-        Handles checking if the user is authenticated and dealing with
-        unauthenticated users.
 
-        Mostly a hook, this uses class assigned to ``authentication`` from
-        ``Resource._meta``.
-        """
-        # Authenticate the request as needed.
-        auth_result = self._meta.authentication.is_authenticated( request )
-
-        if isinstance( auth_result, Response ):
-            raise ImmediateHTTPResponse( response=auth_result )
-
-        if not auth_result is True:
-            raise ImmediateHTTPResponse( response=http.HTTPUnauthorized() )
-
-    def is_valid(self, bundle, request=None):
-        """
-        Handles checking if the data provided by the user is valid.
-
-        Mostly a hook, this uses class assigned to ``validation`` from
-        ``Resource._meta``.
-
-        If validation fails, an error is raised with the error messages
-        serialized inside it.
-        """
-        errors = self._meta.validation.is_valid(bundle, request)
-
-        if errors:
-            bundle.errors[self._meta.resource_name] = errors
-            return False
-
-        return True
-
-    def check_throttle( self, request ):
-        """
-        Handles checking if the user should be throttled.
-
-        Mostly a hook, this uses class assigned to ``throttle`` from
-        ``Resource._meta``.
-        """
-        identifier = self._meta.authentication.get_identifier( request )
-
-        # Check to see if they should be throttled.
-        if self._meta.throttle.should_be_throttled( identifier ):
-            # Throttle limit exceeded.
-            raise ImmediateHTTPResponse( response=http.HTTPForbidden() )
-
-    def create_response( self, request, data, response_class=Response, **response_kwargs ):
-        """
-        Extracts the common "which-format/serialize/return-response" cycle.
-
-        Mostly a useful shortcut/hook.
-        """
-        desired_format = self.determine_format( request )
-        serialized = self.serialize( request, data, desired_format )
-        return response_class( body=serialized, content_type=build_content_type( desired_format ), **response_kwargs )
-
-    def error_response( self, errors, request ):
-        if request:
-            desired_format = self.determine_format( request )
-        else:
-            desired_format = self._meta.default_format
-
-        serialized = self.serialize( request, errors, desired_format )
-        response = http.HTTPBadRequest( body=serialized, content_type=build_content_type( desired_format ))
-        raise ImmediateHTTPResponse( response=response )
-
-    def serialize( self, request, data, format, options=None ):
-        """
-        Given a request, data and a desired format, produces a serialized
-        version suitable for transfer over the wire.
-
-        Mostly a hook, this uses the ``Serializer`` from ``Resource._meta``.
-        """
-        return self._meta.serializer.serialize( data, format, options )
-
-    def alter_list_data_to_serialize( self, request, data ):
-        """
-        A hook to alter list data just before it gets serialized & sent to the user.
-
-        Useful for restructuring/renaming aspects of the what's going to be
-        sent.
-
-        Should accommodate for a list of objects, generally also including
-        meta data.
-        """
-        return data
-
-    def alter_detail_data_to_serialize( self, request, data ):
-        """
-        A hook to alter detail data just before it gets serialized & sent to the user.
-
-        Useful for restructuring/renaming aspects of the what's going to be
-        sent.
-
-        Should accommodate for receiving a single bundle of data.
-        """
-        return data
-    
-    def alter_deserialized_list_data( self, request, data ):
-        """
-        A hook to alter list data just after it has been received from the user &
-        gets deserialized.
-
-        Useful for altering the user data before any hydration is applied.
-        """
-        return data
-
-    def alter_deserialized_detail_data( self, request, data ):
-        """
-        A hook to alter detail data just after it has been received from the user &
-        gets deserialized.
-
-        Useful for altering the user data before any hydration is applied.
-        """
-        return data
-
-    def deserialize( self, request, data, format=None ):
-        """
-        Given a request, data and a format, deserializes the given data.
-
-        It relies on the request properly sending a ``CONTENT_TYPE`` header,
-        falling back to the default format if not provided.
-
-        Mostly a hook, this uses the ``Serializer`` from ``Resource._meta``.
-        """
-        format = format or request.content_type or self._meta.default_format
-        return self._meta.serializer.deserialize( data, format )
-
-    def build_bundle( self, obj=None, data=None, request=None ):
-        """
-        Given either an object, a data dictionary or both, builds a ``Bundle``
-        for use throughout the ``dehydrate/hydrate`` cycle.
-
-        If no object is provided, an empty object from
-        ``Resource._meta.object_class`` is created so that attempts to access
-        ``bundle.obj`` do not fail.
-        """
-        if obj is None:
-            obj = self._meta.object_class()
-
-        b = Bundle( obj=obj, data=data, request=request )
-        return b
-
-    def get_resource_uri( self, request, bundle_or_obj = None ):
-        """
-        This is the `relative` uri of the object
-        """
-        raise NotImplementedError()
-
-    def get_resource_url( self, request, bundle_or_obj = None ):
-        """
-        This is the `absolute` uri of the object
-        """
-        raise NotImplementedError()
-
-    def hydrate(self, bundle):
-        """
-        Given a populated bundle, distill it and turn it back into
-        a full-fledged object instance.
-        """
-        if bundle.obj is None:
-            bundle.obj = self._meta.object_class()
-
-        bundle = self.hydrate(bundle)
-        for field_name, field_object in self.fields.items():
-            if field_object.readonly is True:
-                continue
-
-            # Check for an optional field_specific method on the resource 
-            # to do any further hydration for the field before calling the
-            # field's own hydrate method.
-            method = getattr(self, "hydrate_%s" % field_name, None)
-            if method:
-                bundle = method(bundle)
-
-            if field_object.attribute:
-                # Use the field's hydrate method to obtain a possibly complex
-                # value from its corresponding simple deserialized json data
-                value = field_object.hydrate(bundle)
-
-                if value is not None or not field_object.required:
-                    # For non-related fields, set `value` to the corresponding
-                    # document attribute and get on with it.
-                    if not getattr(field_object, 'is_related', False):
-                        setattr(bundle.obj, field_object.attribute, value)
-                    else:
-                        # We're related to another /resource/.  
-
-                    elif not getattr(field_object, 'is_m2m', False):
-                        if isinstance(value, Bundle) and value.errors.get(field_name):
-                            # copy errors from our hydrated field to the main bundle
-                            bundle.errors[field_name] = value.errors[field_name]
-
-                        if value is not None:
-                            setattr(bundle.obj, field_object.attribute, value.obj)
-                        elif field_object.blank:
-                            continue
-                        elif field_object.null:
-                            setattr(bundle.obj, field_object.attribute, value)
-
-        return bundle
-
-    def full_dehydrate( self, bundle ):
-        """
-        Given a bundle with an object instance, extract the information from it
-        to populate the resource.
-        """
-        # Dehydrate each field.
-        for field_name, field_object in self.fields.items():
-            bundle.data[field_name] = field_object.dehydrate( bundle )
-
-            # Check for an optional method to do further dehydration.
-            method = getattr( self, "dehydrate_%s" % field_name, None )
-
-            if method:
-                bundle.data[field_name] = method( bundle.request, bundle )
-
-        bundle = self.dehydrate( bundle )
-        return bundle
-
-    def dehydrate( self, bundle ):
-        """
-        A hook to allow a final manipulation of data once all fields/methods
-        have built out the dehydrated data.
-
-        Useful if you need to access more than one dehydrated field or want
-        to annotate on additional data.
-
-        Must return the modified bundle.
-        """
-        return bundle
-
-    def dehydrate_resource_uri( self, request, bundle ):
-        """
-        For the automatically included ``resource_uri`` field, dehydrate
-        the URI for the given bundle.
-        """
-        try:
-            return self.get_resource_uri( request, bundle )
-        except NotImplementedError:
-            return '<not implemented>'
-
-    def dehydrate_resource_url( self, request, bundle ):
-        """
-        For the automatically included ``resource_url`` field, dehydrate
-        the URL for the given bundle.
-        """
-        if not self._meta.include_resource_uri:
-            return ''
-
-        try:
-            return self.get_resource_url( request, bundle )
-        except NotImplementedError:
-            return '<not implemented>'
 
     def obj_get( self, request=None, **kwargs ):
         """
-        Fetches an individual object on the resource.
+        Fetches a single document at a given resource_uri.
 
-        This needs to be implemented at the user level. If the object can not
-        be found, this should raise a ``NotFound`` exception.
+        This needs to be implemented at the user level. 
+        This should raise ``NotFound`` or ``MultipleObjects`` exceptions
+        when there's no or multiple documents at the resource_uri.
         """
         raise NotImplementedError()
 
     def obj_get_list( self, request=None, **kwargs ):
         """
-        Fetches the list of objects available on the resource.
+        Fetches a list of documents at a given resource_uri.
 
         This needs to be implemented at the user level.
+        Returns an empty list if there are no objects.
         """
         raise NotImplementedError()
 
     def obj_create(self, bundle, request=None, **kwargs):
         """
         Creates a new object based on the provided data.
-
-        This needs to be implemented at the user level.
-
-        ``ModelResource`` includes a full working version specific to Django's
-        ``Models``.
-        """
-        raise NotImplementedError()
-
-    def obj_update(self, bundle, request=None, **kwargs):
-        """
-        Updates an existing object (or creates a new object) based on the
-        provided data.
 
         This needs to be implemented at the user level.
 
@@ -731,90 +703,6 @@ class Resource( object ):
         """
         raise NotImplementedError()
 
-    def build_schema( self ):
-        """
-        Returns a dictionary of all the fields on the resource and some
-        properties about those fields.
-
-        Used by the ``schema/`` endpoint to describe what will be available.
-        """
-        data = {
-            'fields': {},
-            'default_format': self._meta.default_format,
-            'allowed_list_http_methods': self._meta.list_allowed_methods,
-            'allowed_detail_http_methods': self._meta.detail_allowed_methods,
-            'default_limit': self._meta.limit,
-        }
-
-        if self._meta.ordering:
-            data['ordering'] = self._meta.ordering
-
-        if self._meta.filtering:
-            data['filtering'] = self._meta.filtering
-
-        for field_name, field_object in self.fields.items():
-            data['fields'][field_name] = {
-                'default': field_object.default,
-                'type': field_object.dehydrated_type,
-                'required': field_object.required,
-                'readonly': field_object.readonly,
-                'help_text': field_object.help_text,
-                'unique': field_object.unique,
-            }
-        return data
-    
-    def apply_sorting( self, obj_list, options=None ):
-        """
-        Given a dictionary of options, apply some ODM-level sorting to the
-        provided ``QuerySet``.
-
-        Looks for the ``sort_by`` key and handles either ascending ( just the
-        field name ) or descending ( the field name with a ``-`` in front ).
-        """
-        if options is None:
-            options = {}
-
-        parameter_name = 'sort_by'
-
-        if not 'sort_by' in options:
-            # Nothing to alter the sorting. Return what we've got.
-            return obj_list
-
-        sort_by_args = []
-
-        if hasattr( options, 'getlist' ):
-            sort_bits = options.getlist( parameter_name )
-        else:
-            sort_bits = options.get( parameter_name )
-
-            if not isinstance( sort_bits, ( list, tuple )):
-                sort_bits = [sort_bits]
-
-        for sort_by in sort_bits:
-            sort_by_bits = sort_by.split( LOOKUP_SEP )
-
-            field_name = sort_by_bits[0]
-            order = ''
-
-            if sort_by_bits[0].startswith( '-' ):
-                field_name = sort_by_bits[0][1:]
-                order = '-'
-
-            if not field_name in self.fields:
-                # It's not a field we know about. Move along citizen.
-                raise InvalidSortError( "No matching '%s' field for ordering on." % field_name )
-
-            if not field_name in self._meta.ordering:
-                raise InvalidSortError( "The '%s' field does not allow ordering." % field_name )
-
-            if self.fields[field_name].attribute is None:
-                raise InvalidSortError( "The '%s' field has no 'attribute' for ordering with." % field_name )
-
-            sort_by_args.append( "%s%s" % ( order, LOOKUP_SEP.join( [self.fields[field_name].attribute] + sort_by_bits[1:] )) )
-
-        #FIXME: the mongo-specific part!
-        return obj_list.sort_by( *sort_by_args )
-
 
 class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
 
@@ -836,7 +724,7 @@ class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
         field_names = new_class.base_fields.keys()
 
         for field_name in field_names:
-            if field_name in ( 'resource_uri', 'resource_url' ):
+            if field_name in ( 'resource_uri', ):
                 # Embedded documents don't have their own resource_uri
                 if meta and hasattr( meta, 'object_class' ) and issubclass( meta.object_class, mongoengine.EmbeddedDocument ):
                     del( new_class.base_fields[field_name] )
@@ -978,7 +866,7 @@ class DocumentResource( Resource ):
         '''
         return bundle.obj.id
 
-    def get_resource_uri( self, request, bundle_or_obj=None, absolute=False ):
+    def get_resource_uri( self, request, bundle_or_obj=None, absolute=None ):
         """
         Returns the resource's relative uri per the given API.
 
@@ -986,7 +874,7 @@ class DocumentResource( Resource ):
         """
         kwargs = {
             'resource_name': self._meta.resource_name,
-            'absolute': not not absolute,
+            'absolute': not not absolute if absolute else self._meta.use_absolute_uris,
         }
 
         if bundle_or_obj:
@@ -1003,13 +891,57 @@ class DocumentResource( Resource ):
 
         return self._meta.api.build_uri( request, **kwargs )
 
-    def get_resource_url( self, request, bundle_or_obj=None ):
+    def apply_sorting( self, obj_list, options=None ):
         """
-        Returns the resource's absolute uri per the given API.
+        Given a dictionary of options, apply some ODM-level sorting to the
+        provided ``QuerySet``.
 
-        *elements, if given, is used by Pyramid to specify instances 
+        Looks for the ``sort_by`` key and handles either ascending ( just the
+        field name ) or descending ( the field name with a ``-`` in front ).
         """
-        return self.get_resource_uri( request, bundle_or_obj, absolute=True )
+        if options is None:
+            options = {}
+
+        parameter_name = 'sort_by'
+
+        if not 'sort_by' in options:
+            # Nothing to alter the sorting. Return what we've got.
+            return obj_list
+
+        sort_by_args = []
+
+        if hasattr( options, 'getlist' ):
+            sort_bits = options.getlist( parameter_name )
+        else:
+            sort_bits = options.get( parameter_name )
+
+            if not isinstance( sort_bits, ( list, tuple )):
+                sort_bits = [sort_bits]
+
+        for sort_by in sort_bits:
+            sort_by_bits = sort_by.split( LOOKUP_SEP )
+
+            field_name = sort_by_bits[0]
+            order = ''
+
+            if sort_by_bits[0].startswith( '-' ):
+                field_name = sort_by_bits[0][1:]
+                order = '-'
+
+            if not field_name in self.fields:
+                # It's not a field we know about. Move along citizen.
+                raise InvalidSortError( "No matching '%s' field for ordering on." % field_name )
+
+            if not field_name in self._meta.ordering:
+                raise InvalidSortError( "The '%s' field does not allow ordering." % field_name )
+
+            if self.fields[field_name].attribute is None:
+                raise InvalidSortError( "The '%s' field has no 'attribute' for ordering with." % field_name )
+
+            sort_by_args.append( "%s%s" % ( order, LOOKUP_SEP.join( [self.fields[field_name].attribute] + sort_by_bits[1:] )) )
+
+        #FIXME: the mongo-specific part!
+        return obj_list.sort_by( *sort_by_args )
 
     def build_filters( self, filters=None ):
         """
@@ -1131,11 +1063,7 @@ class DocumentResource( Resource ):
         for key, value in kwargs.items():
             setattr(bundle.obj, key, value)
 
-        bundle = self.full_hydrate(bundle)
-        self.is_valid(bundle,request)
-
-        if bundle.errors:
-            self.error_response(bundle.errors, request)
+        bundle = self.hydrate(bundle)
 
         # Save FKs just in case.
         self.save_related(bundle)
@@ -1148,7 +1076,7 @@ class DocumentResource( Resource ):
         self.save_m2m(m2m_bundle)
         return bundle
 
-    def obj_update(self, bundle, request=None, skip_errors=False, **kwargs):
+    def obj_update(self, bundle, request=None, **kwargs):
         """
         A DRM-specific implementation of ``obj_update``.
         """
@@ -1158,7 +1086,7 @@ class DocumentResource( Resource ):
             try:
                 bundle.obj = self.get_object_list(bundle.request).model()
                 bundle.data.update(kwargs)
-                bundle = self.full_hydrate(bundle)
+                bundle = self.hydrate(bundle)
                 lookup_kwargs = kwargs.copy()
 
                 for key in kwargs.keys():
@@ -1179,11 +1107,7 @@ class DocumentResource( Resource ):
             except ObjectDoesNotExist:
                 raise NotFound("A model instance matching the provided arguments could not be found.")
 
-        bundle = self.full_hydrate(bundle)
-        self.is_valid(bundle,request)
-
-        if bundle.errors and not skip_errors:
-            self.error_response(bundle.errors, request)
+        bundle = self.hydrate(bundle)
 
         # Save FKs just in case.
         self.save_related(bundle)
@@ -1229,20 +1153,3 @@ class DocumentResource( Resource ):
 
         obj.delete()
 
-    def put_list_FIXME():
-        # FIXME make according to comments, see discussion we had about this
-        """ 
-        - fetches the existing collection at the request URI with get_list
-
-        NOTES: 
-          * the URI may be that of a 'filtered collection', 
-            e.g. /books?author=adams, or /books?id__in[]=1&id__in[]=3
-          * nested collections are translated into a filtered version of their
-            root resource URI, at least adding their relation to the 
-            objects in the request URI.
-
-        - determines which
-        - updates the union of collection in this URI
-        - determines the union with the new collection
-        """
-        pass
