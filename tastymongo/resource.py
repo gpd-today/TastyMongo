@@ -11,7 +11,6 @@ from .bundle import Bundle
 from .authentication import Authentication
 from .authorization import ReadOnlyAuthorization
 from .throttle import BaseThrottle
-from .validation import Validation
 
 from pyramid.response import Response
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
@@ -31,7 +30,6 @@ class ResourceOptions( object ):
     authentication = Authentication()
     authorization = ReadOnlyAuthorization()
     throttle = BaseThrottle()
-    validation = Validation()
     allowed_methods = [ 'get', 'post', 'put', 'delete' ]
     list_allowed_methods = None
     detail_allowed_methods = None
@@ -231,6 +229,29 @@ class Resource( object ):
 
         return request_method
 
+    def can_create(self):
+        """
+        Checks to ensure ``post`` is within ``allowed_methods``.
+        """
+        allowed = set(self._meta.list_allowed_methods + self._meta.detail_allowed_methods)
+        return 'post' in allowed
+
+    def can_update(self):
+        """
+        Checks to ensure ``put`` is within ``allowed_methods``.
+
+        Used when hydrating related data.
+        """
+        allowed = set(self._meta.list_allowed_methods + self._meta.detail_allowed_methods)
+        return 'put' in allowed
+
+    def can_delete(self):
+        """
+        Checks to ensure ``delete`` is within ``allowed_methods``.
+        """
+        allowed = set(self._meta.list_allowed_methods + self._meta.detail_allowed_methods)
+        return 'delete' in allowed
+
     def is_authenticated( self, request ):
         """
         Handles checking if the user is authenticated and dealing with
@@ -332,22 +353,20 @@ class Resource( object ):
 
     def hydrate(self, bundle):
         """
-        Hydrating a resource produces a ready-to-be-saved Document.
-
-        Hydration is the process of taking posted data on the resource and
-        putting it in the corresponding Document's fields, converting from 
-        simple to complex types if necessary and making sure that all required 
-        fields have received appropriate data (or raise an ApiFieldError).
-
-        Both the data and the document are contained in the Bundle.
+        Hydrating a resource produces a (nested) Bundle tree.
+        Nested Bundles are created for related objects and stored in 
+        the parent bundle.data[<related_field>].
         """
         if bundle.obj is None:
             bundle.obj = self._meta.object_class()
 
         bundle = self.pre_hydrate( bundle )
-        for field_name, field_object in self.fields.items():
 
-            # Hook to do any custom hydration on the field
+        for field_name, field_object in self.fields.items():
+            if field_object.readonly is True:
+                continue
+
+            # Hook to do any custom hydration on the specific field
             method = getattr(self, "hydrate_%s" % field_name, None)
             if method:
                 bundle = method(bundle)
@@ -355,14 +374,34 @@ class Resource( object ):
             if field_object.attribute:
                 # `attribute` points to a corresponding field's method or property.
                 # Use the field's hydrate method to obtain a possibly complex
-                # value from its corresponding simple deserialized json data
-                value = field_object.hydrate(bundle)
+                # value from its corresponding simple deserialized json data.
+                value = field_object.hydrate( bundle )
+
+                # If this is a related field
+
+                # NOTE: We only get back a bundle when it is related field.
+                if isinstance(value, Bundle) and value.errors.get(field_name):
+                    bundle.errors[field_name] = value.errors[field_name]
+
+                if value is not None or field_object.null:
+                    # We need to avoid populating M2M data here as that will
+                    # cause things to blow up.
+                    if not getattr(field_object, 'is_related', False):
+                        setattr(bundle.obj, field_object.attribute, value)
+                    elif not getattr(field_object, 'is_m2m', False):
+                        if value is not None:
+                            setattr(bundle.obj, field_object.attribute, value.obj)
+                        elif field_object.blank:
+                            continue
+                        elif field_object.null:
+                            setattr(bundle.obj, field_object.attribute, value)
 
                 # Set the corresponding object's attribute and move on.
                 # `value` could be None: the field's `hydrate` method will 
                 # have raised an ApiFieldError if it couldn't hydrate itself
                 # or if the field was required but not given.
                 setattr(bundle.obj, field_object.attribute, value)
+
 
         return bundle
 
@@ -676,8 +715,8 @@ class Resource( object ):
 
         This needs to be implemented at the user level.
 
-        ``ModelResource`` includes a full working version specific to Django's
-        ``Models``.
+        ``DocumentResource`` includes a working version for MongoEngine
+        ``Documents``.
         """
         raise NotImplementedError()
 
@@ -687,8 +726,8 @@ class Resource( object ):
 
         This needs to be implemented at the user level.
 
-        ``ModelResource`` includes a full working version specific to Django's
-        ``Models``.
+        ``DocumentResource`` includes a working version for MongoEngine
+        ``Documents``.
         """
         raise NotImplementedError()
 
@@ -698,8 +737,8 @@ class Resource( object ):
 
         This needs to be implemented at the user level.
 
-        ``ModelResource`` includes a full working version specific to Django's
-        ``Models``.
+        ``DocumentResource`` includes a working version for MongoEngine
+        ``Documents``.
         """
         raise NotImplementedError()
 
@@ -855,7 +894,7 @@ class DocumentResource( Resource ):
                 kwargs['default'] = f.auto_now_add
 
             final_fields[name] = api_field_class( **kwargs )
-            final_fields[name].instance_name = name
+            final_fields[name].field_name = name
 
         return final_fields
 
@@ -996,6 +1035,22 @@ class DocumentResource( Resource ):
         """
         return self.get_object_list( request ).filter( **applicable_filters )
 
+    def validate(self, bundle, request=None):
+        """
+        Validates the documents in the bundle, recursing for related fields.
+        
+        Validation errors are stored in bundle.errors[<fieldname>] and returned
+        as well so higher level bundles can append them and the root bundle
+        will contain a copy of all (nested) errors.
+        """
+        # pseudo code:
+        # - call `validate` on related fields
+        # - store any returned errors on bundle.errors[<related_fieldname>]
+        # - validate our own fields by calling bundle.obj.validate()
+        # - store any errors in bundle.errors[<fieldname>]
+        # - return any errors or an empty list if the document validated
+        return []
+
     def get_object_list( self, request ):
         if hasattr( self._meta, "queryset" ):
             return self._meta.queryset.clone()
@@ -1060,20 +1115,21 @@ class DocumentResource( Resource ):
         # Create an object of the right type
         bundle.obj = self._meta.object_class()
 
+        # We may pass in keyword argument overrides or additional settings
         for key, value in kwargs.items():
             setattr(bundle.obj, key, value)
 
+        # Create a bundle-tree from a resource-tree
         bundle = self.hydrate(bundle)
 
-        # Save FKs just in case.
-        self.save_related(bundle)
+        self.validate( bundle, request )
+        if bundle.errors:
+            self.error_response( bundle.errors, request )
 
-        # Save parent
+        # Save the document tree. Saving of embedded documents should be taken
+        # care of by the MongoEngine layer to avoid huge amounts of double work.
         bundle.obj.save()
 
-        # Now pick up the M2M bits.
-        m2m_bundle = self.hydrate_m2m(bundle)
-        self.save_m2m(m2m_bundle)
         return bundle
 
     def obj_update(self, bundle, request=None, **kwargs):
@@ -1082,8 +1138,10 @@ class DocumentResource( Resource ):
         """
         if not bundle.obj or not bundle.obj.pk:
             # Attempt to hydrate data from kwargs before doing a lookup for the object.
-            # This step is needed so certain values (like datetime) will pass model validation.
+            # Hydration properly decodes complex values into their python equivalents.
+            # This step is needed so certain values (like datetime) will pass validation.
             try:
+                # FIXME
                 bundle.obj = self.get_object_list(bundle.request).model()
                 bundle.data.update(kwargs)
                 bundle = self.hydrate(bundle)
@@ -1105,7 +1163,7 @@ class DocumentResource( Resource ):
             try:
                 bundle.obj = self.obj_get(bundle.request, **lookup_kwargs)
             except ObjectDoesNotExist:
-                raise NotFound("A model instance matching the provided arguments could not be found.")
+                raise NotFound("A document instance matching the provided arguments could not be found.")
 
         bundle = self.hydrate(bundle)
 
@@ -1149,7 +1207,7 @@ class DocumentResource( Resource ):
             try:
                 obj = self.obj_get(request, **kwargs)
             except ObjectDoesNotExist:
-                raise NotFound("A model instance matching the provided arguments could not be found.")
+                raise NotFound("A document instance matching the provided arguments could not be found.")
 
         obj.delete()
 

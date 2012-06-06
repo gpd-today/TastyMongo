@@ -54,7 +54,6 @@ class DetailTests( unittest.TestCase ):
         self.teardown_test_data()
         testing.tearDown()
 
-
     def test_get_detail( self ):
         request = Request.blank('/api/v1/')
         self.config.testing_securitypolicy( userid='1', permissive=True )
@@ -71,12 +70,11 @@ class DetailTests( unittest.TestCase ):
         # Check if the activity contains the person
         self.assertEqual( deserialized['person'].split('/')[-2], unicode(self.data.person.id) )
 
-
-    def test_post_object( self ):
+    def test_post_list( self ):
         request = Request.blank( '/api/v1/' )
         self.config.testing_securitypolicy( userid='1', permissive=True )
         request.user = self.data.person
-        request.body = b'{ "name": "harry" }'
+        request.body = b'{ "name": "my first activity" }'
 
         # Create a new activity
         response = self.activity_resource.post_list( request )
