@@ -162,8 +162,7 @@ class ApiField( object ):
 
     def hydrate( self, bundle ):
         '''
-        Takes data stored in the bundle for the field and returns it. 
-        Used for taking simple data and building an object.
+        Creates a possibly complex object out of simple data on the Resource.
         '''
         if self.readonly:
             # Prevent accidentally overwriting readonly fields. 
@@ -172,12 +171,13 @@ class ApiField( object ):
         if self.field_name not in bundle.data:
 
             if self.attribute and getattr( bundle.obj, self.attribute, None):
-                # `attribute` may be provided to create data for the object
+                # `attribute` may be provided to create data for the object.
                 obj = getattr(bundle.obj, self.attribute, None)
                 if callable(obj):
                     obj = obj()
                 return obj
 
+            # FIXME: this seems unnecessary since we do Validation on the Document
             elif self.field_name and hasattr(bundle.obj, self.field_name):
                 return getattr(bundle.obj, self.field_name)
 
@@ -463,7 +463,6 @@ class RelatedField( ApiField ):
         if self.self_referential or self.to == 'self':
             self._to_class = cls
 
-    @property
     def to_class( self ):
         # We need to be lazy here, because when the metaclass constructs the
         # Resources, other classes may not exist yet.
@@ -496,7 +495,7 @@ class RelatedField( ApiField ):
 
         return self._to_class
 
-    def get_related_resource(self, related_instance):
+    def get_related_resource( self ):
         """
         Instantiates the related resource.
         """
@@ -507,20 +506,7 @@ class RelatedField( ApiField ):
             if self._resource and not self._resource._meta.api is None:
                 related_resource._meta.api = self._resource._meta.api
 
-        related_resource.instance = related_instance
         return related_resource
-
-    def dehydrate_related( self, bundle, related_resource ):
-        """
-        Returns either the endpoint or the data from ``dehydrate`` for the related resource.
-        """
-        if not self.full:
-            # Return only the URI of the related resource
-            return related_resource.get_resource_uri( bundle.request, bundle )
-        else:
-            # Return a fully dehydrated related resource
-            bundle = related_resource.build_bundle( obj=related_resource.instance, request=bundle.request )
-            return related_resource.dehydrate( bundle )
 
     def resource_from_uri( self, related_resource, uri, request=None ):
         """
@@ -569,19 +555,42 @@ class RelatedField( ApiField ):
 
         Accepts either a URI or a data dictionary ( or dictionary-like structure )
         """
-        self.related_resource = self.to_class()
+        related_resource = self.to_class()
         kwargs = {
             'request': request,
         }
 
         if isinstance( value, basestring ):
             # We got a URI. Load the object and assign it.
-            return self.resource_from_uri( self.related_resource, value, **kwargs )
+            return self.resource_from_uri( related_resource, value, **kwargs )
         elif hasattr( value, 'items' ):
             # We've got a data dictionary. Construct the new object.
-            return self.resource_from_data( self.related_resource, value, **kwargs )
+            return self.resource_from_data( related_resource, value, **kwargs )
         else:
             raise ApiFieldError( "The '%s' field was given data that was not a URI and not a dictionary-alike: %s." % ( self.field_name, value ))
+
+    def hydrate( self, bundle ):
+        value = super( ToOneField, self ).hydrate( bundle )
+
+        if value is None:
+            return None
+
+        # Recurse by creating a related resource of the proper type and 
+        # calling its hydrate method.
+        return self.build_related_resource( value, request=bundle.request )
+
+    def dehydrate_related( self, bundle, related_resource ):
+        # FIXME: remove this stuff and implement in `dehydrate` proper
+        """
+        Returns either the endpoint or the data from ``dehydrate`` for the related resource.
+        """
+        if not self.full:
+            # Return only the URI of the related resource
+            return related_resource.get_resource_uri( bundle.request, bundle )
+        else:
+            # Return a fully dehydrated related resource
+            bundle = related_resource.build_bundle( obj=related_resource.instance, request=bundle.request )
+            return related_resource.dehydrate( bundle )
 
 
 class ToOneField( RelatedField ):
@@ -593,22 +602,12 @@ class ToOneField( RelatedField ):
     def dehydrate( self, bundle ):
 
         related_obj = super(ToOneField, self).dehydrate( bundle )
-
         if not related_obj:
             return None
 
-        self.related_resource = self.get_related_resource( related_obj )
+        related_resource = self.get_related_resource()
         related_bundle = Bundle( obj=related_obj, request=bundle.request )
-        return self.dehydrate_related( related_bundle, self.related_resource )
-
-    def hydrate( self, bundle ):
-        value = super( ToOneField, self ).hydrate( bundle )
-
-        if value is None:
-            return None
-
-        # Return a fully populated related bundle
-        return self.build_related_resource( value, request=bundle.request )
+        return self.dehydrate_related( related_bundle, related_resource )
 
 
 class ToManyField( RelatedField ):
@@ -618,7 +617,7 @@ class ToManyField( RelatedField ):
     help_text = 'Many related resources. Can be either a list of URIs or a list of individually nested resource data.'
 
     def dehydrate( self, bundle ):
-        raise NotImplementedError('still need to implement a custom `hydrate` method for tomanyfield')
+        raise NotImplementedError('still need to implement a custom `dehydrate` method for tomanyfield')
         if not bundle.obj or not bundle.obj.pk:
             if not self.required:
                 return []

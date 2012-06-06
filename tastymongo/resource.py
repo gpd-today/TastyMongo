@@ -353,9 +353,21 @@ class Resource( object ):
 
     def hydrate(self, bundle):
         """
-        Hydrating a resource produces a (nested) Bundle tree.
-        Nested Bundles are created for related objects and stored in 
-        the parent bundle.data[<related_field>].
+        Recursively takes data from the resource and converts it to a form
+        ready to be stored on objects.
+
+        The result of the hydrate function is a fully populated bundle ready to
+        be validated and saved.
+
+        * Non-relational fields' data is set directly on the object.
+        
+        * Related field's objects are (recursively) instantiated by the field's
+          hydrate method, that in turn calls the related `*resource*'s` hydrate
+          method. They are however not yet added to the base object since this
+          would lead to deadlock for required managed relations on new objects.
+
+        * Any errors encountered in the data for the related objects are
+          propagated to the parent's bundle.
         """
         if bundle.obj is None:
             bundle.obj = self._meta.object_class()
@@ -363,52 +375,38 @@ class Resource( object ):
         bundle = self.pre_hydrate( bundle )
 
         for field_name, field_object in self.fields.items():
-            if field_object.readonly is True:
-                continue
 
-            # Hook to do any custom hydration on the specific field
             method = getattr(self, "hydrate_%s" % field_name, None)
             if method:
-                bundle = method(bundle)
-
-            if field_object.attribute:
-                # `attribute` points to a corresponding field's method or property.
-                # Use the field's hydrate method to obtain a possibly complex
-                # value from its corresponding simple deserialized json data.
+                value = method( bundle )
+            else:
                 value = field_object.hydrate( bundle )
 
-                # If this is a related field
+            if isinstance(value, Bundle):
+                # Related fields return Bundles. 
+                # A custom method might as well.
+                # Replace the data for the field with the related bundle, 
+                # but don't touch the object's attribute yet.
+                bundle.data[field_name] = value
 
-                # NOTE: We only get back a bundle when it is related field.
-                if isinstance(value, Bundle) and value.errors.get(field_name):
-                    bundle.errors[field_name] = value.errors[field_name]
+                if value.errors:
+                    # Copy the (nested) errors for this field to the parent 
+                    bundle.errors[field_name] = value.errors
 
-                if value is not None or field_object.null:
-                    # We need to avoid populating M2M data here as that will
-                    # cause things to blow up.
-                    if not getattr(field_object, 'is_related', False):
-                        setattr(bundle.obj, field_object.attribute, value)
-                    elif not getattr(field_object, 'is_m2m', False):
-                        if value is not None:
-                            setattr(bundle.obj, field_object.attribute, value.obj)
-                        elif field_object.blank:
-                            continue
-                        elif field_object.null:
-                            setattr(bundle.obj, field_object.attribute, value)
-
-                # Set the corresponding object's attribute and move on.
-                # `value` could be None: the field's `hydrate` method will 
-                # have raised an ApiFieldError if it couldn't hydrate itself
-                # or if the field was required but not given.
-                setattr(bundle.obj, field_object.attribute, value)
-
+            elif field_object.attribute:
+                if value is not None or not field_object.required:
+                    # Set the object's attribute and move along.
+                    # `value` could be None: the field's `hydrate` method will
+                    # have raised an ApiFieldError if it couldn't hydrate
+                    # itself or if the field was required but not given.
+                    setattr(bundle.obj, field_object.attribute, value)
 
         return bundle
 
     def dehydrate( self, bundle ):
         """
         Given a bundle with an object instance, extract the information from it
-        to populate the resource` data.
+        to populate the resource data.
         """
         # Dehydrate each field.
         for field_name, field_object in self.fields.items():
@@ -416,7 +414,6 @@ class Resource( object ):
 
             # Check for an optional method to do further dehydration.
             method = getattr( self, "dehydrate_%s" % field_name, None )
-
             if method:
                 bundle.data[field_name] = method( bundle.request, bundle )
 
@@ -524,6 +521,8 @@ class Resource( object ):
         to_be_serialized = { 'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 'objects': objects, }
 
         # Dehydrate the bundles in preparation for serialization.
+        # FIXME: this needs implementation for lists in the bundle.
+        # While we're at it: also include the 'meta' in the bundle. 
         bundles = [self.build_bundle( obj=obj, request=request ) for obj in to_be_serialized['objects']]
         to_be_serialized['objects'] = [self.dehydrate( bundle ) for bundle in bundles]
         to_be_serialized = self.pre_serialize( request, to_be_serialized )
@@ -549,32 +548,22 @@ class Resource( object ):
         return self.create_response( request, bundle )
 
     def put_list(self, request, **kwargs):
-        # FIXME make according to comments, see discussion we had about this
-        """ 
-        - fetches the existing collection at the request URI with get_list
-
-        NOTES: 
-          * the URI may be that of a 'filtered collection', 
-            e.g. /books?author=adams, or /books?id__in[]=1&id__in[]=3
-          * nested collections are translated into a filtered version of their
-            root resource URI, at least adding their relation to the 
-            objects in the request URI.
-
-        - determines which
-        - updates the union of collection in this URI
-        - determines the union with the new collection
-        """
-        pass
+        # FIXME: TBD what this should really do:
+        # 1. only affect the objects posted and call put_detail on them
+        # 2. consider the put list a diff with an existing list at this URI
+        #    (which may be filtered, like ?category=Pets) and thus remove
+        #    any objects not in the put list.
+        return NotImplementedError('put_list is not yet implemented')
 
     def put_detail(self, request, **kwargs):
         """
-        Updates an existing resource/document with the provided data.
+        Updates an existing document with the provided data.
         """
-        pass
+        return NotImplementedError('put_detail is not yet implemented')
 
     def post_list(self, request, **kwargs):
         """
-        Creates a new resource/object with the provided data.
+        Creates a new Resource with the provided data.
 
         If a new resource is created, return ``HttpCreated`` (201 Created).
         If ``Meta.always_return_data = True``, there will be a populated body
@@ -582,16 +571,18 @@ class Resource( object ):
         """
         deserialized = self.deserialize(request, request.body, format=request.content_type)
         deserialized = self.post_deserialize(request, deserialized)
-        bundle = self.build_bundle(data=deserialized, request=request)
-        updated_bundle = self.obj_create(bundle, request=request, **kwargs)
-        location = self.get_resource_uri(updated_bundle)
+        bundle = self.build_bundle( data=deserialized, request=request )
+        bundle = self.obj_create( bundle, request=request, **kwargs )
 
+        location = self.get_resource_uri(bundle)
         if not self._meta.always_return_data:
             return http.HttpCreated(location=location)
         else:
-            updated_bundle = self.dehydrate(updated_bundle)
-            updated_bundle = self.pre_serialize(request, updated_bundle)
-            return self.create_response(request, updated_bundle, response_class=http.HttpCreated, location=location)
+            # dehydrate the bundle to incorporate any changes on the newly
+            # created object (like permissions, relations, etc.)
+            bundle = self.dehydrate(bundle)
+            bundle = self.pre_serialize(request, bundle)
+            return self.create_response(request, bundle, response_class=http.HttpCreated, location=location)
 
     def post_detail(self, request, **kwargs):
         """
