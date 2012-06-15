@@ -10,7 +10,8 @@ from .serializers import Serializer
 from .utils import *
 from .resource import Resource
 
-class Api(object):
+
+class Api( object ):
     """
     Implements a registry to tie together the various resources that make up
     an API.
@@ -32,10 +33,6 @@ class Api(object):
 
         self.config.add_route(self.route, self.route + '/')
         self.config.add_view(Api.wrap_view(self, self.top_level), route_name=self.route)
-
-    @staticmethod
-    def resolve_uri( uri='/' ):
-        pass
 
     @staticmethod
     def wrap_view( resource, view ):
@@ -63,12 +60,13 @@ class Api(object):
                     response.cache_control = 'no-cache'
 
                 if isinstance( response, basestring ):
-                    response = Response(body=response)
+                    response = Response( body=response )
 
                 return response
 
             except ( BadRequest, ApiFieldError ) as e:
                 return http.HTTPBadRequest( body='%s<br>%s' % (e.message, e.error_code) )
+
             except Exception as e:
                 # Return a raw error
                 if hasattr(e, 'response'):
@@ -173,7 +171,7 @@ class Api(object):
 
     def top_level(self, request):
         """
-        A view that returns a serialized list of all resources registers
+        A view that returns a serialized list of all resources registered
         to the ``Api``. Useful for discovery.
         """
         serializer = Serializer()

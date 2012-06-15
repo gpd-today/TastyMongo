@@ -15,6 +15,7 @@ from .throttle import BaseThrottle
 from pyramid.response import Response
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
 import mongoengine.document 
+from mongoengine.base import ValidationError as MongoEngineValidationError
 import mongoengine.fields as mf
 
 from copy import deepcopy
@@ -45,6 +46,8 @@ class ResourceOptions( object ):
     excludes = []
     include_resource_uri = True
     use_absolute_uris = False
+    return_data_on_post = True
+    return_data_on_put = True
 
     def __new__( cls, meta=None ):
         overrides = {}
@@ -229,14 +232,16 @@ class Resource( object ):
 
         return request_method
 
-    def can_create(self):
+    @property
+    def may_create(self):
         """
         Checks to ensure ``post`` is within ``allowed_methods``.
         """
         allowed = set(self._meta.list_allowed_methods + self._meta.detail_allowed_methods)
         return 'post' in allowed
 
-    def can_update(self):
+    @property
+    def may_update(self):
         """
         Checks to ensure ``put`` is within ``allowed_methods``.
 
@@ -245,7 +250,8 @@ class Resource( object ):
         allowed = set(self._meta.list_allowed_methods + self._meta.detail_allowed_methods)
         return 'put' in allowed
 
-    def can_delete(self):
+    @property
+    def may_delete(self):
         """
         Checks to ensure ``delete`` is within ``allowed_methods``.
         """
@@ -293,7 +299,7 @@ class Resource( object ):
         request_method = request.method.lower()
         self._meta.throttle.accessed( self._meta.authentication.get_identifier(request), url=request.path_url, request_method=request_method )
 
-    def create_response( self, request, data, response_class=Response, **response_kwargs ):
+    def create_response( self, data, request=None, response_class=Response, **response_kwargs ):
         """
         Extracts the common "which-format/serialize/return-response" cycle.
         """
@@ -341,8 +347,68 @@ class Resource( object ):
         if obj is None:
             obj = self._meta.object_class()
 
-        b = Bundle( obj=obj, data=data, request=request )
-        return b
+        bundle = Bundle( obj=obj, data=data, request=request )
+        return bundle
+
+    def bundle_from_uri( self, uri, request=None ):
+        """
+        Given a URI is provided, the resource is attempted to be loaded based 
+        on the identifiers in the URI. 
+        
+        A bundle is created with the existing document at the uri, or an error
+        if the document could not be retrieved. Bundle.data is the resource_uri.
+        """
+        bundle = self.build_bundle( data={'resource_uri': uri}, request=request )
+        try:
+            bundle.obj = self.obj_get( request=request, uri=uri )
+        except Exception, e:
+            bundle.errors['ResourceDoesNotExist'] = "Ouch! Something went wrong trying to get a resource at `{0}`. \n\nThe original exception was: \n {1}".format( uri, e )
+
+        # Since our data was a uri only, there's no need to do any further
+        # hydration. Just return the bundle.
+        return bundle
+
+    def bundle_from_data( self, data, request=None ):
+        """
+        Given a dictionary-like structure is provided, a fresh bundle is 
+        created using that data.
+
+        If the data contains a resource_uri, any other keys in the data are 
+        assumed to be updates to an existing object's properties.
+
+        If the data contains no resource_uri, a new object is instantiated.
+
+        Errors are added to the bundle if a new resource may not be created or 
+        if an existing resource is not found or may not be updated.
+        """
+        
+        if 'resource_uri' in data:
+            # We seem to be wanting to modify an existing resource. 
+            # Try to retrieve the document and put it in a bundle.
+            bundle = self.bundle_from_uri( data['resource_uri'], request=request )
+
+            # Only put data in the bundle if we may update it. Otherwise
+            # we'll just ignore any other data so hydration will stop here.
+            # If the bundle pointed to a resource that didn't exist, it will
+            # already contain errors.
+            if self.may_update:
+                bundle.data = data
+            else:
+                bundle.warnings[ 'ValidationWarning' ] = 'Additional data was provided for `{0}`, but it was discarded because the resource may not be updated.'.format( bundle.data['resource_uri'] ) 
+
+        elif self.may_create:
+            # We may create the new resource. Build a fresh bundle for it.
+            bundle = self.build_bundle( data=data, request=request )
+
+        else:
+            # Create a bundle without data and put an error in it.
+            bundle = self.build_bundle( request=request )
+            bundle.errors['ValidationError'] = 'You may not create a new {0} resource.'.format( self._meta.resource_name )
+
+        if not bundle.errors:
+            bundle = self.hydrate( bundle )
+
+        return bundle
 
     def pre_hydrate( self, bundle ):
         '''
@@ -351,24 +417,27 @@ class Resource( object ):
         '''
         return bundle
 
-    def hydrate(self, bundle):
+    def hydrate( self, bundle ):
         """
-        Recursively takes data from the resource and converts it to a form
-        ready to be stored on objects.
+        Takes data from the resource and converts it to a form ready to be 
+        stored on documents.
 
-        The result of the hydrate function is a fully populated bundle ready to
-        be validated and saved.
+        Creates related bundles for related fields, instantiating corresponding
+        objects along the way. Does *not* set related attributes on objects yet, 
+        since that would render validation impossible when creating a nested
+        tree of objects.
 
-        * Non-relational fields' data is set directly on the object.
-        
-        * Related field's objects are (recursively) instantiated by the field's
-          hydrate method, that in turn calls the related `*resource*'s` hydrate
-          method. They are however not yet added to the base object since this
-          would lead to deadlock for required managed relations on new objects.
+        The result of the hydrate function is a fully populated bundle with 
+        nested bundles for related objects. 
+
+        * Related field's resources are (recursively) instantiated by the 
+          field's `hydrate` method, that in turn calls the related resource's 
+          `hydrate` method. 
 
         * Any errors encountered in the data for the related objects are
           propagated to the parent's bundle.
         """
+
         if bundle.obj is None:
             bundle.obj = self._meta.object_class()
 
@@ -383,15 +452,15 @@ class Resource( object ):
                 value = field_object.hydrate( bundle )
 
             if isinstance(value, Bundle):
-                # Related fields return Bundles. 
-                # A custom method might as well.
-                # Replace the data for the field with the related bundle, 
-                # but don't touch the object's attribute yet.
+                # Related fields return Bundles, custom methods might as well.
+                # Replace the data for the field with the related bundle.
                 bundle.data[field_name] = value
 
+                # Copy any (nested) errors for this field to the parent.
                 if value.errors:
-                    # Copy the (nested) errors for this field to the parent 
                     bundle.errors[field_name] = value.errors
+
+                # NOTE: *don't* set the field attribute right now
 
             elif field_object.attribute:
                 if value is not None or not field_object.required:
@@ -402,6 +471,12 @@ class Resource( object ):
                     setattr(bundle.obj, field_object.attribute, value)
 
         return bundle
+
+    def save( self, bundle ):
+        '''
+        Recursively validates and saves the (embedded) object(s) in the bundle.
+        '''
+        raise NotImplementedError()
 
     def dehydrate( self, bundle ):
         """
@@ -426,7 +501,7 @@ class Resource( object ):
         '''
         return bundle
 
-    def pre_serialize( self, request, bundle_or_data ):
+    def pre_serialize( self, bundle_or_data, request ):
         """
         A hook to alter data just before it gets serialized & sent to the user.
 
@@ -478,7 +553,6 @@ class Resource( object ):
 
         # Determine which callback we're going to use
         method = getattr( self, '{}_{}'.format( request_method, request_type ), None )
-
         if method is None:
             error = 'Method="{}_{}" is not implemented for resource="{}"'.format( request_method, request_type, self._meta.resource_name )
             raise ImmediateHTTPResponse( response=http.HTTPNotImplemented( body=error ))
@@ -505,7 +579,7 @@ class Resource( object ):
         self.is_authenticated( request )
         self.check_throttle( request )
         self.log_throttled_access(request)
-        return self.create_response( request, self.build_schema() )
+        return self.create_response( self.build_schema(), request )
 
     def get_list( self, request ):
         """
@@ -518,15 +592,15 @@ class Resource( object ):
         """
         objects = self.obj_get_list( request=request, **request.matchdict )
 
-        to_be_serialized = { 'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 'objects': objects, }
+        data = { 'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 'objects': objects, }
 
         # Dehydrate the bundles in preparation for serialization.
         # FIXME: this needs implementation for lists in the bundle.
         # While we're at it: also include the 'meta' in the bundle. 
-        bundles = [self.build_bundle( obj=obj, request=request ) for obj in to_be_serialized['objects']]
-        to_be_serialized['objects'] = [self.dehydrate( bundle ) for bundle in bundles]
-        to_be_serialized = self.pre_serialize( request, to_be_serialized )
-        return self.create_response( request, to_be_serialized )
+        bundles = [self.build_bundle( obj=obj, request=request ) for obj in data['objects']]
+        data['objects'] = [self.dehydrate( bundle ) for bundle in bundles]
+        data = self.pre_serialize( data, request )
+        return self.create_response( data, request )
 
     def get_detail( self, request ):
         """
@@ -544,8 +618,36 @@ class Resource( object ):
         # try to figure out how to get these related resources
         bundle = self.build_bundle( obj=obj, request=request )
         bundle = self.dehydrate( bundle )
-        bundle = self.pre_serialize( request, bundle )
-        return self.create_response( request, bundle )
+        bundle = self.pre_serialize( bundle, request )
+        return self.create_response( bundle, request )
+
+    def post_list(self, request, **kwargs):
+        """
+        Creates a new Resource from the provided data.
+
+        Returns `HTTPCreated` (201 Created) if all went well. 
+        """
+        data = self.deserialize( request, request.body, format=request.content_type )
+        data = self.post_deserialize( request, data )
+        bundle = self.obj_create( data, request=request, **kwargs )
+
+        if bundle.errors:
+            return self.create_response( bundle.errors, request, response_class=http.HTTPBadRequest )
+
+        location = self.get_resource_uri( request )
+        if self._meta.return_data_on_post:
+            # Re-populate the data from the object.
+            updated_bundle = self.dehydrate(bundle)
+            updated_bundle = self.pre_serialize( updated_bundle, request )
+            return self.create_response( updated_bundle, request, response_class=http.HTTPCreated, location=location )
+        else:
+            return http.HTTPCreated( location=location )
+        
+    def post_detail(self, request, **kwargs):
+        """
+        Not implemented since we don't allow self-referential nested URLs
+        """
+        return http.HTTPNotImplemented()
 
     def put_list(self, request, **kwargs):
         # FIXME: TBD what this should really do:
@@ -561,40 +663,11 @@ class Resource( object ):
         """
         return NotImplementedError('put_detail is not yet implemented')
 
-    def post_list(self, request, **kwargs):
-        """
-        Creates a new Resource with the provided data.
-
-        If a new resource is created, return ``HttpCreated`` (201 Created).
-        If ``Meta.always_return_data = True``, there will be a populated body
-        of serialized data.
-        """
-        deserialized = self.deserialize(request, request.body, format=request.content_type)
-        deserialized = self.post_deserialize(request, deserialized)
-        bundle = self.build_bundle( data=deserialized, request=request )
-        bundle = self.obj_create( bundle, request=request, **kwargs )
-
-        location = self.get_resource_uri(bundle)
-        if not self._meta.always_return_data:
-            return http.HttpCreated(location=location)
-        else:
-            # dehydrate the bundle to incorporate any changes on the newly
-            # created object (like permissions, relations, etc.)
-            bundle = self.dehydrate(bundle)
-            bundle = self.pre_serialize(request, bundle)
-            return self.create_response(request, bundle, response_class=http.HttpCreated, location=location)
-
-    def post_detail(self, request, **kwargs):
-        """
-        Not implemented since we don't allow self-referential nested URLs
-        """
-        return http.HttpNotImplemented()
-
     def delete_list(self, request, **kwargs):
         """
         Not implemented since we don't allow destroying whole lists
         """
-        return http.HttpNotImplemented()
+        return http.HTTPNotImplemented()
 
     def delete_detail(self, request, **kwargs):
         """
@@ -602,14 +675,14 @@ class Resource( object ):
 
         Calls ``obj_delete``.
 
-        If the resource is deleted, return ``HttpNoContent`` (204 No Content).
-        If the resource did not exist, return ``Http404`` (404 Not Found).
+        If the resource is deleted, return ``HTTPNoContent`` (204 No Content).
+        If the resource did not exist, return ``HTTP404`` (404 Not Found).
         """
         try:
             self.obj_delete(request=request, **kwargs)
-            return http.HttpNoContent()
+            return http.HTTPNoContent()
         except NotFound:
-            return http.HttpNotFound()
+            return http.HTTPNotFound()
 
 
 
@@ -700,16 +773,24 @@ class Resource( object ):
         """
         raise NotImplementedError()
 
-    def obj_create(self, bundle, request=None, **kwargs):
+    def obj_create(self, data, request=None, **kwargs):
         """
-        Creates a new object based on the provided data.
-
-        This needs to be implemented at the user level.
-
-        ``DocumentResource`` includes a working version for MongoEngine
-        ``Documents``.
+        Creates a new object based on the provided data, creating or updating
+        related objects along the way.
         """
-        raise NotImplementedError()
+        bundle = self.build_bundle( data=data, request=request )
+        bundle = self.hydrate( bundle )
+
+        # Create new objects first
+        bundle = self.create_new_objects( bundle )
+
+        # Validate our bundle now that all objects exist
+        bundle = self.validate( bundle )
+
+        # Save the rest
+        bundle = self.save( bundle )
+
+        return bundle
 
     def obj_delete_list(self, request=None, **kwargs):
         """
@@ -1026,58 +1107,169 @@ class DocumentResource( Resource ):
         """
         return self.get_object_list( request ).filter( **applicable_filters )
 
-    def validate(self, bundle, request=None):
-        """
-        Validates the documents in the bundle, recursing for related fields.
-        
-        Validation errors are stored in bundle.errors[<fieldname>] and returned
-        as well so higher level bundles can append them and the root bundle
-        will contain a copy of all (nested) errors.
-        """
-        # pseudo code:
-        # - call `validate` on related fields
-        # - store any returned errors on bundle.errors[<related_fieldname>]
-        # - validate our own fields by calling bundle.obj.validate()
-        # - store any errors in bundle.errors[<fieldname>]
-        # - return any errors or an empty list if the document validated
-        return []
-
     def get_object_list( self, request ):
         if hasattr( self._meta, "queryset" ):
             return self._meta.queryset.clone()
         else:
             raise NotImplementedError()
 
+
+    def create_new_objects( self, bundle ):
+        '''
+        Recursively creates any embedded documents in the bundle that don't
+        have an id yet.
+        '''
+        bundle.created = set()
+
+        # STEP 1: If we're brand spankin' new try to get us an id.
+        if not bundle.obj.id:
+            try:
+                bundle.obj.save() 
+                bundle.created.add( bundle.obj )
+            except MongoEngineValidationError, e:
+                # Ouch, that didn't work... Let's wait till we created embedded. 
+                pass
+
+        # STEP 2: Recursively create new nested related resources.
+        for field_name, field_object in self.fields.items():
+            if getattr( field_object, 'is_related', False ):
+                related_resource = field_object.get_related_resource()
+                related_bundle = related_resource.create_new_objects( bundle.data[ field_name ] )
+                bundle.data[ field_name ] = related_bundle
+
+                # Update our index with the results of the related resource
+                bundle.created |= related_bundle.created
+
+                # If the related document has an id, assign it now.
+                if field_object.attribute and related_bundle.obj.id:
+                    setattr(bundle.obj, field_object.attribute, related_bundle.obj )
+
+        # STEP 3: We should now be able to save ourself, or there's a config error. 
+        if not bundle.obj.id:
+            try:
+                bundle.obj.save() 
+                bundle.created.add( bundle.obj )
+            except Exception, e:
+                # Something went wrong. Test more specific exceptions later.
+                # For now, roll back any objects we created along the way.
+                for obj in bundle.created:
+                    obj.delete()
+                raise ValidationError("Something terrible happened. We're working to give you more specific feedback")
+
+        return bundle
+
+    def validate( self, bundle ):
+        '''
+        Recursively validates the (embedded) object(s) in the bundle.
+
+        Call validate on every related object and then validate ourselves.
+        If validation fails, roll back by deleting documents that were created
+        and raise a ValidationError.
+        '''
+
+        # STEP 4: All objects now exist and all relations are assigned, so
+        # everything should validate. 
+
+        try:
+            bundle.obj.validate()
+        except MongoEngineValidationError, e:
+            bundle.errors['ValidationError'] = e
+
+        if not bundle.errors:
+            for field_name, field_object in self.fields.items():
+                if getattr( field_object, 'is_related', False ):
+                    try:
+                        bundle.obj.validate()
+                    except MongoEngineValidationError, e:
+                        bundle.errors[ field_name ] = e
+                        break
+
+        if bundle.errors:
+            # Validation failed along the way. Roll back all we created.
+            # FIXME: do this more efficiently
+            for obj in bundle.created:
+                try:
+                    obj.delete()
+                except ObjectDoesNotExist:
+                    # It's been removed already
+                    pass
+
+        return bundle
+
+    def save( self, bundle, **kwargs ):
+        '''
+        Recursively saves the (embedded) object(s) in the validated bundle.
+
+        5. This is wicked! We have a totally valid bundle!
+           Try to save ourselves again, recursing for related resources.
+
+           IMPORTANT NOTE: 
+           We cannot assume that documents for which we only provided a URI 
+           have not changed: they likely have received updates from the other
+           side of their relations (if you use RelationalMixin), or have 
+           updated privileges (if you use PrivilegeMixin)
+
+           MongoEngine will take care of not updating fields that haven't changed. 
+
+           We do a bit of accounting as an additional check: if anything goes 
+           amiss here you get the ids of objects that were and weren't saved,
+           which you can use to create your own rollback scenario.
+        '''
+
+        # Save ourself first
+        bundle.obj.save()
+
+        # STEP 5: And recursively save our related resources.
+        for field_name, field_object in self.fields.items():
+            if getattr( field_object, 'is_related', False ):
+                related_resource = field_object.get_related_resource()
+                related_resource.save( bundle.data[ field_name ] )
+
+        return bundle
+
+
     def obj_get( self, request=None, **kwargs ):
         """
-        A MongoEngine implementation of ``obj_get``.
+        A Pyramid/MongoEngine specific implementation of ``obj_get``.
 
         Takes optional ``kwargs``, which are used to narrow the query to find
         the instance.
         """
+        uri = kwargs.pop('uri', None)
+        if uri:
+            # Grab the id from the uri and create a filter from it.
+            # FIXME: not robust or nestable but works internally. Improve later.
+            kwargs['id'] = uri.split('/')[-2]
+
+        # Try to lookup the object through the provided kwargs.
+        object_list = []
         try:
             object_list = self.get_object_list( request ).filter( **kwargs )
-            obj = None
-
-            # Be smart about queries: every len() causes one.
-            for o in object_list:
-                if obj:
-                    # We've already set obj, so shouldn't get here unless
-                    # there's more than one object at this (possibly filtered) URI
-                    stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
-                    raise self._meta.object_class.MultipleObjectsReturned( "More than '%s' matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
-                obj = o
-
-            if obj is None:
-                # We should have exactly 1 object at this point
-                stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
-                raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of '%s' which matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
-
-            # Okay, we're good to go without superfluous queries
-            return obj
-
         except ValueError:
             raise NotFound( "Invalid resource lookup data provided ( mismatched type )." )
+
+        # get_object_list should return only 1 object with the provided
+        # kwargs. However if the kwargs are off, it could return none, or
+        # multiple objects. Find out if we matched only 1.
+
+        # Be smart about queries: every len() causes one.
+        obj = None
+        for o in object_list:
+            if obj:
+                # We've already set obj the first run, so we shouldn't 
+                # get here unless there's more than one object at 
+                # this (possibly filtered) URI
+                stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
+                raise self._meta.object_class.MultipleObjectsReturned( "More than one '%s' matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
+            obj = o
+
+        if obj is None:
+            # If we didn't find an object the filter parameters were off
+            stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
+            raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of '%s' which matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
+
+        # Okay, we're good to go without superfluous queries!
+        return obj
 
     def obj_get_list( self, request=None, **kwargs ):
         """
@@ -1097,31 +1289,6 @@ class DocumentResource( Resource ):
             return self.apply_filters( request, applicable_filters )
         except ValueError:
             raise BadRequest( "Invalid resource lookup data provided ( mismatched type )." )
-
-    def obj_create(self, bundle, request=None, **kwargs):
-        """
-        A MongoEngine-specific implementation of ``obj_create``.
-        """
-
-        # Create an object of the right type
-        bundle.obj = self._meta.object_class()
-
-        # We may pass in keyword argument overrides or additional settings
-        for key, value in kwargs.items():
-            setattr(bundle.obj, key, value)
-
-        # Create a bundle-tree from a resource-tree
-        bundle = self.hydrate(bundle)
-
-        self.validate( bundle, request )
-        if bundle.errors:
-            self.error_response( bundle.errors, request )
-
-        # Save the document tree. Saving of embedded documents should be taken
-        # care of by the MongoEngine layer to avoid huge amounts of double work.
-        bundle.obj.save()
-
-        return bundle
 
     def obj_update(self, bundle, request=None, **kwargs):
         """

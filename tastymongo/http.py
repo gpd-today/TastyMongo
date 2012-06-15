@@ -9,14 +9,8 @@ class HTTPResponse(Response):
 
 class HTTPCreated(HTTPResponse):
     def __init__(self, *args, **kwargs):
-        location = ''
-
-        if 'location' in kwargs:
-            location = kwargs['location']
-            del( kwargs['location'] )
-
         super(HTTPCreated, self).__init__(*args, **kwargs)
-        self.location = location
+        self.location = kwargs.pop('location', '')
         self.status_int = 201
 
 
@@ -32,8 +26,10 @@ class HTTPNoContent(HTTPResponse):
         self.status_int = 204
 
 
-class HttpMultipleChoices(HTTPResponse):
-    status_code = 300
+class HTTPMultipleChoices(HTTPResponse):
+    def __init__(self, *args, **kwargs):
+        super(HTTPMultipleChoices, self).__init__(*args, **kwargs)
+        self.status_int = 300 
 
 
 class HTTPNotModified(HTTPResponse):

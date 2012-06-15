@@ -161,35 +161,35 @@ class ApiField( object ):
             return None
 
     def hydrate( self, bundle ):
-        '''
-        Creates a possibly complex object out of simple data on the Resource.
-        '''
+        """
+        Takes data stored in the bundle for the field and returns it. Used for
+        taking simple data and building an instance object.
+        """
         if self.readonly:
-            # Prevent accidentally overwriting readonly fields. 
             return None
 
-        if self.field_name not in bundle.data:
+        # This is the default and what should happen most: the bundle has data.
+        if self.field_name in bundle.data:
+            return bundle.data[self.field_name]
 
-            if self.attribute and getattr( bundle.obj, self.attribute, None):
-                # `attribute` may be provided to create data for the object.
-                obj = getattr(bundle.obj, self.attribute, None)
-                if callable(obj):
-                    obj = obj()
-                return obj
+        # We haven't found any data for this field in the bundle, see if the 
+        # object has a property or method that generates this field's data.
+        if self.attribute and getattr( bundle.obj, self.attribute, None):
+            attr = getattr(bundle.obj, self.attribute, None)
+            if callable( attr ):
+                attr = attr()
+            return attr
 
-            # FIXME: this seems unnecessary since we do Validation on the Document
-            elif self.field_name and hasattr(bundle.obj, self.field_name):
-                return getattr(bundle.obj, self.field_name)
+        # FIXME: do we need to include the option to generate data from a 
+        # method on the resource as well?
 
-            elif self.has_default:
-                return self.default
+        elif self.has_default:
+            return self.default
 
-            elif not self.required:
-                return None
-            else:
-                raise ApiFieldError( "The '%s' field is required but has no data and doesn't have a default value." % self.field_name )
-
-        return bundle.data[self.field_name]
+        elif not self.required:
+            return None
+        else:
+            raise ApiFieldError( "The '%s' field is required but has no data and doesn't have a default value." % self.field_name )
 
 
 class ObjectIdField( ApiField ):
@@ -463,6 +463,7 @@ class RelatedField( ApiField ):
         if self.self_referential or self.to == 'self':
             self._to_class = cls
 
+    @property
     def to_class( self ):
         # We need to be lazy here, because when the metaclass constructs the
         # Resources, other classes may not exist yet.
@@ -508,76 +509,41 @@ class RelatedField( ApiField ):
 
         return related_resource
 
-    def resource_from_uri( self, related_resource, uri, request=None ):
+    def build_related_bundle(self, value, request=None ):
         """
-        The related resource is attempted to be loaded based on the identifiers in the URI.
+        Returns a bundle built by the related resource. The related Resource's 
+        hydrate method is used to populate the related object from related data.
+        This may cause recursion for deeper nested data.
+
+        Accepts either a URI or a dictionary-like structure.
         """
-        try:
-            obj = related_resource.get_via_uri( uri, request=request )
-            bundle = related_resource.build_bundle( obj=obj, request=request )
-            return related_resource.dehydrate( bundle )
-        except ObjectDoesNotExist:
-            raise ApiFieldError( "Could not find the provided object via resource URI '%s'." % uri )
+        related_resource = self.get_related_resource()
 
-    def resource_from_data( self, related_resource, data, request=None ):
-        """
-        Given a dictionary-like structure is provided, a fresh related
-        resource is created using that data.
-        """
-        related_bundle = related_resource.build_bundle( data=data, request=request )
-
-        # We need to check to see if updates are allowed on the related
-        # resource. If not, we'll just return a populated bundle instead
-        # of mistakenly updating something that should be read-only.
-        if not related_resource.can_update():
-            return related_resource.hydrate( related_bundle )
-
-        try:
-            return related_resource.obj_update( related_bundle, **data )
-        except NotFound:
-            try:
-                # Attempt lookup by primary key
-                lookup_kwargs = dict( (k, v ) for k, v in data.iteritems() if getattr( related_resource, k ).unique )
-
-                if not lookup_kwargs:
-                    raise NotFound()
-                return related_resource.obj_update( related_bundle, **lookup_kwargs )
-            except NotFound:
-                related_bundle = related_resource.hydrate( related_bundle )
-                return related_bundle
-        except MultipleObjectsReturned:
-            return related_resource.hydrate( related_bundle )
-
-    def build_related_resource( self, value, request=None ):
-        """
-        Returns a bundle of data built by the related resource, usually via
-        ``hydrate`` with the data provided.
-
-        Accepts either a URI or a data dictionary ( or dictionary-like structure )
-        """
-        related_resource = self.to_class()
-        kwargs = {
-            'request': request,
-        }
-
-        if isinstance( value, basestring ):
-            # We got a URI. Load the object and assign it.
-            return self.resource_from_uri( related_resource, value, **kwargs )
-        elif hasattr( value, 'items' ):
-            # We've got a data dictionary. Construct the new object.
-            return self.resource_from_data( related_resource, value, **kwargs )
+        if  isinstance(value, Bundle):
+            # We got a bundle object, just return it. The bundle may have been 
+            # generated by a method on the resource or document.
+            return value
+        elif isinstance(value, basestring):
+            # We got a resource URI. Try to create a bundle with the resource.
+            return related_resource.bundle_from_uri( value, request=request )
+        elif hasattr(value, 'items'):
+            # We've got a data dictionary. 
+            return related_resource.bundle_from_data( value, request=request )
         else:
-            raise ApiFieldError( "The '%s' field was given data that was not a URI and not a dictionary-alike: %s." % ( self.field_name, value ))
+            raise ApiFieldError("The '%s' field was given data that was not a URI and not a dictionary-alike: %s." % (self.instance_name, value))
 
     def hydrate( self, bundle ):
-        value = super( ToOneField, self ).hydrate( bundle )
+        '''
+        Hydrate creates a 'related bundle' for the related resource data and
+        calls upon the related resource' hydrate method to instantiate the 
+        object. The related resource may in turn recurse for deeper nested data.
+        '''
+        value = super( RelatedField, self ).hydrate( bundle )
 
         if value is None:
             return None
 
-        # Recurse by creating a related resource of the proper type and 
-        # calling its hydrate method.
-        return self.build_related_resource( value, request=bundle.request )
+        return self.build_related_bundle( value, request=bundle.request )
 
     def dehydrate_related( self, bundle, related_resource ):
         # FIXME: remove this stuff and implement in `dehydrate` proper
@@ -617,7 +583,6 @@ class ToManyField( RelatedField ):
     help_text = 'Many related resources. Can be either a list of URIs or a list of individually nested resource data.'
 
     def dehydrate( self, bundle ):
-        raise NotImplementedError('still need to implement a custom `dehydrate` method for tomanyfield')
         if not bundle.obj or not bundle.obj.pk:
             if not self.required:
                 return []
@@ -631,6 +596,7 @@ class ToManyField( RelatedField ):
 
         dehydrated_bundles = []
 
+        # FIXME: this is silly: we want a related bundle, so use that functionality
         for related_obj in related_objs:
             related_resource = self.get_related_resource( related_obj )
             related_bundle = Bundle( obj=related_obj, request=bundle.request )
