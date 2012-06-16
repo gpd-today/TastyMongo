@@ -10,8 +10,8 @@ class Bundle( object ):
     Necessary because the ``dehydrate/hydrate`` cycle needs to access data at
     different points.
     """
-    def __init__( self, obj=None, data=None, request=None ):
-        self.obj = obj
+    def __init__( self, document=None, data=None, request=None ):
+        self.document = document
         self.data = data or {}
         self.request = request
         self.errors = {}
