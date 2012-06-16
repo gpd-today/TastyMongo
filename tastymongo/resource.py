@@ -22,10 +22,10 @@ from copy import deepcopy
 
 class ResourceOptions( object ):
     """
-    A configuration class for ``Resource``.
+    A configuration class for `Resource`.
 
     Provides sane defaults and the logic needed to augment these settings with
-    the internal ``class Meta`` used on ``Resource`` subclasses.
+    the internal `class Meta` used on `Resource` subclasses.
     """
     serializer = Serializer()
     authentication = Authentication()
@@ -33,7 +33,7 @@ class ResourceOptions( object ):
     throttle = BaseThrottle()
     allowed_methods = [ 'get', 'post', 'put', 'delete' ]
     list_allowed_methods = None
-    detail_allowed_methods = None
+    single_allowed_methods = None
     limit = 20
     api = None
     resource_name = None
@@ -64,8 +64,8 @@ class ResourceOptions( object ):
         if overrides.get( 'list_allowed_methods', None ) is None:
             overrides['list_allowed_methods'] = allowed_methods
 
-        if overrides.get( 'detail_allowed_methods', None ) is None:
-            overrides['detail_allowed_methods'] = allowed_methods
+        if overrides.get( 'single_allowed_methods', None ) is None:
+            overrides['single_allowed_methods'] = allowed_methods
 
         return object.__new__( type( str( 'ResourceOptions' ), ( cls, ), overrides ))
 
@@ -108,7 +108,7 @@ class DeclarativeMetaclass( type ):
         new_class._meta = ResourceOptions( opts )
 
         if not getattr( new_class._meta, 'resource_name', None ):
-            # No ``resource_name`` provided. Attempt to auto-name the resource.
+            # No `resource_name` provided. Attempt to auto-name the resource.
             class_name = new_class.__name__
             name_bits = [bit for bit in class_name.split( 'Resource' ) if bit]
             resource_name = ''.join( name_bits ).lower()
@@ -151,7 +151,7 @@ class Resource( object ):
 
     def dehydrate_resource_uri( self, request, bundle ):
         """
-        For the automatically included ``resource_uri`` field, dehydrate
+        For the automatically included `resource_uri` field, dehydrate
         the relative URI for the given bundle.
         """
         try:
@@ -164,13 +164,13 @@ class Resource( object ):
         Returns a dictionary of all the fields on the resource and some
         properties about those fields.
 
-        Used by the ``schema/`` endpoint to describe what will be available.
+        Used by the `schema/` endpoint to describe what will be available.
         """
         data = {
             'fields': {},
             'default_format': self._meta.default_format,
             'allowed_list_http_methods': self._meta.list_allowed_methods,
-            'allowed_detail_http_methods': self._meta.detail_allowed_methods,
+            'allowed_single_http_methods': self._meta.single_allowed_methods,
             'default_limit': self._meta.limit,
         }
 
@@ -197,7 +197,7 @@ class Resource( object ):
         """
         Used to determine the desired format.
 
-        Largely relies on ``tastypie.utils.mime.determine_format`` but here
+        Largely relies on `tastypie.utils.mime.determine_format` but here
         as a point of extension.
         """
         return determine_format( request, self._meta.serializer, default_format=self._meta.default_format )
@@ -207,7 +207,7 @@ class Resource( object ):
         Ensures that the HTTP method used on the request is allowed to be
         handled by the resource.
         
-        Takes an ``allowed`` parameter, which should be a list of lowercase
+        Takes an `allowed` parameter, which should be a list of lowercase
         HTTP methods to check against. Usually, this looks like::
 
             # The most generic lookup.
@@ -235,27 +235,27 @@ class Resource( object ):
     @property
     def may_create(self):
         """
-        Checks to ensure ``post`` is within ``allowed_methods``.
+        Checks to ensure `post` is within `allowed_methods`.
         """
-        allowed = set(self._meta.list_allowed_methods + self._meta.detail_allowed_methods)
+        allowed = set(self._meta.list_allowed_methods + self._meta.single_allowed_methods)
         return 'post' in allowed
 
     @property
     def may_update(self):
         """
-        Checks to ensure ``put`` is within ``allowed_methods``.
+        Checks to ensure `put` is within `allowed_methods`.
 
         Used when hydrating related data.
         """
-        allowed = set(self._meta.list_allowed_methods + self._meta.detail_allowed_methods)
+        allowed = set(self._meta.list_allowed_methods + self._meta.single_allowed_methods)
         return 'put' in allowed
 
     @property
     def may_delete(self):
         """
-        Checks to ensure ``delete`` is within ``allowed_methods``.
+        Checks to ensure `delete` is within `allowed_methods`.
         """
-        allowed = set(self._meta.list_allowed_methods + self._meta.detail_allowed_methods)
+        allowed = set(self._meta.list_allowed_methods + self._meta.single_allowed_methods)
         return 'delete' in allowed
 
     def is_authenticated( self, request ):
@@ -263,8 +263,8 @@ class Resource( object ):
         Handles checking if the user is authenticated and dealing with
         unauthenticated users.
 
-        Mostly a hook, this uses class assigned to ``authentication`` from
-        ``Resource._meta``.
+        Mostly a hook, this uses class assigned to `authentication` from
+        `Resource._meta`.
         """
         # Authenticate the request as needed.
         auth_result = self._meta.authentication.is_authenticated( request )
@@ -279,8 +279,8 @@ class Resource( object ):
         """
         Handles checking if the user should be throttled.
 
-        Mostly a hook, this uses class assigned to ``throttle`` from
-        ``Resource._meta``.
+        Mostly a hook, this uses class assigned to `throttle` from
+        `Resource._meta`.
         """
         identifier = self._meta.authentication.get_identifier( request )
 
@@ -293,8 +293,8 @@ class Resource( object ):
         """
         Handles the recording of the user's access for throttling purposes.
 
-        Mostly a hook, this uses class assigned to ``throttle`` from
-        ``Resource._meta``.
+        Mostly a hook, this uses class assigned to `throttle` from
+        `Resource._meta`.
         """
         request_method = request.method.lower()
         self._meta.throttle.accessed( self._meta.authentication.get_identifier(request), url=request.path_url, request_method=request_method )
@@ -318,10 +318,10 @@ class Resource( object ):
         Analogous to python 'unpickle': translates serialized `data` in a given 
         `format` to python data structures.
 
-        It relies on the request properly sending a ``CONTENT_TYPE`` header,
+        It relies on the request properly sending a `CONTENT_TYPE` header,
         falling back to the default format if not provided.
 
-        Mostly a hook, this uses the ``Serializer`` from ``Resource._meta``.
+        Mostly a hook, this uses the `Serializer` from `Resource._meta`.
         """
         format = format or request.content_type or self._meta.default_format
         return self._meta.serializer.deserialize( data, format )
@@ -337,12 +337,12 @@ class Resource( object ):
 
     def build_bundle( self, document=None, data=None, request=None ):
         """
-        Given either an document, a data dictionary or both, builds a ``Bundle``
-        for use throughout the ``dehydrate/hydrate`` cycle.
+        Given either a document, a data dictionary or both, builds a `Bundle`
+        for use throughout the `dehydrate/hydrate` cycle.
 
         If no document is provided, an empty document from
-        ``Resource._meta.document_class`` is created so that attempts to access
-        ``bundle.document`` do not fail.
+        `Resource._meta.document_class` is created so that attempts to access
+        `bundle.document` do not fail.
         """
         if document is None:
             document = self._meta.document_class()
@@ -360,7 +360,7 @@ class Resource( object ):
         """
         bundle = self.build_bundle( data={'resource_uri': uri}, request=request )
         try:
-            bundle.document = self.document_get( request=request, uri=uri )
+            bundle.document = self.document_get_single( request=request, uri=uri )
         except Exception, e:
             bundle.errors['ResourceDoesNotExist'] = "Ouch! Something went wrong trying to get a resource at `{0}`. \n\nThe original exception was: \n {1}".format( uri, e )
 
@@ -508,8 +508,8 @@ class Resource( object ):
 
     def dehydrate( self, bundle ):
         """
-        Given a bundle with an document instance, extract the information from it
-        to populate the resource data.
+        Given a bundle with a document instance, extract the information from 
+        it to populate the resource data.
         """
         # Dehydrate each field.
         for field_name, field_value in self.fields.items():
@@ -546,7 +546,7 @@ class Resource( object ):
         Given a request, data and a desired format, produces a serialized
         version suitable for transfer over the wire.
 
-        Mostly a hook, this uses the ``Serializer`` from ``Resource._meta``.
+        Mostly a hook, this uses the `Serializer` from `Resource._meta`.
         """
         return self._meta.serializer.serialize( data, format, options )
 
@@ -557,18 +557,18 @@ class Resource( object ):
         A view for handling the various HTTP methods ( GET/POST/PUT/DELETE ) over
         the entire list of resources.
         
-        Relies on ``Resource.dispatch`` for the heavy-lifting.
+        Relies on `Resource.dispatch` for the heavy-lifting.
         """
         return self.dispatch( 'list', request, **kwargs )
 
-    def dispatch_detail( self, request, **kwargs ):
+    def dispatch_single( self, request, **kwargs ):
         """
         A view for handling the various HTTP methods ( GET/POST/PUT/DELETE ) on
         a single resource.
 
-        Relies on ``Resource.dispatch`` for the heavy-lifting.
+        Relies on `Resource.dispatch` for the heavy-lifting.
         """
-        return self.dispatch( 'detail', request, **kwargs )
+        return self.dispatch( 'single', request, **kwargs )
 
     def dispatch( self, request_type, request, **kwargs ):
         """
@@ -598,7 +598,7 @@ class Resource( object ):
         """
         Returns a serialized form of the schema of the resource.
 
-        Calls ``build_schema`` to generate the data. This method only responds
+        Calls `build_schema` to generate the data. This method only responds
         to HTTP GET.
 
         Should return a HTTPResponse ( 200 OK ).
@@ -613,37 +613,37 @@ class Resource( object ):
         """
         Returns a serialized list of resources.
 
-        Calls ``document_get_list`` to provide the data, then handles that result
-        set and serializes it.
+        Calls `document_get_list` to provide the documents to be dehydrated
+        and serialized.
 
-        Should return a HTTPResponse ( 200 OK ).
+        Should return an HTTPResponse ( 200 OK ).
         """
         documents = self.document_get_list( request=request, **request.matchdict )
 
-        data = { 'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 'documents': documents, }
-
-        # Dehydrate the bundles in preparation for serialization.
-        # FIXME: this needs implementation for lists in the bundle.
-        # While we're at it: also include the 'meta' in the bundle. 
-        bundles = [self.build_bundle( document=document, request=request ) for document in data['documents']]
-        data['documents'] = [self.dehydrate( bundle ) for bundle in bundles]
+        bundles = [self.build_bundle( document=document, request=request ) for document in documents]
+        data = { 
+                'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 
+                'documents': [self.dehydrate( bundle ) for bundle in bundles]
+            }
         data = self.pre_serialize( data, request )
         return self.create_response( data, request )
 
-    def get_detail( self, request ):
+    def get_single( self, request ):
         """
         Returns a single serialized resource.
 
-        Should return a HTTPResponse ( 200 OK ).
+        Calls `document_get_single` to provide the document to be dehydrated
+        and serialized.
+
+        Should return an HTTPResponse ( 200 OK ).
         """
         try:
-            document = self.document_get( request=request, **request.matchdict )
+            document = self.document_get_single( request=request, **request.matchdict )
         except DoesNotExist:
             return http.HTTPNotFound()
         except MultipleObjectsReturned:
             return http.HTTPMultipleChoices( "More than one resource is found at this URI." )
 
-        # try to figure out how to get these related resources
         bundle = self.build_bundle( document=document, request=request )
         bundle = self.dehydrate( bundle )
         bundle = self.pre_serialize( bundle, request )
@@ -657,39 +657,40 @@ class Resource( object ):
         """
         data = self.deserialize( request, request.body, format=request.content_type )
         data = self.post_deserialize( request, data )
-        bundle = self.save( data, request=request, **kwargs )
 
+        bundle = self.save( data, request=request, **kwargs )
         if bundle.errors:
             return self.create_response( bundle.errors, request, response_class=http.HTTPBadRequest )
 
         location = self.get_resource_uri( request )
         if self._meta.return_data_on_post:
-            # Re-populate the data from the document.
+            # Re-populate the data from the saved document.
             updated_bundle = self.dehydrate(bundle)
             updated_bundle = self.pre_serialize( updated_bundle, request )
             return self.create_response( updated_bundle, request, response_class=http.HTTPCreated, location=location )
         else:
             return http.HTTPCreated( location=location )
         
-    def post_detail(self, request, **kwargs):
+    def post_single(self, request, **kwargs):
         """
-        Not implemented since we don't allow self-referential nested URLs
+        Not implemented since we only allow posting to top level list, not 
+        inside existing resources. 
         """
         return http.HTTPNotImplemented()
 
     def put_list(self, request, **kwargs):
         # FIXME: TBD what this should really do:
-        # 1. only affect the documents posted and call put_detail on them
+        # 1. only affect the documents posted and call put_single on them
         # 2. consider the put list a diff with an existing list at this URI
         #    (which may be filtered, like ?category=Pets) and thus remove
         #    any documents not in the put list.
         return NotImplementedError('put_list is not yet implemented')
 
-    def put_detail(self, request, **kwargs):
+    def put_single(self, request, **kwargs):
         """
         Updates an existing document with the provided data.
         """
-        return NotImplementedError('put_detail is not yet implemented')
+        return NotImplementedError('put_single is not yet implemented')
 
     def delete_list(self, request, **kwargs):
         """
@@ -697,14 +698,14 @@ class Resource( object ):
         """
         return http.HTTPNotImplemented()
 
-    def delete_detail(self, request, **kwargs):
+    def delete_single(self, request, **kwargs):
         """
         Destroys a single resource/document.
 
-        Calls ``document_delete``.
+        Calls `document_delete`.
 
-        If the resource is deleted, return ``HTTPNoContent`` (204 No Content).
-        If the resource did not exist, return ``HTTP404`` (404 Not Found).
+        If the resource is deleted, return `HTTPNoContent` (204 No Content).
+        If the resource did not exist, return `HTTP404` (404 Not Found).
         """
         try:
             self.document_delete(request=request, **kwargs)
@@ -720,7 +721,7 @@ class Resource( object ):
         additional relations, determine if a field can be filtered on.
 
         If a filter does not meet the needed conditions, it should raise an
-        ``InvalidFilterError``.
+        `InvalidFilterError`.
 
         If the filter meets the conditions, a list of attribute names ( not
         field names ) will be returned.
@@ -758,7 +759,7 @@ class Resource( object ):
 
     def filter_value_to_python( self, value, field_name, filters, filter_expr, filter_type ):
         """
-        Turn the string ``value`` into a python object.
+        Turn the string `value` into a python object.
         """
         # Simple values
         if value in ['true', 'True', True]:
@@ -782,12 +783,12 @@ class Resource( object ):
 
 
 
-    def document_get( self, request=None, **kwargs ):
+    def document_get_single( self, request=None, **kwargs ):
         """
         Fetches a single document at a given resource_uri.
 
         This needs to be implemented at the user level. 
-        This should raise ``NotFound`` or ``MultipleObjects`` exceptions
+        This should raise `NotFound` or `MultipleObjects` exceptions
         when there's no or multiple documents at the resource_uri.
         """
         raise NotImplementedError()
@@ -801,25 +802,23 @@ class Resource( object ):
         """
         raise NotImplementedError()
 
-    def document_delete_list(self, request=None, **kwargs):
-        """
-        Deletes an entire list of documents.
-
-        This needs to be implemented at the user level.
-
-        ``DocumentResource`` includes a working version for MongoEngine
-        ``Documents``.
-        """
-        raise NotImplementedError()
-
-    def document_delete(self, request=None, **kwargs):
+    def document_delete_single(self, request=None, **kwargs):
         """
         Deletes a single document.
 
         This needs to be implemented at the user level.
 
-        ``DocumentResource`` includes a working version for MongoEngine
-        ``Documents``.
+        `DocumentResource` includes a working version for MongoEngine
+        `Documents`.
+        """
+        raise NotImplementedError()
+
+    def document_delete_list(self, request=None, **kwargs):
+        """
+        Deletes an entire list of documents.
+
+        `DocumentResource` includes a working version for MongoEngine
+        `Documents`.
         """
         raise NotImplementedError()
 
@@ -998,7 +997,7 @@ class DocumentResource( Resource ):
         }
 
         if bundle_or_document:
-            kwargs['operation'] = 'detail'
+            kwargs['operation'] = 'single'
             if isinstance( bundle_or_document, Bundle ):
                 try:
                     kwargs['id'] = bundle_or_document.document.id
@@ -1014,10 +1013,10 @@ class DocumentResource( Resource ):
     def apply_sorting( self, document_list, options=None ):
         """
         Given a dictionary of options, apply some ODM-level sorting to the
-        provided ``QuerySet``.
+        provided `QuerySet`.
 
-        Looks for the ``sort_by`` key and handles either ascending ( just the
-        field name ) or descending ( the field name with a ``-`` in front ).
+        Looks for the `sort_by` key and handles either ascending ( just the
+        field name ) or descending ( the field name with a `-` in front ).
         """
         if options is None:
             options = {}
@@ -1070,8 +1069,8 @@ class DocumentResource( Resource ):
         definition.
 
         Valid values are either a list of MongoEngine filter types ( i.e.
-        ``['startswith', 'exact', 'lte']`` ), the ``ALL`` constant or the
-        ``ALL_WITH_RELATIONS`` constant.
+        `['startswith', 'exact', 'lte']` ), the `ALL` constant or the
+        `ALL_WITH_RELATIONS` constant.
 
         At the declarative level:
             filtering = {
@@ -1110,17 +1109,11 @@ class DocumentResource( Resource ):
 
         return qs_filters
 
-    def apply_filters( self, request, applicable_filters ):
-        """
-        A MongoEngine-specific implementation of ``apply_filters``.
-        """
-        return self.get_document_list( request ).filter( **applicable_filters )
-
     def get_document_list( self, request ):
         if hasattr( self._meta, "queryset" ):
             return self._meta.queryset.clone()
         else:
-            raise NotImplementedError()
+            raise NotImplementedError('Resource needs a `queryset` to return documents')
 
 
     def create( self, bundle ):
@@ -1237,52 +1230,9 @@ class DocumentResource( Resource ):
         return bundle
 
 
-    def document_get( self, request=None, **kwargs ):
-        """
-        A Pyramid/MongoEngine specific implementation of ``document_get``.
-
-        Takes optional ``kwargs``, which are used to narrow the query to find
-        the instance.
-        """
-        uri = kwargs.pop('uri', None)
-        if uri:
-            # Grab the id from the uri and create a filter from it.
-            # FIXME: not robust or nestable but works internally. Improve later.
-            kwargs['id'] = uri.split('/')[-2]
-
-        # Try to lookup the document through the provided kwargs.
-        document_list = []
-        try:
-            document_list = self.get_document_list( request ).filter( **kwargs )
-        except ValueError:
-            raise NotFound( "Invalid resource lookup data provided ( mismatched type )." )
-
-        # get_document_list should return only 1 document with the provided
-        # kwargs. However if the kwargs are off, it could return none, or
-        # multiple documents. Find out if we matched only 1.
-
-        # Be smart about queries: every len() causes one.
-        document = None
-        for o in document_list:
-            if document:
-                # We've already set document the first run, so we shouldn't 
-                # get here unless there's more than one document at 
-                # this (possibly filtered) URI
-                stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
-                raise self._meta.document_class.MultipleObjectsReturned( "More than one '%s' matched '%s'." % ( self._meta.document_class.__name__, stringified_kwargs ))
-            document = o
-
-        if document is None:
-            # If we didn't find an document the filter parameters were off
-            stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
-            raise self._meta.document_class.DoesNotExist( "Couldn't find an instance of '%s' which matched '%s'." % ( self._meta.document_class.__name__, stringified_kwargs ))
-
-        # Okay, we're good to go without superfluous queries!
-        return document
-
     def document_get_list( self, request=None, **kwargs ):
         """
-        A Pyramid/MongoEngine implementation of ``document_get_list``.
+        A Pyramid/MongoEngine implementation of `document_get_list`.
         """
         filters = {}
         if request and hasattr( request, 'GET' ):
@@ -1295,40 +1245,43 @@ class DocumentResource( Resource ):
         applicable_filters = self.build_filters( filters=filters )
 
         try:
-            return self.apply_filters( request, applicable_filters )
+            return self.get_document_list( request ).filter( **applicable_filters )
         except ValueError:
             raise BadRequest( "Invalid resource lookup data provided ( mismatched type )." )
 
-    def document_delete_list(self, request=None, **kwargs):
+    def document_get_single( self, request=None, **kwargs ):
         """
-        A DRM-specific implementation of ``document_delete_list``.
+        A Pyramid/MongoEngine specific implementation of `document_get_single`.
 
-        Takes optional ``kwargs``, which can be used to narrow the query.
+        Uses `document_get_list` to get the initial list, which should contain
+        only one instance matched by the request and the provided `kwargs`.
         """
-        base_document_list = self.get_document_list(request).filter(**kwargs)
-        authed_document_list = self.apply_authorization_limits(request, base_document_list)
+        uri = kwargs.pop('uri', None)
+        if uri:
+            # Grab the id from the uri and create a filter from it.
+            # FIXME: Assumption! Should use an API function to get the resource.
+            kwargs['id'] = uri.split('/')[-2]
 
-        if hasattr(authed_document_list, 'delete'):
-            # It's likely a ``QuerySet``. Call ``.delete()`` for efficiency.
-            authed_document_list.delete()
-        else:
-            for authed_document in authed_document_list:
-                authed_document.delete()
+        document_list = self.document_get_list( request ).filter( **kwargs )
+        # `get_document_list` should return only 1 document with the provided
+        # kwargs. However if the kwargs are off, it could return none, or
+        # multiple documents. Find out if we matched only 1 and be smart 
+        # about queries: every len() causes one.
+        document = None
+        for doc in document_list:
+            if document:
+                # We've already set document the first run, so we shouldn't 
+                # get here unless there's more than one document at 
+                # this (possibly filtered) URI
+                stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
+                raise self._meta.document_class.MultipleObjectsReturned( "More than one '%s' matched '%s'." % ( self._meta.document_class.__name__, stringified_kwargs ))
+            document = doc
 
-    def document_delete(self, request=None, **kwargs):
-        """
-        A DRM-specific implementation of ``document_delete``.
+        if document is None:
+            # If we didn't find a document the filter parameters were off
+            stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
+            raise self._meta.document_class.DoesNotExist( "Couldn't find an instance of '%s' which matched '%s'." % ( self._meta.document_class.__name__, stringified_kwargs ))
 
-        Takes optional ``kwargs``, which are used to narrow the query to find
-        the instance.
-        """
-        document = kwargs.pop('_document', None)
-
-        if not hasattr(document, 'delete'):
-            try:
-                document = self.document_get(request, **kwargs)
-            except ObjectDoesNotExist:
-                raise NotFound("A document instance matching the provided arguments could not be found.")
-
-        document.delete()
+        # Okay, we're good to go without superfluous queries!
+        return document
 

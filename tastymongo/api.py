@@ -138,10 +138,10 @@ class Api( object ):
         self.config.add_route( list_name, '{}/{}/'.format( self.route, resource_name ) )
         self.config.add_view( Api.wrap_view( resource, resource.dispatch_list ), route_name=list_name )
 
-        # add 'detail' action
-        detail_name = self.build_route_name( resource_name, 'detail' )
-        self.config.add_route( detail_name, '{}/{}/{{id}}/'.format( self.route, resource_name ) )
-        self.config.add_view( Api.wrap_view( resource, resource.dispatch_detail ), route_name=detail_name )
+        # add 'single' action
+        single_name = self.build_route_name( resource_name, 'single' )
+        self.config.add_route( single_name, '{}/{}/{{id}}/'.format( self.route, resource_name ) )
+        self.config.add_view( Api.wrap_view( resource, resource.dispatch_single ), route_name=single_name )
 
     def unregister(self, resource_name):
         """

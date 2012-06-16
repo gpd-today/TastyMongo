@@ -57,14 +57,14 @@ class DetailTests( unittest.TestCase ):
         self.teardown_test_data()
         testing.tearDown()
 
-    def test_get_detail( self ):
+    def test_get_single( self ):
         request = Request.blank('/api/v1/')
         self.config.testing_securitypolicy( userid='1', permissive=True )
         request.user = self.data.person1
 
         # Get a single activity
         request.matchdict = { 'id': self.data.activity1.id }
-        response = self.activity_resource.dispatch_detail( request )
+        response = self.activity_resource.dispatch_single( request )
         deserialized = json.loads( response.body )
 
         # Check if the correct activity has been returned

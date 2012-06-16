@@ -142,43 +142,42 @@ class ApiField( object ):
             authornames = ListField( attribute='books__author__name' )
 
         '''
-        if self.attribute is not None:
+        if isinstance( self.attribute, basestring ):
+            # `attribute` points to an attribute or method on the document.
+            # Check for `__` in the field for looking through any relation.
+            attr_chain = self.attribute.split( '__' )
 
-            if callable( self.attribute ):
-                # `attribute` points to a method on the Resource.
-                return self.attribute()
+            previous_document = bundle.document
+            for attr in attr_chain:
+                try:
+                    current_document = getattr( previous_document, attr, None )
+                except ObjectDoesNotExist:
+                    current_document = None
 
-            if isinstance( self.attribute, basestring ):
-                # `attribute` points to an attribute or method on the document.
-                # Check for `__` in the field for looking through any relation.
-                attr_chain = self.attribute.split( '__' )
-
-                previous_document = bundle.document
-                for attr in attr_chain:
-                    try:
-                        current_document = getattr( previous_document, attr, None )
-                    except ObjectDoesNotExist:
+                if current_document is None:
+                    # We should fall out of the loop here since we cannot 
+                    # access any attributes further down the chain.
+                    if self.has_default:
+                        current_document = self.default
+                        break
+                    elif not self.required:
                         current_document = None
+                        break
+                    else:
+                        raise ApiFieldError( "The document '%r' is required but has an empty attribute '%s' and doesn't have a default value ." % ( previous_document, attr ))
 
-                    if current_document is None:
-                        # We should fall out of the loop here since we cannot 
-                        # access any attributes further down the chain.
-                        if self.has_default:
-                            current_document = self.default
-                            break
-                        elif not self.required:
-                            current_document = None
-                            break
-                        else:
-                            raise ApiFieldError( "The document '%r' is required but has an empty attribute '%s' and doesn't have a default value ." % ( previous_document, attr ))
+            if callable( current_document ):
+                current_document = current_document()
 
-                if callable( current_document ):
-                    current_document = current_document()
+            return self.to_data( current_document )
 
-                return self.to_data( current_document )
+        elif callable( self.attribute ):
+            # `attribute` is a method on the Resource that provides data.
+            return self.attribute()
 
-        if self.has_default:
+        elif self.has_default:
             return self.to_data(self.default)
+
         else:
             return None
 
@@ -527,12 +526,11 @@ class RelatedField( ApiField ):
         '''
         Hydrate for related fields is a little more involved.
         
-        When there's data for the field in the bundle, don't just return it, 
-        but create a related bundle with the data /and/ the related document
-        in it. 
-        
-        It calls upon the related resource' hydrate method to instantiate the 
-        document. The related resource may in turn recurse for deeper nested data.
+        When there's data for the field, don't just return it, but create 
+        a related bundle with the data and the related document in it. 
+       
+        It calls upon the related resource's hydrate method to instantiate the 
+        document. The related resource may in turn recurse for nested data.
         '''
         value = super( RelatedField, self ).hydrate( bundle )
 
@@ -541,18 +539,28 @@ class RelatedField( ApiField ):
 
         return self.build_related_bundle( value, request=bundle.request )
 
-    def dehydrate_related( self, bundle, related_resource ):
-        # FIXME: remove this stuff and implement in `dehydrate` proper
+    def dehydrate( self, bundle ):
         """
-        Returns either the endpoint or the data from ``dehydrate`` for the related resource.
+        Returns the URI only or the (nested) data for the related resource.
+
+        When a fully populated document is requested, pick up the document 
+        for the related resource, create a bundle for it and call upon 
+        the related resource's dehydrate method to populate the data from
+        the document. The related resource may in turn recurse for nested data.
         """
+        related_document = super( RelatedField, self ).dehydrate( bundle )
+        if related_document is None:
+            # ApiField's `dehydrate` will have raised an ApiFieldError if 
+            # the document may not be None, so we can safely return None.
+            return None
+
+        related_resource = self.get_related_resource()
+        related_bundle = related_resource.build_bundle( document=related_document, request=bundle.request )
+
         if not self.full:
-            # Return only the URI of the related resource
-            return related_resource.get_resource_uri( bundle.request, bundle )
+            return related_resource.get_resource_uri( bundle.request, related_bundle )
         else:
-            # Return a fully dehydrated related resource
-            bundle = related_resource.build_bundle( document=related_resource.instance, request=bundle.request )
-            return related_resource.dehydrate( bundle )
+            return related_resource.dehydrate( related_bundle )
 
 
 class ToOneField( RelatedField ):
@@ -560,16 +568,6 @@ class ToOneField( RelatedField ):
     Provides access to singular related data.
     """
     help_text = 'A single related resource. Can be either a URI or nested resource data.'
-
-    def dehydrate( self, bundle ):
-
-        related_document = super(ToOneField, self).dehydrate( bundle )
-        if not related_document:
-            return None
-
-        related_resource = self.get_related_resource()
-        related_bundle = Bundle( document=related_document, request=bundle.request )
-        return self.dehydrate_related( related_bundle, related_resource )
 
 
 class ToManyField( RelatedField ):
@@ -596,24 +594,24 @@ class ToManyField( RelatedField ):
             return [self.build_related_bundle( values_list, request=bundle.request )]
 
     def dehydrate( self, bundle ):
-        if not bundle.document or not bundle.document.pk:
-            if not self.required:
-                return []
+        """
+        Returns the URIs only or the (nested) data for the related resources.
 
-            raise ApiFieldError( "The document '%r' does not have a primary key and can not be used in a ToMany context." % bundle.document )
+        When fully populated documents are requested, pick up the documents
+        for the related resource, create a bundle for them and call upon 
+        the related resource's dehydrate method to populate the data from
+        the document. The related resources may in turn recurse for nested data.
+        """
+        related_documents = super( RelatedField, self ).dehydrate( bundle )
 
-        related_documents = self.get_attribute( bundle )
-
-        if not related_documents:
-            return []
-
-        dehydrated_bundles = []
-
-        # FIXME: this is silly: we want a related bundle, so use that functionality
+        related_resource = self.get_related_resource()
+        related_bundles = []
         for related_document in related_documents:
-            related_resource = self.get_related_resource( related_document )
-            related_bundle = Bundle( document=related_document, request=bundle.request )
-            dehydrated_bundles.append( self.dehydrate_related( related_bundle, related_resource ) )
+            related_bundle = related_resource.build_bundle( document=document, request=bundle.request )
+            if not self.full:
+                related_bundles.append( related_resource.get_resource_uri( bundle.request, related_bundle ))
+            else:
+                related_bundles.append( related_resource.dehydrate( related_bundle ))
 
-        return dehydrated_bundles 
+        return related_bundles
 
