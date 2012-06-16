@@ -98,6 +98,28 @@ class ApiField( object ):
         """
         return value
 
+    def hydrate( self, bundle ):
+        """
+        Takes data stored in the bundle for the field and returns it.
+
+        If there's no data in the bundle for this field, return a default if
+        given, None if allowed, or raise an ApiFieldError.
+        """
+        if self.readonly:
+            return None
+
+        # This is the default and what should happen most: the bundle has data.
+        if self.field_name in bundle.data:
+            return bundle.data[self.field_name]
+
+        elif self.has_default:
+            return self.default
+
+        elif not self.required:
+            return None
+        else:
+            raise ApiFieldError( "The '%s' field is required but has no data and doesn't have a default value." % self.field_name )
+
     def dehydrate( self, bundle ):
         '''
         Returns the document's data corresponding to the field's attribute.
@@ -159,37 +181,6 @@ class ApiField( object ):
             return self.to_data(self.default)
         else:
             return None
-
-    def hydrate( self, bundle ):
-        """
-        Takes data stored in the bundle for the field and returns it. Used for
-        taking simple data and building an instance object.
-        """
-        if self.readonly:
-            return None
-
-        # This is the default and what should happen most: the bundle has data.
-        if self.field_name in bundle.data:
-            return bundle.data[self.field_name]
-
-        # We haven't found any data for this field in the bundle, see if the 
-        # object has a property or method that generates this field's data.
-        if self.attribute and getattr( bundle.obj, self.attribute, None):
-            attr = getattr(bundle.obj, self.attribute, None)
-            if callable( attr ):
-                attr = attr()
-            return attr
-
-        # FIXME: do we need to include the option to generate data from a 
-        # method on the resource as well?
-
-        elif self.has_default:
-            return self.default
-
-        elif not self.required:
-            return None
-        else:
-            raise ApiFieldError( "The '%s' field is required but has no data and doesn't have a default value." % self.field_name )
 
 
 class ObjectIdField( ApiField ):
@@ -534,8 +525,13 @@ class RelatedField( ApiField ):
 
     def hydrate( self, bundle ):
         '''
-        Hydrate creates a 'related bundle' for the related resource data and
-        calls upon the related resource' hydrate method to instantiate the 
+        Hydrate for related fields is a little more involved.
+        
+        When there's data for the field in the bundle, don't just return it, 
+        but create a related bundle with the data /and/ the related document
+        in it. 
+        
+        It calls upon the related resource' hydrate method to instantiate the 
         object. The related resource may in turn recurse for deeper nested data.
         '''
         value = super( RelatedField, self ).hydrate( bundle )
@@ -582,6 +578,23 @@ class ToManyField( RelatedField ):
     """
     help_text = 'Many related resources. Can be either a list of URIs or a list of individually nested resource data.'
 
+    def hydrate( self, bundle ):
+        '''
+        ToManyFields may have many related bundles, so `hydrate` should return
+        a list instead of a single bundle.
+        '''
+        values_list = super( RelatedField, self ).hydrate( bundle )
+
+        if not values_list:
+            # Whether None or empty list:
+            return []
+
+        try:
+            return [self.build_related_bundle( value, request=bundle.request ) for value in values_list]
+        except TypeError:
+            # values_list is not iterable, assume a single item and return it in a list
+            return [self.build_related_bundle( values_list, request=bundle.request )]
+
     def dehydrate( self, bundle ):
         if not bundle.obj or not bundle.obj.pk:
             if not self.required:
@@ -604,5 +617,3 @@ class ToManyField( RelatedField ):
 
         return dehydrated_bundles 
 
-    def hydrate( self, bundle ):
-        raise NotImplementedError('still need to implement a custom `hydrate` method for tomanyfield')

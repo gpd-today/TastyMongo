@@ -451,32 +451,60 @@ class Resource( object ):
             else:
                 value = field_object.hydrate( bundle )
 
-            if isinstance(value, Bundle):
-                # Related fields return Bundles, custom methods might as well.
-                # Replace the data for the field with the related bundle.
+            if getattr(field_object, 'is_related', False): 
+                # Related fields return a Bundle or a list of Bundles.
+                # Replace the data for the field with the related bundle(s).
                 bundle.data[field_name] = value
 
                 # Copy any (nested) errors for this field to the parent.
                 if value.errors:
                     bundle.errors[field_name] = value.errors
 
-                # NOTE: *don't* set the field attribute right now
+                # NOTE: Don't assign the related data to the document just yet.
+                # This will be done upon save, so validation on relations won't 
+                # deadlock when the related document doesn't exist yet.
 
             elif field_object.attribute:
                 if value is not None or not field_object.required:
-                    # Set the object's attribute and move along.
+                    # Assign the data to the document's field.
+
                     # `value` could be None: the field's `hydrate` method will
-                    # have raised an ApiFieldError if it couldn't hydrate
-                    # itself or if the field was required but not given.
+                    # have raised an ApiFieldError if it couldn't hydrate itself
+                    # or if the field is required but has no data or default.
                     setattr(bundle.obj, field_object.attribute, value)
 
         return bundle
 
-    def save( self, bundle ):
-        '''
-        Recursively validates and saves the (embedded) object(s) in the bundle.
-        '''
+
+    def save(self, data, request=None, **kwargs):
+        """
+        Creates a new object based on the provided data, creating or updating
+        related objects along the way.
+        """
+        bundle = self.build_bundle( data=data, request=request )
+        bundle = self.hydrate( bundle )
+
+        # Create new objects first
+        bundle = self.create( bundle )
+
+        # Validate our bundle now that all objects exist
+        bundle = self.validate( bundle )
+
+        # Save the rest
+        bundle = self.update( bundle )
+
+        return bundle
+
+    def create( self, bundle ):
         raise NotImplementedError()
+
+    def validate( self, bundle ):
+        raise NotImplementedError()
+
+    def update( self, bundle ):
+        raise NotImplementedError()
+
+
 
     def dehydrate( self, bundle ):
         """
@@ -629,7 +657,7 @@ class Resource( object ):
         """
         data = self.deserialize( request, request.body, format=request.content_type )
         data = self.post_deserialize( request, data )
-        bundle = self.obj_create( data, request=request, **kwargs )
+        bundle = self.save( data, request=request, **kwargs )
 
         if bundle.errors:
             return self.create_response( bundle.errors, request, response_class=http.HTTPBadRequest )
@@ -772,25 +800,6 @@ class Resource( object ):
         Returns an empty list if there are no objects.
         """
         raise NotImplementedError()
-
-    def obj_create(self, data, request=None, **kwargs):
-        """
-        Creates a new object based on the provided data, creating or updating
-        related objects along the way.
-        """
-        bundle = self.build_bundle( data=data, request=request )
-        bundle = self.hydrate( bundle )
-
-        # Create new objects first
-        bundle = self.create_new_objects( bundle )
-
-        # Validate our bundle now that all objects exist
-        bundle = self.validate( bundle )
-
-        # Save the rest
-        bundle = self.save( bundle )
-
-        return bundle
 
     def obj_delete_list(self, request=None, **kwargs):
         """
@@ -1114,7 +1123,7 @@ class DocumentResource( Resource ):
             raise NotImplementedError()
 
 
-    def create_new_objects( self, bundle ):
+    def create( self, bundle ):
         '''
         Recursively creates any embedded documents in the bundle that don't
         have an id yet.
@@ -1134,7 +1143,7 @@ class DocumentResource( Resource ):
         for field_name, field_object in self.fields.items():
             if getattr( field_object, 'is_related', False ):
                 related_resource = field_object.get_related_resource()
-                related_bundle = related_resource.create_new_objects( bundle.data[ field_name ] )
+                related_bundle = related_resource.create( bundle.data[ field_name ] )
                 bundle.data[ field_name ] = related_bundle
 
                 # Update our index with the results of the related resource
@@ -1196,7 +1205,7 @@ class DocumentResource( Resource ):
 
         return bundle
 
-    def save( self, bundle, **kwargs ):
+    def update( self, bundle, **kwargs ):
         '''
         Recursively saves the (embedded) object(s) in the validated bundle.
 
@@ -1223,7 +1232,7 @@ class DocumentResource( Resource ):
         for field_name, field_object in self.fields.items():
             if getattr( field_object, 'is_related', False ):
                 related_resource = field_object.get_related_resource()
-                related_resource.save( bundle.data[ field_name ] )
+                related_resource.update( bundle.data[ field_name ] )
 
         return bundle
 
@@ -1289,52 +1298,6 @@ class DocumentResource( Resource ):
             return self.apply_filters( request, applicable_filters )
         except ValueError:
             raise BadRequest( "Invalid resource lookup data provided ( mismatched type )." )
-
-    def obj_update(self, bundle, request=None, **kwargs):
-        """
-        A DRM-specific implementation of ``obj_update``.
-        """
-        if not bundle.obj or not bundle.obj.pk:
-            # Attempt to hydrate data from kwargs before doing a lookup for the object.
-            # Hydration properly decodes complex values into their python equivalents.
-            # This step is needed so certain values (like datetime) will pass validation.
-            try:
-                # FIXME
-                bundle.obj = self.get_object_list(bundle.request).model()
-                bundle.data.update(kwargs)
-                bundle = self.hydrate(bundle)
-                lookup_kwargs = kwargs.copy()
-
-                for key in kwargs.keys():
-                    if key == 'pk':
-                        continue
-                    elif getattr(bundle.obj, key, NOT_AVAILABLE) is not NOT_AVAILABLE:
-                        lookup_kwargs[key] = getattr(bundle.obj, key)
-                    else:
-                        del lookup_kwargs[key]
-            except:
-                # if there is trouble hydrating the data, fall back to just
-                # using kwargs by itself (usually it only contains a "pk" key
-                # and this will work fine.
-                lookup_kwargs = kwargs
-
-            try:
-                bundle.obj = self.obj_get(bundle.request, **lookup_kwargs)
-            except ObjectDoesNotExist:
-                raise NotFound("A document instance matching the provided arguments could not be found.")
-
-        bundle = self.hydrate(bundle)
-
-        # Save FKs just in case.
-        self.save_related(bundle)
-
-        # Save the main object.
-        bundle.obj.save()
-
-        # Now pick up the M2M bits.
-        m2m_bundle = self.hydrate_m2m(bundle)
-        self.save_m2m(m2m_bundle)
-        return bundle
 
     def obj_delete_list(self, request=None, **kwargs):
         """
