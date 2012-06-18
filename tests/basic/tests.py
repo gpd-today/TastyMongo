@@ -11,7 +11,6 @@ from .documents import Activity, Person
 from .resources import ActivityResource, PersonResource
 
 from tastymongo.api import Api
-from mongoengine.base import ValidationError
 
 
 class db_proxy:
@@ -69,16 +68,35 @@ class DetailTests( unittest.TestCase ):
 
         # Check if the correct activity has been returned
         self.assertEqual( deserialized['id'], unicode(self.data.activity1.id) )
-
-        # Check if the activity contains the person
         self.assertEqual( deserialized['person'].split('/')[-2], unicode(self.data.person1.id) )
+
+    def test_get_list( self ):
+        request = Request.blank('/api/v1/')
+        self.config.testing_securitypolicy( userid='1', permissive=True )
+        request.user = self.data.person1
+
+        # Get a bunch of activities
+        request.matchdict = {}
+        response = self.activity_resource.dispatch_list( request )
+        deserialized = json.loads( response.body )
+
+        # Find out if we got multiple activities
+        self.assertEqual( len(deserialized['documents']), 2 )
 
     def test_post_list( self ):
         request = Request.blank( '/api/v1/' )
         self.config.testing_securitypolicy( userid='1', permissive=True )
+        request.user = self.data.person1
 
         request.body = b'{{ "name": "post_list created activity", "person": "/api/v1/person/{0}/"}}'.format(self.data.person1.id)
 
         # Create a new activity
         response = self.activity_resource.post_list( request )
 
+        # Find out if it was indeed created:
+        request.matchdict = { 'name': 'post_list created activity'}
+        response = self.activity_resource.dispatch_single( request )
+        deserialized = json.loads( response.body )
+
+        # Check if the correct activity has been returned
+        self.assertEqual( deserialized['name'], "post_list created activity")

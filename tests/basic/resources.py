@@ -8,6 +8,7 @@ from .documents import Activity, Person
 
 class ActivityResource( DocumentResource ):
 
+    name = fields.StringField('name')
     person = fields.ToOneField(
             'basic.resources.PersonResource',
             'person', )
@@ -18,6 +19,8 @@ class ActivityResource( DocumentResource ):
 
 
 class PersonResource( DocumentResource ):
+
+    name = fields.StringField('name')
 
     class Meta:
         resource_name = 'person'
