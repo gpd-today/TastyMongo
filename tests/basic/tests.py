@@ -81,7 +81,7 @@ class DetailTests( unittest.TestCase ):
         deserialized = json.loads( response.body )
 
         # Find out if we got multiple activities
-        self.assertEqual( len(deserialized['documents']), 2 )
+        self.assertEqual( len(deserialized['documents']), deserialized['meta']['total_count'] )
 
     def test_post_list( self ):
         request = Request.blank( '/api/v1/' )

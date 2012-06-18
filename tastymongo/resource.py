@@ -11,6 +11,7 @@ from .bundle import Bundle
 from .authentication import Authentication
 from .authorization import ReadOnlyAuthorization
 from .throttle import BaseThrottle
+from .paginator import Paginator
 
 from pyramid.response import Response
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
@@ -35,12 +36,15 @@ class ResourceOptions( object ):
     list_allowed_methods = None
     single_allowed_methods = None
     limit = 20
+    max_limit = 1000
+    collection_name = 'documents'
     api = None
     resource_name = None
     default_format = 'application/json'
     filtering = {}
     ordering = []
     document_class = None
+    paginator_class = Paginator
     queryset = None
     fields = []
     excludes = []
@@ -620,11 +624,18 @@ class Resource( object ):
         """
         documents = self.document_get_list( request=request, **request.matchdict )
 
-        bundles = [self.build_bundle( document=document, request=request ) for document in documents]
-        data = { 
-                'meta': 'get_list', 'resource_uri': self.get_resource_uri( request ), 
-                'documents': [self.dehydrate( bundle ) for bundle in bundles]
-            }
+        paginator = self._meta.paginator_class(
+                request.GET, 
+                documents, 
+                resource_uri=self.get_resource_uri( request ), 
+                limit=self._meta.limit, 
+                max_limit=self._meta.max_limit, 
+                collection_name=self._meta.collection_name
+                )
+        data = paginator.page()
+
+        bundles = [self.build_bundle( document=document, request=request ) for document in data['documents']]
+        data['documents'] = [self.dehydrate( bundle ) for bundle in bundles]
         data = self.pre_serialize( data, request )
         return self.create_response( data, request )
 
