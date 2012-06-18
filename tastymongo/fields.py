@@ -603,6 +603,8 @@ class ToManyField( RelatedField ):
         the document. The related resources may in turn recurse for nested data.
         """
         related_documents = super( RelatedField, self ).dehydrate( bundle )
+        if related_documents is None:
+            related_documents = []
 
         related_resource = self.get_related_resource()
         related_bundles = []
