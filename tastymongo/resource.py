@@ -43,7 +43,7 @@ class ResourceOptions( object ):
     default_format = 'application/json'
     filtering = {}
     ordering = []
-    document_class = None
+    object_class = None
     paginator_class = Paginator
     queryset = None
     fields = []
@@ -345,11 +345,11 @@ class Resource( object ):
         for use throughout the `dehydrate/hydrate` cycle.
 
         If no document is provided, an empty document from
-        `Resource._meta.document_class` is created so that attempts to access
+        `Resource._meta.object_class` is created so that attempts to access
         `bundle.document` do not fail.
         """
         if document is None:
-            document = self._meta.document_class()
+            document = self._meta.object_class()
 
         bundle = Bundle( document=document, data=data, request=request )
         return bundle
@@ -443,7 +443,7 @@ class Resource( object ):
         """
 
         if bundle.document is None:
-            bundle.document = self._meta.document_class()
+            bundle.document = self._meta.object_class()
 
         bundle = self.pre_hydrate( bundle )
 
@@ -841,12 +841,12 @@ class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
         meta = attrs.get( 'Meta' )
 
         if meta:
-            if hasattr( meta, 'queryset' ) and not hasattr( meta, 'document_class' ):
-                setattr( meta, 'document_class', meta.queryset._document )
+            if hasattr( meta, 'queryset' ) and not hasattr( meta, 'object_class' ):
+                setattr( meta, 'object_class', meta.queryset._document )
             
-            if hasattr( meta, 'document_class' ) and not hasattr( meta, 'queryset' ):
-                if hasattr( meta.document_class, 'documents' ):
-                    setattr( meta, 'queryset', meta.document_class.objects )
+            if hasattr( meta, 'object_class' ) and not hasattr( meta, 'queryset' ):
+                if hasattr( meta.object_class, 'documents' ):
+                    setattr( meta, 'queryset', meta.object_class.objects )
 
         new_class = super( DocumentDeclarativeMetaclass, cls ).__new__( cls, name, bases, attrs )
         include_fields = getattr( new_class._meta, 'fields', [] )
@@ -856,7 +856,7 @@ class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
         for field_name in field_names:
             if field_name in ( 'resource_uri', ):
                 # Embedded documents don't have their own resource_uri
-                if meta and hasattr( meta, 'document_class' ) and issubclass( meta.document_class, mongoengine.EmbeddedDocument ):
+                if meta and hasattr( meta, 'object_class' ) and issubclass( meta.object_class, mongoengine.EmbeddedDocument ):
                     del( new_class.base_fields[field_name] )
                 continue
             if field_name in new_class.declared_fields:
@@ -941,10 +941,10 @@ class DocumentResource( Resource ):
         fields = fields or []
         excludes = excludes or []
 
-        if not cls._meta.document_class:
+        if not cls._meta.object_class:
             return final_fields
 
-        for name, f in cls._meta.document_class._fields.items():
+        for name, f in cls._meta.object_class._fields.items():
             # If the field name is already present, skip
             if name in cls.base_fields:
                 continue
@@ -1285,13 +1285,13 @@ class DocumentResource( Resource ):
                 # get here unless there's more than one document at 
                 # this (possibly filtered) URI
                 stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
-                raise self._meta.document_class.MultipleObjectsReturned( "More than one '%s' matched '%s'." % ( self._meta.document_class.__name__, stringified_kwargs ))
+                raise self._meta.object_class.MultipleObjectsReturned( "More than one '%s' matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
             document = doc
 
         if document is None:
             # If we didn't find a document the filter parameters were off
             stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
-            raise self._meta.document_class.DoesNotExist( "Couldn't find an instance of '%s' which matched '%s'." % ( self._meta.document_class.__name__, stringified_kwargs ))
+            raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of '%s' which matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
 
         # Okay, we're good to go without superfluous queries!
         return document
