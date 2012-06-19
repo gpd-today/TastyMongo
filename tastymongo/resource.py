@@ -993,7 +993,7 @@ class DocumentResource( Resource ):
         pk is present on objects, but not a MongoEngine field. Hence we need to
         explicitly dehydrate it since it won't be included in _fields.
         '''
-        return bundle.obj.id
+        return bundle.obj.pk
 
     def get_resource_uri( self, request, bundle_or_object=None, absolute=None ):
         """
@@ -1134,7 +1134,7 @@ class DocumentResource( Resource ):
         bundle.created = set()
 
         # STEP 1: If we're brand spankin' new try to get us an id.
-        if not bundle.obj.id:
+        if not bundle.obj.pk:
             try:
                 bundle.obj.save() 
                 bundle.created.add( bundle.obj )
@@ -1153,11 +1153,11 @@ class DocumentResource( Resource ):
                 bundle.created |= related_bundle.created
 
                 # If the related object has an id, assign it now.
-                if field_value.attribute and related_bundle.obj.id:
+                if field_value.attribute and related_bundle.obj.pk:
                     setattr(bundle.obj, field_value.attribute, related_bundle.obj )
 
         # STEP 3: We should now be able to save ourself, or there's a config error. 
-        if not bundle.obj.id:
+        if not bundle.obj.pk:
             try:
                 bundle.obj.save() 
                 bundle.created.add( bundle.obj )
