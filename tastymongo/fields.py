@@ -34,12 +34,12 @@ class ApiField( object ):
         ``Resource`` is initialized.
 
         Optionally accepts an ``attribute``, which should be a string of
-        either an instance attribute or callable of the document during the
-        ``dehydrate`` or push data onto an document during the ``hydrate``.
+        either an instance attribute or callable of the object during the
+        ``dehydrate`` or push data onto an object during the ``hydrate``.
         Defaults to ``None``, meaning data will be manually accessed.
 
         Optionally accepts a ``default``, which provides default data when the
-        document being ``dehydrated``/``hydrated`` has no data on the field.
+        object being ``dehydrated``/``hydrated`` has no data on the field.
         Defaults to ``NOT_PROVIDED``.
 
         Optionally accepts a ``required``. Defaults to ``False``.
@@ -48,7 +48,7 @@ class ApiField( object ):
         is used during the ``hydrate`` or not. Defaults to ``False``.
 
         Optionally accepts a ``unique``, which indicates if the field is a
-        unique identifier for the document.
+        unique identifier for the object.
 
         Optionally accepts ``help_text``, which lets you provide a
         human-readable description of the field exposed at the schema level.
@@ -91,7 +91,7 @@ class ApiField( object ):
 
     def to_data( self, value ):
         """
-        Handles conversion from the document data to the type of the field.
+        Handles conversion from the object data to the type of the field.
 
         Extending classes should override this method and provide correct
         data coercion.
@@ -124,7 +124,7 @@ class ApiField( object ):
         '''
         Returns the Document's data for the field.
 
-        ``attribute`` specifies which field on the document should
+        ``attribute`` specifies which field on the object should
         be accessed to get data for this corresponding ApiField.
 
         ``attribute`` can contain MongoEngine style double underscores ( `__` ) 
@@ -143,33 +143,33 @@ class ApiField( object ):
 
         '''
         if isinstance( self.attribute, basestring ):
-            # `attribute` points to an attribute or method on the document.
+            # `attribute` points to an attribute or method on the object.
             # Check for `__` in the field for looking through any relation.
             attr_chain = self.attribute.split( '__' )
 
-            previous_document = bundle.document
+            previous_object = bundle.object
             for attr in attr_chain:
                 try:
-                    current_document = getattr( previous_document, attr, None )
+                    current_object = getattr( previous_object, attr, None )
                 except ObjectDoesNotExist:
-                    current_document = None
+                    current_object = None
 
-                if current_document is None:
+                if current_object is None:
                     # We should fall out of the loop here since we cannot 
                     # access any attributes further down the chain.
                     if self.has_default:
-                        current_document = self.default
+                        current_object = self.default
                         break
                     elif not self.required:
-                        current_document = None
+                        current_object = None
                         break
                     else:
-                        raise ApiFieldError( "The document '%r' is required but has an empty attribute '%s' and doesn't have a default value ." % ( previous_document, attr ))
+                        raise ApiFieldError( "The object '%r' is required but has an empty attribute '%s' and doesn't have a default value ." % ( previous_object, attr ))
 
-            if callable( current_document ):
-                current_document = current_document()
+            if callable( current_object ):
+                current_object = current_object()
 
-            return self.to_data( current_document )
+            return self.to_data( current_object )
 
         elif callable( self.attribute ):
             # `attribute` is a method on the Resource that provides data.
@@ -396,7 +396,7 @@ class RelatedField( ApiField ):
     Provides access to data that is related within the database.
 
     The contents of this field actually point to another ``Resource``,
-    rather than the related document. This allows the field to represent its data
+    rather than the related object. This allows the field to represent its data
     in different ways.
     """
     dehydrated_type = 'related'
@@ -412,7 +412,7 @@ class RelatedField( ApiField ):
         to a ``Document``. Required.
 
         The ``attribute`` argument should specify what field/callable points to
-        the related data on the instance document. Required.
+        the related data on the instance object. Required.
 
         Optionally accepts a ``required``. Defaults to ``False``.
 
@@ -426,7 +426,7 @@ class RelatedField( ApiField ):
         ``dehydrate`` will be included in full.
 
         Optionally accepts a ``unique``, which indicates if the field is a
-        unique identifier for the document.
+        unique identifier for the object.
 
         Optionally accepts ``help_text``, which lets you provide a
         human-readable description of the field exposed at the schema level.
@@ -502,7 +502,7 @@ class RelatedField( ApiField ):
     def build_related_bundle(self, value, request=None ):
         """
         Returns a bundle built by the related resource. The related Resource's 
-        hydrate method is used to populate the related document from related data.
+        hydrate method is used to populate the related object from related data.
         This may cause recursion for deeper nested data.
 
         Accepts either a URI or a dictionary-like structure.
@@ -510,8 +510,8 @@ class RelatedField( ApiField ):
         related_resource = self.get_related_resource()
 
         if  isinstance(value, Bundle):
-            # We got a bundle document, just return it. The bundle may have been 
-            # generated by a method on the resource or document.
+            # We got a bundle object, just return it. The bundle may have been 
+            # generated by a method on the resource or object.
             return value
         elif isinstance(value, basestring):
             # We got a resource URI. Try to create a bundle with the resource.
@@ -527,10 +527,10 @@ class RelatedField( ApiField ):
         Hydrate for related fields is a little more involved.
         
         When there's data for the field, don't just return it, but create 
-        a related bundle with the data and the related document in it. 
+        a related bundle with the data and the related object in it. 
        
         It calls upon the related resource's hydrate method to instantiate the 
-        document. The related resource may in turn recurse for nested data.
+        object. The related resource may in turn recurse for nested data.
         '''
         value = super( RelatedField, self ).hydrate( bundle )
 
@@ -543,19 +543,19 @@ class RelatedField( ApiField ):
         """
         Returns the URI only or the (nested) data for the related resource.
 
-        When a fully populated document is requested, pick up the document 
+        When a fully populated object is requested, pick up the object 
         for the related resource, create a bundle for it and call upon 
         the related resource's dehydrate method to populate the data from
-        the document. The related resource may in turn recurse for nested data.
+        the object. The related resource may in turn recurse for nested data.
         """
-        related_document = super( RelatedField, self ).dehydrate( bundle )
-        if related_document is None:
+        related_object = super( RelatedField, self ).dehydrate( bundle )
+        if related_object is None:
             # ApiField's `dehydrate` will have raised an ApiFieldError if 
-            # the document may not be None, so we can safely return None.
+            # the object may not be None, so we can safely return None.
             return None
 
         related_resource = self.get_related_resource()
-        related_bundle = related_resource.build_bundle( document=related_document, request=bundle.request )
+        related_bundle = related_resource.build_bundle( object=related_object, request=bundle.request )
 
         if not self.full:
             return related_resource.get_resource_uri( bundle.request, related_bundle )
@@ -597,19 +597,19 @@ class ToManyField( RelatedField ):
         """
         Returns the URIs only or the (nested) data for the related resources.
 
-        When fully populated documents are requested, pick up the documents
+        When fully populated objects are requested, pick up the objects
         for the related resource, create a bundle for them and call upon 
         the related resource's dehydrate method to populate the data from
-        the document. The related resources may in turn recurse for nested data.
+        the object. The related resources may in turn recurse for nested data.
         """
-        related_documents = super( RelatedField, self ).dehydrate( bundle )
-        if related_documents is None:
-            related_documents = []
+        related_objects = super( RelatedField, self ).dehydrate( bundle )
+        if related_objects is None:
+            related_objects = []
 
         related_resource = self.get_related_resource()
         related_bundles = []
-        for related_document in related_documents:
-            related_bundle = related_resource.build_bundle( document=document, request=bundle.request )
+        for related_object in related_objects:
+            related_bundle = related_resource.build_bundle( object=related_object, request=bundle.request )
             if not self.full:
                 related_bundles.append( related_resource.get_resource_uri( bundle.request, related_bundle ))
             else:

@@ -37,7 +37,7 @@ class ResourceOptions( object ):
     single_allowed_methods = None
     limit = 20
     max_limit = 1000
-    collection_name = 'documents'
+    collection_name = 'objects'
     api = None
     resource_name = None
     default_format = 'application/json'
@@ -146,10 +146,10 @@ class Resource( object ):
         raise AttributeError( name )
 
 
-    def get_resource_uri( self, request, bundle_or_document = None, absolute=None ):
+    def get_resource_uri( self, request, bundle_or_object = None, absolute=None ):
         """
         This function should return the relative or absolute uri of the 
-        bundle or document.
+        bundle or object.
         """
         raise NotImplementedError()
 
@@ -339,19 +339,19 @@ class Resource( object ):
         """
         return data
 
-    def build_bundle( self, document=None, data=None, request=None ):
+    def build_bundle( self, object=None, data=None, request=None ):
         """
-        Given either a document, a data dictionary or both, builds a `Bundle`
+        Given either a object, a data dictionary or both, builds a `Bundle`
         for use throughout the `dehydrate/hydrate` cycle.
 
-        If no document is provided, an empty document from
+        If no object is provided, an empty object from
         `Resource._meta.object_class` is created so that attempts to access
-        `bundle.document` do not fail.
+        `bundle.obj` do not fail.
         """
-        if document is None:
-            document = self._meta.object_class()
+        if object is None:
+            object = self._meta.object_class()
 
-        bundle = Bundle( document=document, data=data, request=request )
+        bundle = Bundle( object=object, data=data, request=request )
         return bundle
 
     def bundle_from_uri( self, uri, request=None ):
@@ -359,12 +359,12 @@ class Resource( object ):
         Given a URI is provided, the resource is attempted to be loaded based 
         on the identifiers in the URI. 
         
-        A bundle is created with the existing document at the uri, or an error
-        if the document could not be retrieved. Bundle.data is the resource_uri.
+        A bundle is created from the resource at the uri, or an error
+        if the object could not be retrieved. Bundle.data is the resource_uri.
         """
         bundle = self.build_bundle( data={'resource_uri': uri}, request=request )
         try:
-            bundle.document = self.document_get_single( request=request, uri=uri )
+            bundle.obj = self.obj_get_single( request=request, uri=uri )
         except Exception, e:
             bundle.errors['ResourceDoesNotExist'] = "Ouch! Something went wrong trying to get a resource at `{0}`. \n\nThe original exception was: \n {1}".format( uri, e )
 
@@ -378,9 +378,9 @@ class Resource( object ):
         created using that data.
 
         If the data contains a resource_uri, any other keys in the data are 
-        assumed to be updates to an existing document's properties.
+        assumed to be updates to an existing object's properties.
 
-        If the data contains no resource_uri, a new document is instantiated.
+        If the data contains no resource_uri, a new object is instantiated.
 
         Errors are added to the bundle if a new resource may not be created or 
         if an existing resource is not found or may not be updated.
@@ -388,7 +388,7 @@ class Resource( object ):
         
         if 'resource_uri' in data:
             # We seem to be wanting to modify an existing resource. 
-            # Try to retrieve the document and put it in a bundle.
+            # Try to retrieve the object and put it in a bundle.
             bundle = self.bundle_from_uri( data['resource_uri'], request=request )
 
             # Only put data in the bundle if we may update it. Otherwise
@@ -416,7 +416,7 @@ class Resource( object ):
 
     def pre_hydrate( self, bundle ):
         '''
-        A hook for allowing some custom hydration on the whole document before 
+        A hook for allowing some custom hydration on the whole object before 
         each field's hydrate function is called.
         '''
         return bundle
@@ -424,26 +424,26 @@ class Resource( object ):
     def hydrate( self, bundle ):
         """
         Takes data from the resource and converts it to a form ready to be 
-        stored on documents.
+        stored on objects.
 
         Creates related bundles for related fields, instantiating corresponding
-        documents along the way. Does *not* set related attributes on documents yet, 
+        objects along the way. Does *not* set related attributes on objects yet, 
         since that would render validation impossible when creating a nested
-        tree of documents.
+        tree of objects.
 
         The result of the hydrate function is a fully populated bundle with 
-        nested bundles for related documents. 
+        nested bundles for related objects. 
 
         * Related field's resources are (recursively) instantiated by the 
           field's `hydrate` method, that in turn calls the related resource's 
           `hydrate` method. 
 
-        * Any errors encountered in the data for the related documents are
+        * Any errors encountered in the data for the related objects are
           propagated to the parent's bundle.
         """
 
-        if bundle.document is None:
-            bundle.document = self._meta.object_class()
+        if bundle.obj is None:
+            bundle.obj = self._meta.object_class()
 
         bundle = self.pre_hydrate( bundle )
 
@@ -464,34 +464,34 @@ class Resource( object ):
                 if value.errors:
                     bundle.errors[field_name] = value.errors
 
-                # NOTE: Don't assign the related data to the document just yet.
+                # NOTE: Don't assign the related data to the object just yet.
                 # This will be done upon save, so validation on relations won't 
-                # deadlock when the related document doesn't exist yet.
+                # deadlock when the related object doesn't exist yet.
 
             elif field_value.attribute:
                 if value is not None or not field_value.required:
-                    # Assign the data to the document's field.
+                    # Assign the data to the object's field.
 
                     # `value` could be None: the field's `hydrate` method will
                     # have raised an ApiFieldError if it couldn't hydrate itself
                     # or if the field is required but has no data or default.
-                    setattr(bundle.document, field_value.attribute, value)
+                    setattr(bundle.obj, field_value.attribute, value)
 
         return bundle
 
 
     def save(self, data, request=None, **kwargs):
         """
-        Creates a new document based on the provided data, creating or updating
-        related documents along the way.
+        Creates a new object based on the provided data, creating or updating
+        related objects along the way.
         """
         bundle = self.build_bundle( data=data, request=request )
         bundle = self.hydrate( bundle )
 
-        # Create new documents first
+        # Create new objects first
         bundle = self.create( bundle )
 
-        # Validate our bundle now that all documents exist
+        # Validate our bundle now that all objects exist
         bundle = self.validate( bundle )
 
         # Save the rest
@@ -512,7 +512,7 @@ class Resource( object ):
 
     def dehydrate( self, bundle ):
         """
-        Given a bundle with a document instance, extract the information from 
+        Given a bundle with a object instance, extract the information from 
         it to populate the resource data.
         """
         # Dehydrate each field.
@@ -617,16 +617,16 @@ class Resource( object ):
         """
         Returns a serialized list of resources.
 
-        Calls `document_get_list` to provide the documents to be dehydrated
+        Calls `obj_get_list` to provide the objects to be dehydrated
         and serialized.
 
         Should return an HTTPResponse ( 200 OK ).
         """
-        documents = self.document_get_list( request=request, **request.matchdict )
+        objects = self.obj_get_list( request=request, **request.matchdict )
 
         paginator = self._meta.paginator_class(
                 request.GET, 
-                documents, 
+                objects, 
                 resource_uri=self.get_resource_uri( request ), 
                 limit=self._meta.limit, 
                 max_limit=self._meta.max_limit, 
@@ -634,8 +634,8 @@ class Resource( object ):
                 )
         data = paginator.page()
 
-        bundles = [self.build_bundle( document=document, request=request ) for document in data['documents']]
-        data['documents'] = [self.dehydrate( bundle ) for bundle in bundles]
+        bundles = [self.build_bundle( object=object, request=request ) for object in data['objects']]
+        data['objects'] = [self.dehydrate( bundle ) for bundle in bundles]
         data = self.pre_serialize( data, request )
         return self.create_response( data, request )
 
@@ -643,19 +643,19 @@ class Resource( object ):
         """
         Returns a single serialized resource.
 
-        Calls `document_get_single` to provide the document to be dehydrated
+        Calls `obj_get_single` to provide the object to be dehydrated
         and serialized.
 
         Should return an HTTPResponse ( 200 OK ).
         """
         try:
-            document = self.document_get_single( request=request, **request.matchdict )
+            object = self.obj_get_single( request=request, **request.matchdict )
         except DoesNotExist:
             return http.HTTPNotFound()
         except MultipleObjectsReturned:
             return http.HTTPMultipleChoices( "More than one resource is found at this URI." )
 
-        bundle = self.build_bundle( document=document, request=request )
+        bundle = self.build_bundle( object=object, request=request )
         bundle = self.dehydrate( bundle )
         bundle = self.pre_serialize( bundle, request )
         return self.create_response( bundle, request )
@@ -675,7 +675,7 @@ class Resource( object ):
 
         location = self.get_resource_uri( request )
         if self._meta.return_data_on_post:
-            # Re-populate the data from the saved document.
+            # Re-populate the data from the saved object.
             updated_bundle = self.dehydrate(bundle)
             updated_bundle = self.pre_serialize( updated_bundle, request )
             return self.create_response( updated_bundle, request, response_class=http.HTTPCreated, location=location )
@@ -691,15 +691,15 @@ class Resource( object ):
 
     def put_list(self, request, **kwargs):
         # FIXME: TBD what this should really do:
-        # 1. only affect the documents posted and call put_single on them
+        # 1. only affect the objects posted and call put_single on them
         # 2. consider the put list a diff with an existing list at this URI
         #    (which may be filtered, like ?category=Pets) and thus remove
-        #    any documents not in the put list.
+        #    any objects not in the put list.
         return NotImplementedError('put_list is not yet implemented')
 
     def put_single(self, request, **kwargs):
         """
-        Updates an existing document with the provided data.
+        Updates an existing object with the provided data.
         """
         return NotImplementedError('put_single is not yet implemented')
 
@@ -711,15 +711,15 @@ class Resource( object ):
 
     def delete_single(self, request, **kwargs):
         """
-        Destroys a single resource/document.
+        Destroys a single resource/object.
 
-        Calls `document_delete`.
+        Calls `obj_delete`.
 
         If the resource is deleted, return `HTTPNoContent` (204 No Content).
         If the resource did not exist, return `HTTP404` (404 Not Found).
         """
         try:
-            self.document_delete(request=request, **kwargs)
+            self.obj_delete(request=request, **kwargs)
             return http.HTTPNoContent()
         except NotFound:
             return http.HTTPNotFound()
@@ -794,28 +794,28 @@ class Resource( object ):
 
 
 
-    def document_get_single( self, request=None, **kwargs ):
+    def obj_get_single( self, request=None, **kwargs ):
         """
-        Fetches a single document at a given resource_uri.
+        Fetches a single object at a given resource_uri.
 
         This needs to be implemented at the user level. 
         This should raise `NotFound` or `MultipleObjects` exceptions
-        when there's no or multiple documents at the resource_uri.
+        when there's no or multiple objects at the resource_uri.
         """
         raise NotImplementedError()
 
-    def document_get_list( self, request=None, **kwargs ):
+    def obj_get_list( self, request=None, **kwargs ):
         """
-        Fetches a list of documents at a given resource_uri.
+        Fetches a list of objects at a given resource_uri.
 
         This needs to be implemented at the user level.
-        Returns an empty list if there are no documents.
+        Returns an empty list if there are no objects.
         """
         raise NotImplementedError()
 
-    def document_delete_single(self, request=None, **kwargs):
+    def obj_delete_single(self, request=None, **kwargs):
         """
-        Deletes a single document.
+        Deletes a single object.
 
         This needs to be implemented at the user level.
 
@@ -824,9 +824,9 @@ class Resource( object ):
         """
         raise NotImplementedError()
 
-    def document_delete_list(self, request=None, **kwargs):
+    def obj_delete_list(self, request=None, **kwargs):
         """
-        Deletes an entire list of documents.
+        Deletes an entire list of objects.
 
         `DocumentResource` includes a working version for MongoEngine
         `Documents`.
@@ -835,7 +835,6 @@ class Resource( object ):
 
 
 class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
-
     # Subclassed to handle specifics for MongoEngine Documents
     def __new__( cls, name, bases, attrs ):
         meta = attrs.get( 'Meta' )
@@ -845,7 +844,7 @@ class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
                 setattr( meta, 'object_class', meta.queryset._document )
             
             if hasattr( meta, 'object_class' ) and not hasattr( meta, 'queryset' ):
-                if hasattr( meta.object_class, 'documents' ):
+                if hasattr( meta.object_class, 'objects' ):
                     setattr( meta, 'queryset', meta.object_class.objects )
 
         new_class = super( DocumentDeclarativeMetaclass, cls ).__new__( cls, name, bases, attrs )
@@ -855,7 +854,7 @@ class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
 
         for field_name in field_names:
             if field_name in ( 'resource_uri', ):
-                # Embedded documents don't have their own resource_uri
+                # Embedded objects don't have their own resource_uri
                 if meta and hasattr( meta, 'object_class' ) and issubclass( meta.object_class, mongoengine.EmbeddedDocument ):
                     del( new_class.base_fields[field_name] )
                 continue
@@ -884,7 +883,7 @@ class DocumentResource( Resource ):
         Given a MongoDB field, return if it should be included in the
         contributed ApiFields.
         """
-        # Ignore reference fields for now, because documents know nothing about 
+        # Ignore reference fields for now, because objects know nothing about 
         # any API through which they're exposed. 
         if isinstance( field, ( mf.ReferenceField ) ):
             # The equivalent of ToOne
@@ -991,12 +990,12 @@ class DocumentResource( Resource ):
 
     def dehydrate_id( self, request, bundle ):
         '''
-        id is present on documents, but not a MongoEngine field. Hence we need to
+        id is present on objects, but not a MongoEngine field. Hence we need to
         explicitly dehydrate it since it won't be included in _fields.
         '''
-        return bundle.document.id
+        return bundle.obj.id
 
-    def get_resource_uri( self, request, bundle_or_document=None, absolute=None ):
+    def get_resource_uri( self, request, bundle_or_object=None, absolute=None ):
         """
         Returns the resource's relative uri per the given API.
 
@@ -1007,21 +1006,21 @@ class DocumentResource( Resource ):
             'absolute': not not absolute if absolute else self._meta.use_absolute_uris,
         }
 
-        if bundle_or_document:
+        if bundle_or_object:
             kwargs['operation'] = 'single'
-            if isinstance( bundle_or_document, Bundle ):
+            if isinstance( bundle_or_object, Bundle ):
                 try:
-                    kwargs['id'] = bundle_or_document.document.id
+                    kwargs['id'] = bundle_or_object.obj.id
                 except AttributeError:
                     raise NotImplementedError()
             else:
-                kwargs['id'] = bundle_or_document.id
+                kwargs['id'] = bundle_or_object.id
         else:
             kwargs['operation'] = 'list'
 
         return self._meta.api.build_uri( request, **kwargs )
 
-    def apply_sorting( self, document_list, options=None ):
+    def apply_sorting( self, obj_list, options=None ):
         """
         Given a dictionary of options, apply some ODM-level sorting to the
         provided `QuerySet`.
@@ -1036,7 +1035,7 @@ class DocumentResource( Resource ):
 
         if not 'sort_by' in options:
             # Nothing to alter the sorting. Return what we've got.
-            return document_list
+            return obj_list
 
         sort_by_args = []
 
@@ -1071,7 +1070,7 @@ class DocumentResource( Resource ):
             sort_by_args.append( "%s%s" % ( order, LOOKUP_SEP.join( [self.fields[field_name].attribute] + sort_by_bits[1:] )) )
 
         #FIXME: the mongo-specific part!
-        return document_list.sort_by( *sort_by_args )
+        return obj_list.sort_by( *sort_by_args )
 
     def build_filters( self, filters=None ):
         """
@@ -1120,25 +1119,25 @@ class DocumentResource( Resource ):
 
         return qs_filters
 
-    def get_document_list( self, request ):
+    def get_obj_list( self, request ):
         if hasattr( self._meta, "queryset" ):
             return self._meta.queryset.clone()
         else:
-            raise NotImplementedError('Resource needs a `queryset` to return documents')
+            raise NotImplementedError('Resource needs a `queryset` to return objects')
 
 
     def create( self, bundle ):
         '''
-        Recursively creates any embedded documents in the bundle that don't
+        Recursively creates any embedded objects in the bundle that don't
         have an id yet.
         '''
         bundle.created = set()
 
         # STEP 1: If we're brand spankin' new try to get us an id.
-        if not bundle.document.id:
+        if not bundle.obj.id:
             try:
-                bundle.document.save() 
-                bundle.created.add( bundle.document )
+                bundle.obj.save() 
+                bundle.created.add( bundle.obj )
             except MongoEngineValidationError, e:
                 # Ouch, that didn't work... Let's wait till we created embedded. 
                 pass
@@ -1153,38 +1152,38 @@ class DocumentResource( Resource ):
                 # Update our index with the results of the related resource
                 bundle.created |= related_bundle.created
 
-                # If the related document has an id, assign it now.
-                if field_value.attribute and related_bundle.document.id:
-                    setattr(bundle.document, field_value.attribute, related_bundle.document )
+                # If the related object has an id, assign it now.
+                if field_value.attribute and related_bundle.obj.id:
+                    setattr(bundle.obj, field_value.attribute, related_bundle.obj )
 
         # STEP 3: We should now be able to save ourself, or there's a config error. 
-        if not bundle.document.id:
+        if not bundle.obj.id:
             try:
-                bundle.document.save() 
-                bundle.created.add( bundle.document )
+                bundle.obj.save() 
+                bundle.created.add( bundle.obj )
             except Exception, e:
                 # Something went wrong. Test more specific exceptions later.
-                # For now, roll back any documents we created along the way.
-                for document in bundle.created:
-                    document.delete()
+                # For now, roll back any objects we created along the way.
+                for object in bundle.created:
+                    object.delete()
                 raise ValidationError("Something terrible happened. We're working to give you more specific feedback")
 
         return bundle
 
     def validate( self, bundle ):
         '''
-        Recursively validates the (embedded) document(s) in the bundle.
+        Recursively validates the (embedded) object(s) in the bundle.
 
-        Call validate on every related document and then validate ourselves.
-        If validation fails, roll back by deleting documents that were created
+        Call validate on every related object and then validate ourselves.
+        If validation fails, roll back by deleting objects that were created
         and raise a ValidationError.
         '''
 
-        # STEP 4: All documents now exist and all relations are assigned, so
+        # STEP 4: All objects now exist and all relations are assigned, so
         # everything should validate. 
 
         try:
-            bundle.document.validate()
+            bundle.obj.validate()
         except MongoEngineValidationError, e:
             bundle.errors['ValidationError'] = e
 
@@ -1192,7 +1191,7 @@ class DocumentResource( Resource ):
             for field_name, field_value in self.fields.items():
                 if getattr( field_value, 'is_related', False ):
                     try:
-                        bundle.document.validate()
+                        bundle.obj.validate()
                     except MongoEngineValidationError, e:
                         bundle.errors[ field_name ] = e
                         break
@@ -1200,9 +1199,9 @@ class DocumentResource( Resource ):
         if bundle.errors:
             # Validation failed along the way. Roll back all we created.
             # FIXME: do this more efficiently
-            for document in bundle.created:
+            for object in bundle.created:
                 try:
-                    document.delete()
+                    object.delete()
                 except ObjectDoesNotExist:
                     # It's been removed already
                     pass
@@ -1211,13 +1210,13 @@ class DocumentResource( Resource ):
 
     def update( self, bundle, **kwargs ):
         '''
-        Recursively saves the (embedded) document(s) in the validated bundle.
+        Recursively saves the (embedded) object(s) in the validated bundle.
 
         5. This is wicked! We have a totally valid bundle!
            Try to save ourselves again, recursing for related resources.
 
            IMPORTANT NOTE: 
-           We cannot assume that documents for which we only provided a URI 
+           We cannot assume that objects for which we only provided a URI 
            have not changed: they likely have received updates from the other
            side of their relations (if you use RelationalMixin), or have 
            updated privileges (if you use PrivilegeMixin)
@@ -1225,12 +1224,12 @@ class DocumentResource( Resource ):
            MongoEngine will take care of not updating fields that haven't changed. 
 
            We do a bit of accounting as an additional check: if anything goes 
-           amiss here you get the ids of documents that were and weren't saved,
+           amiss here you get the ids of objects that were and weren't saved,
            which you can use to create your own rollback scenario.
         '''
 
         # Save ourself first
-        bundle.document.save()
+        bundle.obj.save()
 
         # STEP 5: And recursively save our related resources.
         for field_name, field_value in self.fields.items():
@@ -1241,13 +1240,13 @@ class DocumentResource( Resource ):
         return bundle
 
 
-    def document_get_list( self, request=None, **kwargs ):
+    def obj_get_list( self, request=None, **kwargs ):
         """
-        A Pyramid/MongoEngine implementation of `document_get_list`.
+        A Pyramid/MongoEngine implementation of `obj_get_list`.
         """
         filters = {}
         if request and hasattr( request, 'GET' ):
-            # Pyramid's Request document uses a Multidict for its representation.
+            # Pyramid's Request object uses a Multidict for its representation.
             # Transform this into an 'ordinary' dict for further processing.
             filters = request.GET.mixed()
 
@@ -1256,15 +1255,15 @@ class DocumentResource( Resource ):
         applicable_filters = self.build_filters( filters=filters )
 
         try:
-            return self.get_document_list( request ).filter( **applicable_filters )
+            return self.get_obj_list( request ).filter( **applicable_filters )
         except ValueError:
             raise BadRequest( "Invalid resource lookup data provided ( mismatched type )." )
 
-    def document_get_single( self, request=None, **kwargs ):
+    def obj_get_single( self, request=None, **kwargs ):
         """
-        A Pyramid/MongoEngine specific implementation of `document_get_single`.
+        A Pyramid/MongoEngine specific implementation of `obj_get_single`.
 
-        Uses `document_get_list` to get the initial list, which should contain
+        Uses `obj_get_list` to get the initial list, which should contain
         only one instance matched by the request and the provided `kwargs`.
         """
         uri = kwargs.pop('uri', None)
@@ -1273,26 +1272,26 @@ class DocumentResource( Resource ):
             # FIXME: Assumption! Should use an API function to get the resource.
             kwargs['id'] = uri.split('/')[-2]
 
-        document_list = self.document_get_list( request ).filter( **kwargs )
-        # `get_document_list` should return only 1 document with the provided
+        obj_list = self.obj_get_list( request ).filter( **kwargs )
+        # `get_obj_list` should return only 1 object with the provided
         # kwargs. However if the kwargs are off, it could return none, or
-        # multiple documents. Find out if we matched only 1 and be smart 
+        # multiple objects. Find out if we matched only 1 and be smart 
         # about queries: every len() causes one.
-        document = None
-        for doc in document_list:
-            if document:
-                # We've already set document the first run, so we shouldn't 
-                # get here unless there's more than one document at 
+        object = None
+        for obj in obj_list:
+            if object:
+                # We've already set object the first run, so we shouldn't 
+                # get here unless there's more than one object at 
                 # this (possibly filtered) URI
                 stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
                 raise self._meta.object_class.MultipleObjectsReturned( "More than one '%s' matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
-            document = doc
+            object = obj
 
-        if document is None:
-            # If we didn't find a document the filter parameters were off
+        if object is None:
+            # If we didn't find a object the filter parameters were off
             stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
             raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of '%s' which matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
 
         # Okay, we're good to go without superfluous queries!
-        return document
+        return object
 
