@@ -43,8 +43,8 @@ class ResourceOptions( object ):
     default_format = 'application/json'
     filtering = {}
     ordering = []
-    object_class = None
     paginator_class = Paginator
+    object_class = None
     queryset = None
     fields = []
     excludes = []
@@ -840,12 +840,15 @@ class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
         meta = attrs.get( 'Meta' )
 
         if meta:
+            # We may either define a queryset, or an object_class, not both.
             if hasattr( meta, 'queryset' ) and not hasattr( meta, 'object_class' ):
                 setattr( meta, 'object_class', meta.queryset._document )
             
-            if hasattr( meta, 'object_class' ) and not hasattr( meta, 'queryset' ):
+            elif hasattr( meta, 'object_class' ) and not hasattr( meta, 'queryset' ):
                 if hasattr( meta.object_class, 'objects' ):
                     setattr( meta, 'queryset', meta.object_class.objects )
+            else:
+                raise ConfigurationError('Resource Meta should declare either a `queryset` or an `object_class`')
 
         new_class = super( DocumentDeclarativeMetaclass, cls ).__new__( cls, name, bases, attrs )
         include_fields = getattr( new_class._meta, 'fields', [] )
