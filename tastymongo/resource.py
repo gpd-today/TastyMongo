@@ -237,7 +237,7 @@ class Resource( object ):
         return request_method
 
     @property
-    def may_create(self):
+    def may_post(self):
         """
         Checks to ensure `post` is within `allowed_methods`.
         """
@@ -245,7 +245,7 @@ class Resource( object ):
         return 'post' in allowed
 
     @property
-    def may_update(self):
+    def may_put(self):
         """
         Checks to ensure `put` is within `allowed_methods`.
 
@@ -391,17 +391,17 @@ class Resource( object ):
             # Try to retrieve the object and put it in a bundle.
             bundle = self.bundle_from_uri( data['resource_uri'], request=request )
 
-            # Only put data in the bundle if we may update it. Otherwise
+            # Only populate data in the bundle if we may update it. Otherwise
             # we'll just ignore any other data so hydration will stop here.
             # If the bundle pointed to a resource that didn't exist, it will
             # already contain errors.
-            if self.may_update:
+            if self.may_put:
                 bundle.data = data
             else:
                 bundle.warnings[ 'ValidationWarning' ] = 'Additional data was provided for `{0}`, but it was discarded because the resource may not be updated.'.format( bundle.data['resource_uri'] ) 
 
-        elif self.may_create:
-            # We may create the new resource. Build a fresh bundle for it.
+        elif self.may_post:
+            # We may post the new resource. Build a fresh bundle for it.
             bundle = self.build_bundle( data=data, request=request )
 
         else:
