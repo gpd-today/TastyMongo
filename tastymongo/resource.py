@@ -339,19 +339,19 @@ class Resource( object ):
         """
         return data
 
-    def build_bundle( self, object=None, data=None, request=None ):
+    def build_bundle( self, obj=None, data=None, request=None ):
         """
-        Given either a object, a data dictionary or both, builds a `Bundle`
+        Given either an object, a data dictionary or both, builds a `Bundle`
         for use throughout the `dehydrate/hydrate` cycle.
 
         If no object is provided, an empty object from
         `Resource._meta.object_class` is created so that attempts to access
         `bundle.obj` do not fail.
         """
-        if object is None:
-            object = self._meta.object_class()
+        if obj is None:
+            obj = self._meta.object_class()
 
-        bundle = Bundle( object=object, data=data, request=request )
+        bundle = Bundle( obj=obj, data=data, request=request )
         return bundle
 
     def bundle_from_uri( self, uri, request=None ):
@@ -512,7 +512,7 @@ class Resource( object ):
 
     def dehydrate( self, bundle ):
         """
-        Given a bundle with a object instance, extract the information from 
+        Given a bundle with an object instance, extract the information from 
         it to populate the resource data.
         """
         # Dehydrate each field.
@@ -634,8 +634,8 @@ class Resource( object ):
                 )
         data = paginator.page()
 
-        bundles = [self.build_bundle( object=object, request=request ) for object in data['objects']]
-        data['objects'] = [self.dehydrate( bundle ) for bundle in bundles]
+        bundles = [self.build_bundle( obj=object, request=request ) for object in data[self._meta.collection_name]]
+        data[self._meta.collection_name] = [self.dehydrate( bundle ) for bundle in bundles]
         data = self.pre_serialize( data, request )
         return self.create_response( data, request )
 
@@ -655,7 +655,7 @@ class Resource( object ):
         except MultipleObjectsReturned:
             return http.HTTPMultipleChoices( "More than one resource is found at this URI." )
 
-        bundle = self.build_bundle( object=object, request=request )
+        bundle = self.build_bundle( obj=object, request=request )
         bundle = self.dehydrate( bundle )
         bundle = self.pre_serialize( bundle, request )
         return self.create_response( bundle, request )
@@ -990,7 +990,7 @@ class DocumentResource( Resource ):
 
     def dehydrate_id( self, request, bundle ):
         '''
-        id is present on objects, but not a MongoEngine field. Hence we need to
+        pk is present on objects, but not a MongoEngine field. Hence we need to
         explicitly dehydrate it since it won't be included in _fields.
         '''
         return bundle.obj.id
@@ -1010,11 +1010,11 @@ class DocumentResource( Resource ):
             kwargs['operation'] = 'single'
             if isinstance( bundle_or_object, Bundle ):
                 try:
-                    kwargs['id'] = bundle_or_object.obj.id
+                    kwargs['id'] = bundle_or_object.obj.pk
                 except AttributeError:
                     raise NotImplementedError()
             else:
-                kwargs['id'] = bundle_or_object.id
+                kwargs['id'] = bundle_or_object.pk
         else:
             kwargs['operation'] = 'list'
 
@@ -1129,7 +1129,7 @@ class DocumentResource( Resource ):
     def create( self, bundle ):
         '''
         Recursively creates any embedded objects in the bundle that don't
-        have an id yet.
+        have an pk yet.
         '''
         bundle.created = set()
 
@@ -1268,9 +1268,9 @@ class DocumentResource( Resource ):
         """
         uri = kwargs.pop('uri', None)
         if uri:
-            # Grab the id from the uri and create a filter from it.
+            # Grab the pk from the uri and create a filter from it.
             # FIXME: Assumption! Should use an API function to get the resource.
-            kwargs['id'] = uri.split('/')[-2]
+            kwargs['pk'] = uri.split('/')[-2]
 
         obj_list = self.obj_get_list( request ).filter( **kwargs )
         # `get_obj_list` should return only 1 object with the provided
@@ -1288,7 +1288,7 @@ class DocumentResource( Resource ):
             object = obj
 
         if object is None:
-            # If we didn't find a object the filter parameters were off
+            # If we didn't find an object the filter parameters were off
             stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
             raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of '%s' which matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
 
