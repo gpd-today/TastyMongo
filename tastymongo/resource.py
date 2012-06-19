@@ -1119,7 +1119,7 @@ class DocumentResource( Resource ):
 
         return qs_filters
 
-    def get_obj_list( self, request ):
+    def get_queryset( self, request ):
         if hasattr( self._meta, "queryset" ):
             return self._meta.queryset.clone()
         else:
@@ -1255,7 +1255,7 @@ class DocumentResource( Resource ):
         applicable_filters = self.build_filters( filters=filters )
 
         try:
-            return self.get_obj_list( request ).filter( **applicable_filters )
+            return self.get_queryset( request ).filter( **applicable_filters )
         except ValueError:
             raise BadRequest( "Invalid resource lookup data provided ( mismatched type )." )
 
@@ -1273,7 +1273,7 @@ class DocumentResource( Resource ):
             kwargs['pk'] = uri.split('/')[-2]
 
         obj_list = self.obj_get_list( request ).filter( **kwargs )
-        # `get_obj_list` should return only 1 object with the provided
+        # `get_queryset` should return only 1 object with the provided
         # kwargs. However if the kwargs are off, it could return none, or
         # multiple objects. Find out if we matched only 1 and be smart 
         # about queries: every len() causes one.
