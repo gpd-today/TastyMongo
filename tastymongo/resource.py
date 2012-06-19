@@ -763,7 +763,7 @@ class Resource( object ):
             # Recursively descend through the remaining lookups in the filter,
             # if any. We should ensure that all along the way, we're allowed
             # to filter on that field by the related resource.
-            related_resource = self.fields[field_name].get_related_resource( None )
+            related_resource = self.fields[field_name].get_related_resource()
             return [self.fields[field_name].attribute] + related_resource.check_filtering( filter_bits[0], filter_type, filter_bits[1:] )
 
         return [self.fields[field_name].attribute]
