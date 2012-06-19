@@ -888,7 +888,7 @@ class DocumentResource( Resource ):
         """
         # Ignore reference fields for now, because objects know nothing about 
         # any API through which they're exposed. 
-        if isinstance( field, ( mf.ReferenceField ) ):
+        if isinstance( field, mf.ReferenceField ):
             # The equivalent of ToOne
             return True
 
@@ -906,29 +906,28 @@ class DocumentResource( Resource ):
         MongoEngine type.
 
         """
-        result = default
-        field_type = type( f )
+        result = default  # instantiated only once by specifying it as kwarg
 
-        # Specify only those field types that differ from StringField
-        if field_type in ( mf.BooleanField, ):
+        # Specify only those field types that differ from default StringField
+        if isinstance( f, mf.BooleanField ):
             result = fields.BooleanField
-        elif field_type in ( mf.FloatField, ):
+        elif isinstance( f, mf.FloatField ):
             result = fields.FloatField
-        elif field_type in ( mf.DecimalField, ):
+        elif isinstance( f, mf.DecimalField ):
             result = fields.DecimalField
-        elif field_type in ( mf.IntField, mf.SequenceField ):
+        elif isinstance( f, ( mf.IntField, mf.SequenceField ) ):
             result = fields.IntegerField
-        elif field_type in ( mf.FileField, mf.ImageField, mf.BinaryField ):
+        elif isinstance( f, ( mf.FileField, mf.ImageField, mf.BinaryField ) ):
             result = fields.FileField
-        elif field_type in ( mf.DictField, mf.MapField ):
+        elif isinstance( f, ( mf.DictField, mf.MapField ) ):
             result = fields.DictField
-        elif field_type in ( mf.DateTimeField, mf.ComplexDateTimeField ):
+        elif isinstance( f, ( mf.DateTimeField, mf.ComplexDateTimeField ) ):
             result = fields.DateTimeField
-        elif field_type in ( mf.ListField, mf.SortedListField, mf.GeoPointField ):
+        elif isinstance( f, ( mf.ListField, mf.SortedListField, mf.GeoPointField ) ):
             # This will be lists of simple objects, since references have been
             # discarded already by should_skip_fields. 
             result = fields.ListField
-        elif field_type in ( mf.ObjectIdField, ):
+        elif isinstance( f, mf.ObjectIdField, ):
             result = fields.ObjectIdField
 
         return result
@@ -959,6 +958,8 @@ class DocumentResource( Resource ):
             if excludes and name in excludes:
                 continue
 
+            # Exotic fields (currently Relational fields only) are filtered 
+            # out by `should_skip_field`.
             if cls.should_skip_field( f ):
                 continue
 
@@ -973,9 +974,6 @@ class DocumentResource( Resource ):
                 kwargs['required'] = True
 
             kwargs['unique'] = f.unique
-
-            if type( f ) == mf.StringField:
-                kwargs['default'] = ''
 
             if f.default:
                 kwargs['default'] = f.default
