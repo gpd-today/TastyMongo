@@ -2,8 +2,7 @@ from pyramid.response import Response
 
 class HTTPResponse(Response):
     def __init__(self, *args, **kwargs):
-        super(HTTPResponse, self).__init__(*args, **kwargs)
-        self.charset = 'utf-8'
+        super(HTTPResponse, self).__init__( charset=b'utf-8', *args, **kwargs )
         self.status_int = 200
 
 

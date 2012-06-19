@@ -313,7 +313,7 @@ class Resource( object ):
             desired_format = self._meta.default_format
 
         serialized = self.serialize( request, data, desired_format )
-        return response_class( body=serialized, content_type=build_content_type( desired_format ), **response_kwargs )
+        return response_class( body=serialized, charset=b'utf-8', content_type=build_content_type( desired_format ), **response_kwargs )
 
 
 
