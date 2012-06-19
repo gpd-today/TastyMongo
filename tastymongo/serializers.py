@@ -144,19 +144,6 @@ class Serializer(object):
             return dict((key, self.to_simple(val, options)) for (key, val) in data.iteritems())
         elif isinstance(data, Bundle):
             return dict((key, self.to_simple(val, options)) for (key, val) in data.data.iteritems())
-        elif hasattr(data, 'dehydrated_type'):
-            if getattr(data, 'dehydrated_type', None) == 'related' and data.is_m2m == False:
-                if data.full:
-                    return self.to_simple(data.fk_resource, options)
-                else:
-                    return self.to_simple(data.value, options)
-            elif getattr(data, 'dehydrated_type', None) == 'related' and data.is_m2m == True:
-                if data.full:
-                    return [self.to_simple(bundle, options) for bundle in data.m2m_bundles]
-                else:
-                    return [self.to_simple(val, options) for val in data.value]
-            else:
-                return self.to_simple(data.value, options)
         elif isinstance(data, datetime.datetime):
             return self.format_datetime(data)
         elif isinstance(data, datetime.date):
