@@ -1145,7 +1145,8 @@ class DocumentResource( Resource ):
 
         # STEP 2: Recursively create new nested related resources.
         for field_name, field_value in self.fields.items():
-            if getattr( field_value, 'is_related', False ): 
+            if getattr( field_value, 'is_related', False ) and bundle.data[ field_name ]: 
+                # We're a related field with data. Create a bundle for it.
                 related_resource = field_value.get_related_resource()
                 related_bundle = related_resource.save( bundle.data[ field_name ] )
                 bundle.data[ field_name ] = related_bundle
@@ -1167,7 +1168,7 @@ class DocumentResource( Resource ):
                 # For now, roll back any objects we created along the way.
                 for object in bundle.created:
                     object.delete()
-                raise ValidationError("Something terrible happened. We're working to give you more specific feedback")
+                raise 
 
         return bundle
 
