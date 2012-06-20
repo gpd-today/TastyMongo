@@ -424,7 +424,7 @@ class Resource( object ):
     def hydrate( self, bundle ):
         """
         Takes data from the resource and converts it to a form ready to be 
-        stored on objects.
+        stored on objects. Returns the fully hydrated bundle.
 
         Creates related bundles for related fields, instantiating corresponding
         objects along the way. Does *not* set related attributes on objects yet, 
@@ -456,12 +456,12 @@ class Resource( object ):
                 value = field_value.hydrate( bundle )
 
             if getattr(field_value, 'is_related', False): 
-                # Related fields return a Bundle or a list of Bundles.
+                # Related fields return None, a Bundle or a list of Bundles.
                 # Replace the data for the field with the related bundle(s).
                 bundle.data[field_name] = value
 
                 # Copy any (nested) errors for this field to the parent.
-                if value.errors:
+                if value and value.errors:
                     bundle.errors[field_name] = value.errors
 
                 # NOTE: Don't assign the related data to the object just yet.
@@ -1137,7 +1137,7 @@ class DocumentResource( Resource ):
         # STEP 1: If we're brand spankin' new try to get us an id.
         if not bundle.obj.pk:
             try:
-                bundle.obj.save() 
+                bundle.obj.save( request=bundle.request ) 
                 bundle.created.add( bundle.obj )
             except MongoEngineValidationError, e:
                 # Ouch, that didn't work... Let's wait till we created embedded. 
@@ -1145,9 +1145,9 @@ class DocumentResource( Resource ):
 
         # STEP 2: Recursively create new nested related resources.
         for field_name, field_value in self.fields.items():
-            if getattr( field_value, 'is_related', False ):
+            if getattr( field_value, 'is_related', False ): 
                 related_resource = field_value.get_related_resource()
-                related_bundle = related_resource.create( bundle.data[ field_name ] )
+                related_bundle = related_resource.save( bundle.data[ field_name ] )
                 bundle.data[ field_name ] = related_bundle
 
                 # Update our index with the results of the related resource
@@ -1160,7 +1160,7 @@ class DocumentResource( Resource ):
         # STEP 3: We should now be able to save ourself, or there's a config error. 
         if not bundle.obj.pk:
             try:
-                bundle.obj.save() 
+                bundle.obj.save( request=bundle.request ) 
                 bundle.created.add( bundle.obj )
             except Exception, e:
                 # Something went wrong. Test more specific exceptions later.
@@ -1230,7 +1230,7 @@ class DocumentResource( Resource ):
         '''
 
         # Save ourself first
-        bundle.obj.save()
+        bundle.obj.save( request=bundle.request )
 
         # STEP 5: And recursively save our related resources.
         for field_name, field_value in self.fields.items():
