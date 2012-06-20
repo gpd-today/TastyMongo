@@ -9,7 +9,6 @@ from .constants import ALL, ALL_WITH_RELATIONS, QUERY_TERMS, LOOKUP_SEP
 from .utils import determine_format, build_content_type
 from .bundle import Bundle
 from .authentication import Authentication
-from .authorization import ReadOnlyAuthorization
 from .throttle import BaseThrottle
 from .paginator import Paginator
 
@@ -30,7 +29,6 @@ class ResourceOptions( object ):
     """
     serializer = Serializer()
     authentication = Authentication()
-    authorization = ReadOnlyAuthorization()
     throttle = BaseThrottle()
     allowed_methods = [ 'get', 'post', 'put', 'delete' ]
     list_allowed_methods = None
