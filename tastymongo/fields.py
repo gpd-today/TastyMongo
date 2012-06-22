@@ -575,6 +575,7 @@ class ToManyField( RelatedField ):
     Provides access to a list of related resources.
     """
     help_text = 'Many related resources. Can be either a list of URIs or a list of individually nested resource data.'
+    is_tomany = True
 
     def hydrate( self, bundle ):
         '''

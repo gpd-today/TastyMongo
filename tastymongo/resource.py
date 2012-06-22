@@ -425,9 +425,7 @@ class Resource( object ):
         stored on objects. Returns the fully hydrated bundle.
 
         Creates related bundles for related fields, instantiating corresponding
-        objects along the way. Does *not* set related attributes on objects yet, 
-        since that would render validation impossible when creating a nested
-        tree of objects.
+        objects along the way. 
 
         The result of the hydrate function is a fully populated bundle with 
         nested bundles for related objects. 
@@ -446,7 +444,6 @@ class Resource( object ):
         bundle = self.pre_hydrate( bundle )
 
         for field_name, fld in self.fields.items():
-
             method = getattr(self, "hydrate_%s" % field_name, None)
             if method:
                 value = method( bundle )
@@ -454,25 +451,27 @@ class Resource( object ):
                 value = fld.hydrate( bundle )
 
             if getattr(fld, 'is_related', False): 
-                # Related fields return None, a Bundle or a list of Bundles.
-                # Replace the data for the field with the related bundle(s).
-                bundle.data[field_name] = value
+                # Replace the data for the field with its hydrated version.
+                bundle.data[ field_name ] = value
 
-                # Copy any (nested) errors for this field to the parent.
-                if value and value.errors:
-                    bundle.errors[field_name] = value.errors
+                # Copy any errors that occured for this field to the parent.
+                if getattr(fld, 'is_tomany', False):
+                    # A ToManyField. Copy any errors from each bundle and 
+                    # assign a list of DBRefs to the field.
+                    bundle.errors = [ v.errors for v in value if v.errors ]
+                    setattr( bundle.obj, fld.attribute, [v.obj for v in value] )
+                else:
+                    # A ToOneField. Copy any errors from the bundle and assign
+                    # a DBRef to the field.
+                    bundle.errors = value and value.errors 
+                    setattr( bundle.obj, fld.attribute, value.obj )
 
-                # NOTE: Don't assign the related data to the object just yet.
-                # This will be done upon save, so validation on relations won't 
-                # deadlock when the related object doesn't exist yet.
 
             elif fld.attribute:
-                if value is not None or not fld.required:
-                    # Assign the data to the object's field.
-
-                    # `value` could be None: the field's `hydrate` method will
+                if value or not fld.required:
+                    # `value` could be None: the field's `hydrate` method would
                     # have raised an ApiFieldError if it couldn't hydrate itself
-                    # or if the field is required but has no data or default.
+                    # or if the field was required but had no data or default.
                     setattr(bundle.obj, fld.attribute, value)
 
         return bundle
@@ -483,9 +482,8 @@ class Resource( object ):
         Creates a new object based on the provided data, creating or updating
         related objects along the way.
         """
-        import ipdb; ipdb.set_trace()
         # Create this object (if required) and any nested objects along the way
-        bundle = self.create( bundle )
+        bundle = self.save_new( bundle )
 
         # Validate our bundle now that all nested objects exist
         bundle = self.validate( bundle )
@@ -495,7 +493,7 @@ class Resource( object ):
 
         return bundle
 
-    def create( self, bundle ):
+    def save_new( self, bundle ):
         raise NotImplementedError()
 
     def validate( self, bundle ):
@@ -1126,7 +1124,7 @@ class DocumentResource( Resource ):
             raise NotImplementedError('Resource needs a `queryset` to return objects')
 
 
-    def create( self, bundle ):
+    def save_new( self, bundle ):
         '''
         Creates the object in the bundle if it doesn't have a primary key yet.
         Recurses for embedded related bundles.
@@ -1136,30 +1134,42 @@ class DocumentResource( Resource ):
         # STEP 1: If we're brand spankin' new try to get us an id.
         if not bundle.obj.pk:
             try:
-                bundle.obj.save( request=bundle.request ) 
+                bundle.obj.save( request=bundle.request, cascade=False ) 
                 bundle.created.add( bundle.obj )
             except MongoEngineValidationError, e:
                 # Ouch, that didn't work... Let's see if there's any embedded
                 # relations holding us up.
                 pass
 
+
         # STEP 2: Recurse to create any nested related resources that are new.
         for field_name, fld in self.fields.items():
-            if getattr( fld, 'is_related', False ): 
+            if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
+                # Find out if any related resource needs to be created
+
+                related_data = bundle.data[ field_name ]
+                if not related_data:
+                    # This can happen if the field is not required and no data
+                    # was given, so bundle.data[ field_name ] can be None or []
+                    continue
+
+                # The field has data in the form of one or a list of Bundles.
+                # See if it they have new objects without pk that need creation.
                 related_resource = fld.get_related_resource()
-                bundle.data[ field_name ] = related_resource.create( bundle.data[ field_name ] )
+                if getattr( fld, 'is_tomany', False ):
+                    for related_bundle in related_data:
+                        updated_bundle = related_resource.save_new( related_bundle )
+                        bundle.created |= updated_bundle.created
+                else:
+                    updated_bundle = related_resource.save_new( related_data )
+                    bundle.created |= updated_bundle.created
 
-                # Update our index with the results of the related resource
-                bundle.created |= related_bundle.created
 
-                # If the related object has an id, assign it now.
-                if fld.attribute and related_bundle.obj.pk:
-                    setattr(bundle.obj, fld.attribute, related_bundle.obj )
-
-        # STEP 3: We should now be able to save ourself, or there's a config error. 
+        # STEP 3: Every member should have received an id now, so we should be
+        # able to save ourself unless something really unexpected happened.
         if not bundle.obj.pk:
             try:
-                bundle.obj.save( request=bundle.request ) 
+                bundle.obj.save( request=bundle.request, cascade=False ) 
                 bundle.created.add( bundle.obj )
             except Exception, e:
                 # Something went wrong. Test more specific exceptions later.
@@ -1183,7 +1193,7 @@ class DocumentResource( Resource ):
         # everything should validate. 
 
         try:
-            bundle.obj.validate()
+            bundle.obj.validate( request=bundle.request )
         except MongoEngineValidationError, e:
             bundle.errors['ValidationError'] = e
 
@@ -1191,7 +1201,7 @@ class DocumentResource( Resource ):
             for field_name, fld in self.fields.items():
                 if getattr( fld, 'is_related', False ):
                     try:
-                        bundle.obj.validate()
+                        bundle.obj.validate( request=bundle.request )
                     except MongoEngineValidationError, e:
                         bundle.errors[ field_name ] = e
                         break
@@ -1229,11 +1239,11 @@ class DocumentResource( Resource ):
         '''
 
         # Save ourself first
-        bundle.obj.save( request=bundle.request )
+        bundle.obj.save( request=bundle.request, cascade=False )
 
         # STEP 5: And recursively save our related resources.
         for field_name, fld in self.fields.items():
-            if getattr( fld, 'is_related', False ):
+            if getattr( fld, 'is_related', False ) and field_name in bundle.data:
                 related_resource = fld.get_related_resource()
                 related_resource.update( bundle.data[ field_name ] )
 
