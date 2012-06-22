@@ -87,8 +87,8 @@ class DeclarativeMetaclass( type ):
             for p in parent_classes:
                 parent_class_fields = getattr( p, 'base_fields', {})
 
-                for field_name, field_value in parent_class_fields.items():
-                    attrs['base_fields'][field_name] = deepcopy( field_value )
+                for field_name, fld in parent_class_fields.items():
+                    attrs['base_fields'][field_name] = deepcopy( fld )
         except NameError:
             pass
 
@@ -122,9 +122,9 @@ class DeclarativeMetaclass( type ):
         elif 'resource_uri' in new_class.base_fields and not 'resource_uri' in attrs:
             del( new_class.base_fields['resource_uri'] )
 
-        for field_name, field_value in new_class.base_fields.items():
-            if hasattr( field_value, 'contribute_to_class' ):
-                field_value.contribute_to_class( new_class, field_name )
+        for field_name, fld in new_class.base_fields.items():
+            if hasattr( fld, 'contribute_to_class' ):
+                fld.contribute_to_class( new_class, field_name )
 
         return new_class
 
@@ -182,14 +182,14 @@ class Resource( object ):
         if self._meta.filtering:
             data['filtering'] = self._meta.filtering
 
-        for field_name, field_value in self.fields.items():
+        for field_name, fld in self.fields.items():
             data['fields'][field_name] = {
-                'default': field_value.default,
-                'type': field_value.dehydrated_type,
-                'required': field_value.required,
-                'readonly': field_value.readonly,
-                'help_text': field_value.help_text,
-                'unique': field_value.unique,
+                'default': fld.default,
+                'type': fld.dehydrated_type,
+                'required': fld.required,
+                'readonly': fld.readonly,
+                'help_text': fld.help_text,
+                'unique': fld.unique,
             }
         return data
     
@@ -445,15 +445,15 @@ class Resource( object ):
 
         bundle = self.pre_hydrate( bundle )
 
-        for field_name, field_value in self.fields.items():
+        for field_name, fld in self.fields.items():
 
             method = getattr(self, "hydrate_%s" % field_name, None)
             if method:
                 value = method( bundle )
             else:
-                value = field_value.hydrate( bundle )
+                value = fld.hydrate( bundle )
 
-            if getattr(field_value, 'is_related', False): 
+            if getattr(fld, 'is_related', False): 
                 # Related fields return None, a Bundle or a list of Bundles.
                 # Replace the data for the field with the related bundle(s).
                 bundle.data[field_name] = value
@@ -466,30 +466,28 @@ class Resource( object ):
                 # This will be done upon save, so validation on relations won't 
                 # deadlock when the related object doesn't exist yet.
 
-            elif field_value.attribute:
-                if value is not None or not field_value.required:
+            elif fld.attribute:
+                if value is not None or not fld.required:
                     # Assign the data to the object's field.
 
                     # `value` could be None: the field's `hydrate` method will
                     # have raised an ApiFieldError if it couldn't hydrate itself
                     # or if the field is required but has no data or default.
-                    setattr(bundle.obj, field_value.attribute, value)
+                    setattr(bundle.obj, fld.attribute, value)
 
         return bundle
 
 
-    def save(self, data, request=None, **kwargs):
+    def save(self, bundle, request=None, **kwargs):
         """
         Creates a new object based on the provided data, creating or updating
         related objects along the way.
         """
-        bundle = self.build_bundle( data=data, request=request )
-        bundle = self.hydrate( bundle )
-
-        # Create new objects first
+        import ipdb; ipdb.set_trace()
+        # Create this object (if required) and any nested objects along the way
         bundle = self.create( bundle )
 
-        # Validate our bundle now that all objects exist
+        # Validate our bundle now that all nested objects exist
         bundle = self.validate( bundle )
 
         # Save the rest
@@ -514,8 +512,8 @@ class Resource( object ):
         it to populate the resource data.
         """
         # Dehydrate each field.
-        for field_name, field_value in self.fields.items():
-            bundle.data[field_name] = field_value.dehydrate( bundle )
+        for field_name, fld in self.fields.items():
+            bundle.data[field_name] = fld.dehydrate( bundle )
 
             # Check for an optional method to do further dehydration.
             method = getattr( self, "dehydrate_%s" % field_name, None )
@@ -667,7 +665,10 @@ class Resource( object ):
         data = self.deserialize( request, request.body, format=request.content_type )
         data = self.post_deserialize( request, data )
 
-        bundle = self.save( data, request=request, **kwargs )
+        bundle = self.build_bundle( data=data, request=request )
+        bundle = self.hydrate( bundle )
+
+        bundle = self.save( bundle, request=request, **kwargs )
         if bundle.errors:
             return self.create_response( bundle.errors, request, response_class=http.HTTPBadRequest )
 
@@ -693,19 +694,19 @@ class Resource( object ):
         # 2. consider the put list a diff with an existing list at this URI
         #    (which may be filtered, like ?category=Pets) and thus remove
         #    any objects not in the put list.
-        return NotImplementedError('put_list is not yet implemented')
+        return http.HTTPNotImplemented('put_list is not yet implemented')
 
     def put_single(self, request, **kwargs):
         """
         Updates an existing object with the provided data.
         """
-        return NotImplementedError('put_single is not yet implemented')
+        return http.HTTPNotImplemented('put_single is not yet implemented')
 
     def delete_list(self, request, **kwargs):
         """
         Not implemented since we don't allow destroying whole lists
         """
-        return http.HTTPNotImplemented()
+        return http.HTTPNotImplemented('delete_list is not yet implemented')
 
     def delete_single(self, request, **kwargs):
         """
@@ -1127,8 +1128,8 @@ class DocumentResource( Resource ):
 
     def create( self, bundle ):
         '''
-        Recursively creates any embedded objects in the bundle that don't
-        have an pk yet.
+        Creates the object in the bundle if it doesn't have a primary key yet.
+        Recurses for embedded related bundles.
         '''
         bundle.created = set()
 
@@ -1138,23 +1139,22 @@ class DocumentResource( Resource ):
                 bundle.obj.save( request=bundle.request ) 
                 bundle.created.add( bundle.obj )
             except MongoEngineValidationError, e:
-                # Ouch, that didn't work... Let's wait till we created embedded. 
+                # Ouch, that didn't work... Let's see if there's any embedded
+                # relations holding us up.
                 pass
 
-        # STEP 2: Recursively create new nested related resources.
-        for field_name, field_value in self.fields.items():
-            if getattr( field_value, 'is_related', False ) and bundle.data[ field_name ]: 
-                # We're a related field with data. Create a bundle for it.
-                related_resource = field_value.get_related_resource()
-                related_bundle = related_resource.save( bundle.data[ field_name ] )
-                bundle.data[ field_name ] = related_bundle
+        # STEP 2: Recurse to create any nested related resources that are new.
+        for field_name, fld in self.fields.items():
+            if getattr( fld, 'is_related', False ): 
+                related_resource = fld.get_related_resource()
+                bundle.data[ field_name ] = related_resource.create( bundle.data[ field_name ] )
 
                 # Update our index with the results of the related resource
                 bundle.created |= related_bundle.created
 
                 # If the related object has an id, assign it now.
-                if field_value.attribute and related_bundle.obj.pk:
-                    setattr(bundle.obj, field_value.attribute, related_bundle.obj )
+                if fld.attribute and related_bundle.obj.pk:
+                    setattr(bundle.obj, fld.attribute, related_bundle.obj )
 
         # STEP 3: We should now be able to save ourself, or there's a config error. 
         if not bundle.obj.pk:
@@ -1188,8 +1188,8 @@ class DocumentResource( Resource ):
             bundle.errors['ValidationError'] = e
 
         if not bundle.errors:
-            for field_name, field_value in self.fields.items():
-                if getattr( field_value, 'is_related', False ):
+            for field_name, fld in self.fields.items():
+                if getattr( fld, 'is_related', False ):
                     try:
                         bundle.obj.validate()
                     except MongoEngineValidationError, e:
@@ -1232,9 +1232,9 @@ class DocumentResource( Resource ):
         bundle.obj.save( request=bundle.request )
 
         # STEP 5: And recursively save our related resources.
-        for field_name, field_value in self.fields.items():
-            if getattr( field_value, 'is_related', False ):
-                related_resource = field_value.get_related_resource()
+        for field_name, fld in self.fields.items():
+            if getattr( fld, 'is_related', False ):
+                related_resource = fld.get_related_resource()
                 related_resource.update( bundle.data[ field_name ] )
 
         return bundle
