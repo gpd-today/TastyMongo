@@ -5,10 +5,7 @@ from __future__ import unicode_literals
 class Bundle( object ):
     """
     A small container for instances and converted data for the
-    ``dehydrate/hydrate`` cycle.
-
-    Necessary because the ``dehydrate/hydrate`` cycle needs to access data at
-    different points.
+    `dehydrate/hydrate` cycle.
     """
     def __init__( self, obj=None, data=None, request=None ):
         self.obj = obj
