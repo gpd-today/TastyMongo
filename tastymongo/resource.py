@@ -311,7 +311,7 @@ class Resource( object ):
             desired_format = self._meta.default_format
 
         serialized = self.serialize( request, data, desired_format )
-        return response_class( body=serialized, charset=b'utf-8', content_type=build_content_type( desired_format ), **response_kwargs )
+        return response_class( body=serialized, content_type=build_content_type( desired_format ), **response_kwargs )
 
 
 
@@ -450,6 +450,9 @@ class Resource( object ):
             else:
                 value = fld.hydrate( bundle )
 
+            if not value:
+                continue
+
             if getattr(fld, 'is_related', False): 
                 # Replace the data for the field with its hydrated version.
                 bundle.data[ field_name ] = value
@@ -463,16 +466,11 @@ class Resource( object ):
                 else:
                     # A ToOneField. Copy any errors from the bundle and assign
                     # a DBRef to the field.
-                    bundle.errors = value and value.errors 
+                    bundle.errors = value.errors 
                     setattr( bundle.obj, fld.attribute, value.obj )
 
-
             elif fld.attribute:
-                if value or not fld.required:
-                    # `value` could be None: the field's `hydrate` method would
-                    # have raised an ApiFieldError if it couldn't hydrate itself
-                    # or if the field was required but had no data or default.
-                    setattr(bundle.obj, fld.attribute, value)
+                setattr(bundle.obj, fld.attribute, value)
 
         return bundle
 
