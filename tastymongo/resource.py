@@ -652,11 +652,13 @@ class Resource( object ):
         bundle = self.pre_serialize( bundle, request )
         return self.create_response( bundle, request )
 
-    def post_list(self, request, **kwargs):
+    def upsert( self, request, **kwargs ):
         """
-        Creates a new Resource from the provided data.
+        Creates or updates a Resource including any nested Resources from 
+        the data provided in the Request.
 
-        Returns `HTTPCreated` (201 Created) if all went well. 
+        Returns a bundle with the new or updated objects, their data ready to 
+        be deserialized and any errors that occured along the way.
         """
         data = self.deserialize( request, request.body, format=request.content_type )
         data = self.post_deserialize( request, data )
@@ -665,24 +667,34 @@ class Resource( object ):
         bundle = self.hydrate( bundle )
 
         bundle = self.save( bundle, request=request, **kwargs )
-        if bundle.errors:
-            return self.create_response( bundle.errors, request, response_class=http.HTTPBadRequest )
 
-        location = self.get_resource_uri( request )
         if self._meta.return_data_on_post:
             # Re-populate the data from the saved object.
-            updated_bundle = self.dehydrate(bundle)
-            updated_bundle = self.pre_serialize( updated_bundle, request )
-            return self.create_response( updated_bundle, request, response_class=http.HTTPCreated, location=location )
+            bundle = self.dehydrate(bundle)
+            bundle = self.pre_serialize( bundle, request )
+
+        return bundle
+
+    def post_list( self, request, **kwargs ):
+        """
+        Creates a new Resource.
+
+        Returns `HTTPCreated` (201 Created) if all went well.
+        Returns `HTTPBadRequest` (500) with any errors that occurred.
+        """
+        bundle = self.upsert( request, **kwargs )
+        location = self.get_resource_uri( request )
+
+        if self._meta.return_data_on_post:
+            return self.create_response( bundle, request, response_class=http.HTTPCreated, location=location )
         else:
             return http.HTTPCreated( location=location )
         
     def post_single(self, request, **kwargs):
         """
-        Not implemented since we only allow posting to top level list, not 
-        inside existing resources. 
+        Not implemented since we only allow posting to lists.
         """
-        return http.HTTPNotImplemented()
+        return http.HTTPNotImplemented('post_single is not yet implemented')
 
     def put_list(self, request, **kwargs):
         # FIXME: TBD what this should really do:
@@ -694,10 +706,20 @@ class Resource( object ):
 
     def put_single(self, request, **kwargs):
         """
-        Updates an existing object with the provided data.
-        """
-        return http.HTTPNotImplemented('put_single is not yet implemented')
+        Updates an existing Resource.
 
+        Returns `HTTPAccepted` (204) if all went well, or `HTTPNoContent` (204)
+        if return data was also requested.
+        Returns `HTTPBadRequest` (500) with any errors that occurred.
+        """
+        bundle = self.upsert( request, **kwargs )
+
+        location = self.get_resource_uri( request )
+        if self._meta.return_data_on_post:
+            return self.create_response( bundle, request, response_class=http.HTTPAccepted, location=location )
+        else:
+            return http.HTTPNoContent( location=location )
+        
     def delete_list(self, request, **kwargs):
         """
         Not implemented since we don't allow destroying whole lists
