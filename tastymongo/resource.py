@@ -417,12 +417,15 @@ class Resource( object ):
         for field_name, fld in self.fields.items():
             method = getattr(self, "hydrate_{0}".format(field_name), None)
 
-            # Hydrate the data for the field, which may in turn recurse.
+            # Hydrate the data for the field. Recurses for related resources.
             data = fld.hydrate( bundle )
-
+            
             if method:
                 # A custom `hydrate_foo` method may provide data for the field
                 data = method( bundle )
+
+            # Replace the data for the field with its hydrated version.
+            bundle.data[ field_name ] = data
 
             if data is None:
                 continue
@@ -439,13 +442,7 @@ class Resource( object ):
 
             else:
                 if fld.attribute:
-                    if not isinstance( data, Bundle ):
-                        setattr( bundle.obj, fld.attribute, data )
-                    else:
-                        import ipdb; ipdb.set_trace()
-
-            # Replace the data for the field with its hydrated version.
-            bundle.data[ field_name ] = data
+                    setattr( bundle.obj, fld.attribute, data )
 
         return bundle
 
@@ -1129,7 +1126,7 @@ class DocumentResource( Resource ):
                 pass
 
 
-        # STEP 2: Recurse to create any nested related resources that are new.
+        # STEP 2: Create any nested related resources that are new (may recurse)
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
                 related_data = bundle.data[ field_name ]
@@ -1139,13 +1136,13 @@ class DocumentResource( Resource ):
                     # was given, so bundle.data[ field_name ] can be None or []
                     continue
 
-                # The field has data in the form of one or a list of Bundles.
-                # See if it they have new objects without pk that need creation.
+                # The field has data in the form of a single or list of Bundles.
+                # See if they have new objects without pk that need creation.
                 related_resource = fld.get_related_resource()
                 if getattr( fld, 'is_tomany', False ):
                     for related_bundle in related_data:
                         if not isinstance( related_bundle, Bundle):
-                            raise ValidationError('Expected a Bundle for field `{0}` on resource `{1}`\nGot {2}'.format( field_name, self,  related_bundle) )
+                            raise ValidationError('Expected a Bundle for field `{0}` on resource `{1}`\nGot {2}'.format( field_name, self,  related_data) )
                         updated_bundle = related_resource.save_new( related_bundle )
                         bundle.created |= updated_bundle.created
                 else:

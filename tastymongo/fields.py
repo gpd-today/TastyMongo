@@ -504,9 +504,9 @@ class RelatedField( ApiField ):
 
         return related_resource
 
-    def build_related_bundle( self, data, request=None ):
+    def hydrate_related( self, data, request=None ):
         """
-        Returns a bundle built by the related resource. 
+        Returns a bundle built and hydrated by the related resource. 
         Accepts either a URI or a dictionary-like structure.
         """
         related_resource = self.get_related_resource()
@@ -516,7 +516,8 @@ class RelatedField( ApiField ):
             return related_resource.bundle_from_uri( data, request=request )
         elif hasattr( data, 'items' ):
             # We've got a data dictionary. Create a fresh bundle for it.
-            return related_resource.bundle_from_data( data, request=request ) 
+            related_bundle = related_resource.bundle_from_data( data, request=request ) 
+            return related_resource.hydrate( related_bundle )
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
 
@@ -534,7 +535,7 @@ class RelatedField( ApiField ):
         if data is None:
             return None
 
-        return self.build_related_bundle( data, request=bundle.request )
+        return self.hydrate_related( data, request=bundle.request )
 
     def dehydrate( self, bundle ):
         """
@@ -593,7 +594,7 @@ class ToManyField( RelatedField ):
 
         assert isinstance( data, list )
 
-        return [self.build_related_bundle( value, request=bundle.request ) for value in data if value]
+        return [self.hydrate_related( value, request=bundle.request ) for value in data if value]
 
     def dehydrate( self, bundle ):
         """
