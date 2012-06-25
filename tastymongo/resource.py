@@ -229,7 +229,7 @@ class Resource( object ):
 
         if not request_method in allowed:
             allows = ','.join( map( unicode.upper, allowed ))
-            response = http.HTTPMethodNotAllowed( body='Allowed methods={}'.format( allows ))
+            response = http.HTTPMethodNotAllowed( body='Allowed methods={0}'.format( allows ))
             raise ImmediateHTTPResponse( response=response )
 
         return request_method
@@ -444,7 +444,7 @@ class Resource( object ):
         bundle = self.pre_hydrate( bundle )
 
         for field_name, fld in self.fields.items():
-            method = getattr(self, "hydrate_%s" % field_name, None)
+            method = getattr(self, "hydrate_{0}".format(field_name), None)
             if method:
                 value = method( bundle )
             else:
@@ -512,7 +512,7 @@ class Resource( object ):
             bundle.data[field_name] = fld.dehydrate( bundle )
 
             # Check for an optional method to do further dehydration.
-            method = getattr( self, "dehydrate_%s" % field_name, None )
+            method = getattr( self, "dehydrate_{0}".format(field_name), None )
             if method:
                 bundle.data[field_name] = method( bundle.request, bundle )
 
@@ -571,14 +571,14 @@ class Resource( object ):
         Handles the common operations ( allowed HTTP method, authentication,
         throttling, method lookup ) surrounding most CRUD interactions.
         """
-        allowed_methods = getattr( self._meta, '%s_allowed_methods' % request_type, None )
+        allowed_methods = getattr( self._meta, '{0}_allowed_methods'.format(request_type), None )
         request_method = self.check_method( request, allowed=allowed_methods )
-        print( 'resource={}; request={}_{}'.format( self._meta.resource_name, request_method, request_type ))
+        print( 'resource={0}; request={1}_{2}'.format( self._meta.resource_name, request_method, request_type ) )
 
         # Determine which callback we're going to use
-        method = getattr( self, '{}_{}'.format( request_method, request_type ), None )
+        method = getattr( self, '{0}_{1}'.format( request_method, request_type ), None )
         if method is None:
-            error = 'Method="{}_{}" is not implemented for resource="{}"'.format( request_method, request_type, self._meta.resource_name )
+            error = 'Method="{0}_{1}" is not implemented for resource="{2}"'.format( request_method, request_type, self._meta.resource_name )
             raise ImmediateHTTPResponse( response=http.HTTPNotImplemented( body=error ))
 
         self.is_authenticated( request )
@@ -758,24 +758,24 @@ class Resource( object ):
             filter_bits = []
 
         if not field_name in self._meta.filtering:
-            raise InvalidFilterError( "The '%s' field does not allow filtering." % field_name )
+            raise InvalidFilterError( "The `{0}` field does not allow filtering.".format(field_name) )
 
         # Check to see if it's an allowed lookup type.
         if not self._meta.filtering[field_name] in ( ALL, ALL_WITH_RELATIONS ):
             # Must be an explicit whitelist.
             if not filter_type in self._meta.filtering[field_name]:
-                raise InvalidFilterError( "'%s' is not an allowed filter on the '%s' field." % ( filter_type, field_name ))
+                raise InvalidFilterError( "`{0}` is not an allowed filter on the `{1}` field.".format( filter_type, field_name ))
 
         if self.fields[field_name].attribute is None:
-            raise InvalidFilterError( "The '%s' field has no 'attribute' to apply a filter on." % field_name )
+            raise InvalidFilterError( "The `{0}` field has no 'attribute' to apply a filter on.".format(field_name) )
 
         # Check to see if it's a relational lookup and if that's allowed.
         if len( filter_bits ):
             if not getattr( self.fields[field_name], 'is_related', False ):
-                raise InvalidFilterError( "The '%s' field does not support relations." % field_name )
+                raise InvalidFilterError( "The `{0}` field does not support relations.".format(field_name) )
 
             if not self._meta.filtering[field_name] == ALL_WITH_RELATIONS:
-                raise InvalidFilterError( "Lookups are not allowed more than one level deep on the '%s' field." % field_name )
+                raise InvalidFilterError( "Lookups are not allowed more than one level deep on the `{0}` field.".format(field_name) )
 
             # Recursively descend through the remaining lookups in the filter,
             # if any. We should ensure that all along the way, we're allowed
@@ -1077,15 +1077,15 @@ class DocumentResource( Resource ):
 
             if not field_name in self.fields:
                 # It's not a field we know about. Move along citizen.
-                raise InvalidSortError( "No matching '%s' field for ordering on." % field_name )
+                raise InvalidSortError( "No matching `{0}` field for ordering on.".format(field_name) )
 
             if not field_name in self._meta.ordering:
-                raise InvalidSortError( "The '%s' field does not allow ordering." % field_name )
+                raise InvalidSortError( "The `{0}` field does not allow ordering.".format(field_name) )
 
             if self.fields[field_name].attribute is None:
-                raise InvalidSortError( "The '%s' field has no 'attribute' for ordering with." % field_name )
+                raise InvalidSortError( "The `{0}` field has no 'attribute' for ordering with.".format(field_name) )
 
-            sort_by_args.append( "%s%s" % ( order, LOOKUP_SEP.join( [self.fields[field_name].attribute] + sort_by_bits[1:] )) )
+            sort_by_args.append( "{0}{1}".format( order, LOOKUP_SEP.join( [self.fields[field_name].attribute] + sort_by_bits[1:] ) ) )
 
         #FIXME: the mongo-specific part!
         return obj_list.sort_by( *sort_by_args )
@@ -1132,7 +1132,7 @@ class DocumentResource( Resource ):
             value = self.filter_value_to_python( value, field_name, filters, filter_expr, filter_type )
 
             db_field_name = LOOKUP_SEP.join( lookup_bits )
-            qs_filter = "%s%s%s" % ( db_field_name, LOOKUP_SEP, filter_type )
+            qs_filter = "{0}{1}{2}".format( db_field_name, LOOKUP_SEP, filter_type )
             qs_filters[qs_filter] = value
 
         return qs_filters
@@ -1313,14 +1313,14 @@ class DocumentResource( Resource ):
                 # We've already set object the first run, so we shouldn't 
                 # get here unless there's more than one object at 
                 # this (possibly filtered) URI
-                stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
-                raise self._meta.object_class.MultipleObjectsReturned( "More than one '%s' matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
+                stringified_kwargs = ', '.join( ["{0}={1}".format( k, v ) for k, v in kwargs.items()] )
+                raise self._meta.object_class.MultipleObjectsReturned( "More than one `{0}` matched `{1}`.".format( self._meta.object_class.__name__, stringified_kwargs ) )
             object = obj
 
         if object is None:
             # If we didn't find an object the filter parameters were off
-            stringified_kwargs = ', '.join( ["%s=%s" % ( k, v ) for k, v in kwargs.items()] )
-            raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of '%s' which matched '%s'." % ( self._meta.object_class.__name__, stringified_kwargs ))
+            stringified_kwargs = ', '.join( ["{0}={1}".format( k, v ) for k, v in kwargs.items()] )
+            raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_kwargs ) )
 
         # Okay, we're good to go without superfluous queries!
         return object

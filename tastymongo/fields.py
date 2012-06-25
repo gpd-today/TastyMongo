@@ -167,7 +167,7 @@ class ApiField( object ):
                         current_object = None
                         break
                     else:
-                        raise ApiFieldError( "The object '%r' is required but has an empty attribute '%s' and doesn't have a default value ." % ( previous_object, attr ))
+                        raise ApiFieldError( "The object `{0}` is required but has an empty attribute `{1}` and doesn't have a default value.".format( previous_object, attr ) )
 
             if callable( current_object ):
                 current_object = current_object()
@@ -313,7 +313,7 @@ class DateField( ApiField ):
                 data = match.groupdict()
                 return datetime.date( int( data['year'] ), int( data['month'] ), int( data['day'] ))
             else:
-                raise ApiFieldError( "Date provided to '%s' field doesn't appear to be a valid date string: '%s'" % ( self.field_name, value ))
+                raise ApiFieldError( "Date `{0}` provided to the `{1}` field doesn't appear to be a valid date string: ".format( value, self.field_name) )
 
         return value
 
@@ -351,7 +351,7 @@ class DateTimeField( ApiField ):
                 data = match.groupdict()
                 return make_aware( datetime.datetime( int( data['year'] ), int( data['month'] ), int( data['day'] ), int( data['hour'] ), int( data['minute'] ), int( data['second'] )) )
             else:
-                raise ApiFieldError( "Datetime provided to '%s' field doesn't appear to be a valid datetime string: '%s'" % ( self.field_name, value ))
+                raise ApiFieldError( "Datetime `{0}` provided to `{0}` field doesn't appear to be a valid datetime string.".format( value, self.field_name ))
 
         return value
 
@@ -476,16 +476,16 @@ class RelatedField( ApiField ):
             try:
                 module = importlib.import_module( module_path )
             except ImportError:
-                raise ImportError( "TastyMongo could not resolve the path `%s` for resource `%s`" % ( self.to, class_name ) )
+                raise ImportError( "TastyMongo could not resolve the path `{0}` for resource `{1}`.".format( self.to, class_name ) )
         else:
             # We've got a bare class name here, which won't work ( No AppCache
             # to rely on ). Try to throw a useful error.
-            raise ImportError( "TastyMongo requires a Python-style path ( <module.module.Class> ) to lazy load related resources. Only given '%s'." % self.to )
+            raise ImportError( "TastyMongo requires a Python-style path ( <module.module.Class> ) to lazy load related resources. Only given `{0}`.".format( self.to ) )
 
         self._to_class = getattr( module, class_name, None )
 
         if self._to_class is None:
-            raise ImportError( "Module '%s' does not appear to have a class called '%s'." % ( module_path, class_name ))
+            raise ImportError( "Module `{0}` does not appear to have a class called `{1}`.".format( module_path, class_name ))
 
         return self._to_class
 
@@ -523,7 +523,7 @@ class RelatedField( ApiField ):
             # We've got a data dictionary. 
             return related_resource.bundle_from_data( value, request=request )
         else:
-            raise ApiFieldError("The '%s' field was given data that was not a URI and not a dictionary-alike: %s." % (self.field_name, value))
+            raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, value) )
 
     def hydrate( self, bundle ):
         '''
