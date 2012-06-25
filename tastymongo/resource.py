@@ -607,19 +607,13 @@ class Resource( object ):
         bundle = self.pre_serialize( bundle, request )
         return self.create_response( bundle, request )
 
-    def save( self, request, **kwargs ):
+    def save( self, bundle ):
         """
-        Creates or updates a Resource including any nested Resources from 
-        the data provided in the Request.
+        Creates or updates a Resource including any nested Resources in the bundle.
 
         Returns a bundle with the new or updated objects, their data ready to 
         be deserialized and any errors that occured along the way.
         """
-        data = self.deserialize( request, request.body, format=request.content_type )
-        data = self.post_deserialize( request, data )
-
-        bundle = self.bundle_from_data( data=data, request=request )
-
         # Hydrate parses the data recursively, looking up or instantiating
         # nested objects along the way and replacing related resources data
         # with related bundles.
@@ -641,7 +635,12 @@ class Resource( object ):
         Returns `HTTPCreated` (201 Created) if all went well.
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
-        bundle = self.save( request, **kwargs )
+        data = self.deserialize( request, request.body, format=request.content_type )
+        data = self.post_deserialize( request, data )
+
+        bundle = self.bundle_from_data( data=data, request=request )
+        bundle = self.save( bundle )
+
         location = self.get_resource_uri( request )
         if self._meta.return_data_on_post:
             # Re-populate the data from the objects.
@@ -653,17 +652,37 @@ class Resource( object ):
         
     def post_single(self, request, **kwargs):
         """
-        Not implemented since we only allow posting to lists.
+        Not implemented since we only allow posting to root resources, not
+        self-referential subresources.
         """
-        return http.HTTPNotImplemented('post_single is not yet implemented')
+        return http.HTTPNotImplemented('post_single is not possible')
 
     def put_list(self, request, **kwargs):
-        # FIXME: TBD what this should really do:
-        # 1. only affect the objects posted and call put_single on them
-        # 2. consider the put list a diff with an existing list at this URI
-        #    (which may be filtered, like ?category=Pets) and thus remove
-        #    any objects not in the put list.
-        return http.HTTPNotImplemented('put_list is not yet implemented')
+        """
+        Updates the resources in the data. 
+        Does not remove existing resources.
+
+        Returns `HTTPAccepted` (204) if all went well, or `HTTPNoContent` (204)
+        if return data was also requested.
+        Returns `HTTPBadRequest` (500) with any errors that occurred.
+        """
+        data = self.deserialize( request, request.body, format=request.content_type )
+        data = self.post_deserialize( request, data )
+
+        assert isinstance( data, list )
+
+        bundles = []
+        for item in data:
+            bundle = self.bundle_from_data( data=item, request=request )
+            bundles.append( self.save( bundle ) )
+
+        if self._meta.return_data_on_put:
+            # Re-populate the data from the objects.
+            bundles = [self.dehydrate( bundle ) for bundle in bundles]
+            bundles = [self.pre_serialize( bundle, request ) for bundle in bundles]
+            return self.create_response( bundles, request, response_class=http.HTTPAccepted )
+        else:
+            return http.HTTPNoContent()
 
     def put_single(self, request, **kwargs):
         """
@@ -673,7 +692,12 @@ class Resource( object ):
         if return data was also requested.
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
-        bundle = self.save( request, **kwargs )
+        data = self.deserialize( request, request.body, format=request.content_type )
+        data = self.post_deserialize( request, data )
+
+        bundle = self.bundle_from_data( data=data, request=request )
+        bundle = self.save( bundle )
+
         location = self.get_resource_uri( request, bundle )
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
