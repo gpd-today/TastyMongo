@@ -100,29 +100,30 @@ class ApiField( object ):
 
     def hydrate( self, bundle ):
         """
-        Returns any data for the field present in the bundle.
+        Returns any data for the field that is present in the bundle.
 
-        If there's no data for this field, return a default if given or
-        None if not required, otherwise raise ApiFieldError.
+        If there's no data for this field, return a default value if given,
+        None if the field is not required, or raise ApiFieldError.
         """
         if self.readonly:
-            # We may not update this field, don't return any data.
+            # We may not update this field, so don't return any data.
             return None
 
         if self.field_name in bundle.data:
-            # The default and what should happen most: the bundle has data.
-            return bundle.data[self.field_name]
+            # The bundle has data for this field. Return it.
+            return bundle.data[ self.field_name ]
 
         elif self.has_default:
-            # The bundle has no data but there's a default value for the field
+            # The bundle has no data but there's a default value for the field.
             return self.default
 
         elif not self.required:
-            # There's no default but the field is not required
+            # There's no default but the field is not required. 
             return None
+
         else:
             # We're seriously out of options here.
-            raise ApiFieldError( "`{0}` requires a `{1}` field, but it has no data and doesn't have a default value.".format( self._resource, self.field_name ) )
+            raise ApiFieldError( 'field `{0}` has no data in bundle `{1}` and no default.'.format( self.field_name, bundle ))
 
     def dehydrate( self, bundle ):
         '''
@@ -505,10 +506,7 @@ class RelatedField( ApiField ):
 
     def build_related_bundle( self, data, request=None ):
         """
-        Returns a bundle built by the related resource. The related Resource's 
-        hydrate method is used to populate the related object from related data.
-        This may cause recursion for deeper nested data.
-
+        Returns a bundle built by the related resource. 
         Accepts either a URI or a dictionary-like structure.
         """
         related_resource = self.get_related_resource()
@@ -518,19 +516,19 @@ class RelatedField( ApiField ):
             return related_resource.bundle_from_uri( data, request=request )
         elif hasattr( data, 'items' ):
             # We've got a data dictionary. Create a fresh bundle for it.
-            return related_resource.bundle_from_data( data, request=request )
+            return related_resource.bundle_from_data( data, request=request ) 
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
 
-    def hydrate( self, bundle ):
 
-        ''' 
+    def hydrate( self, bundle ):
+        """
         When there's data for the field, create a related bundle with the data 
         and a new or existing related object in it. 
        
         It calls upon the related resource's hydrate method to instantiate the 
         object. The related resource may in turn recurse for nested data.
-        '''
+        """
         data = super( RelatedField, self ).hydrate( bundle )
 
         if data is None:
@@ -578,21 +576,24 @@ class ToManyField( RelatedField ):
 
     def hydrate( self, bundle ):
         '''
-        ToManyFields may have many related bundles, so `hydrate` should return
-        a list instead of a single bundle.
+        Returns the data from the Resource in a form ready to be set on documents. 
+
+        When just a resource_uri is given, either as a string or within a dict,
+        try to find the document, otherwise instantiate a new document.
+
+        When other data is given as well, try to set it on the document's 
+        corresponding attributes.
+        
+        Returns a list of bundles or an empty list.
         '''
         data = super( RelatedField, self ).hydrate( bundle )
 
-        if not data:
-            # Could be None or an empty list:
+        if data is None:
             return []
 
-        try:
-            # FIXME: data should exist but we find the API posting 'null' sometimes. 
-            # Explore the options but ignore for now hence the check `if data`
-            return [self.build_related_bundle( value, request=bundle.request ) for value in data if value]
-        except TypeError:
-            return [self.build_related_bundle( data, request=bundle.request )]
+        assert isinstance( data, list )
+
+        return [self.build_related_bundle( value, request=bundle.request ) for value in data if value]
 
     def dehydrate( self, bundle ):
         """

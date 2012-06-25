@@ -354,18 +354,11 @@ class Resource( object ):
 
     def bundle_from_uri( self, uri, request=None ):
         """
-        Given a URI is provided, the resource is attempted to be loaded based 
-        on the identifiers in the URI. 
-        
-        A bundle is created from the resource at the uri, or an error
-        if the object could not be retrieved. Bundle.data is the resource_uri.
+        Given a URI is provided, the resource is attempted to be loaded and put
+        in a fresh bundle.
         """
         bundle = self.build_bundle( data={'resource_uri': uri}, request=request )
-        try:
-            bundle.obj = self.obj_get_single( request=request, uri=uri )
-        except Exception, e:
-            bundle.errors['ResourceDoesNotExist'] = "Ouch! Something went wrong trying to get a resource at `{0}`. \n\nThe original exception was: \n {1}".format( uri, e )
-            raise
+        bundle.obj = self.obj_get_single( request=request, uri=uri )
 
         return bundle
 
@@ -381,38 +374,23 @@ class Resource( object ):
         Errors are added to the bundle if a new resource may not be created or 
         if an existing resource is not found or may not be updated.
         """
+        assert isinstance( data, dict )
+
         if 'resource_uri' in data:
             # We seem to be wanting to modify an existing resource. 
-            # Try to retrieve the object and put it in a bundle.
+            # Try to retrieve the object and put it in fresh bundle.
             bundle = self.bundle_from_uri( data['resource_uri'], request=request )
-
-            # Only populate data in the bundle if we may update it. Otherwise
-            # we'll just ignore any other data so hydration will stop here.
-            if self.may_put:
-                bundle.data = data
-            else:
-                bundle.errors.append( ValidationError('Additional data was provided for `{0}`, but it was discarded because the resource may not be updated.'.format( bundle.data['resource_uri'] ))) 
-
-        elif self.may_post:
-            # No resource_uri in data and we may post the new resource. 
-            # Create a fresh bundle with the posted data in it.
-            bundle = self.build_bundle( data=data, request=request )
-
+            bundle.data = data
         else:
-            # There's no resource_uri or we may not post the resource.
-            # Create a bundle with errors to propagate back.
-            bundle = self.build_bundle( request=request )
-            bundle.errors.append( ValidationError('You may not create a new {0} resource.'.format( self._meta.resource_name )))
-
-        if not bundle.errors:
-            bundle = self.hydrate( bundle )
+            # No resource_uri in data. Create a fresh bundle for it.
+            bundle = self.build_bundle( data=data, request=request )
 
         return bundle
 
     def pre_hydrate( self, bundle ):
         '''
-        A hook for allowing some custom hydration on the whole object before 
-        each field's hydrate function is called.
+        A hook for allowing some custom hydration on the data specific to this
+        resource before each field's hydrate function is called.
         '''
         return bundle
 
@@ -438,48 +416,36 @@ class Resource( object ):
 
         for field_name, fld in self.fields.items():
             method = getattr(self, "hydrate_{0}".format(field_name), None)
+
+            # Hydrate the data for the field, which may in turn recurse.
+            data = fld.hydrate( bundle )
+
             if method:
+                # A custom `hydrate_foo` method may provide data for the field
                 data = method( bundle )
-            else:
-                data = fld.hydrate( bundle )
 
             if data is None:
                 continue
 
             if getattr(fld, 'is_related', False): 
-                # Replace the data for the field with its hydrated version.
-                bundle.data[ field_name ] = data
-
-                # Copy any errors that occured for this field to the parent.
                 if getattr(fld, 'is_tomany', False):
-                    # A ToManyField. Copy any errors from each bundle and 
-                    # assign a list of DBRefs to the field.
-                    bundle.errors = [ v.errors for v in data if v.errors ]
-                    setattr( bundle.obj, fld.attribute, [v.obj for v in data] )
+                    assert isinstance( data, list )
+                    setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
+                    bundle.errors = [b.errors for b in data]
                 else:
-                    # A ToOneField. Copy any errors from the bundle and assign
-                    # the associated object to the field.
-                    bundle.errors = data.errors 
+                    assert isinstance( data, Bundle )
                     setattr( bundle.obj, fld.attribute, data.obj )
+                    bundle.errors = data.errors 
 
-            elif fld.attribute:
-                setattr(bundle.obj, fld.attribute, data)
+            else:
+                if fld.attribute:
+                    if not isinstance( data, Bundle ):
+                        setattr( bundle.obj, fld.attribute, data )
+                    else:
+                        import ipdb; ipdb.set_trace()
 
-        return bundle
-
-    def save(self, bundle, request=None, **kwargs):
-        """
-        Creates a new object based on the provided data, creating or updating
-        related objects along the way.
-        """
-        # Create this object (if required) and any nested objects along the way
-        bundle = self.save_new( bundle )
-
-        # Validate our bundle now that all nested objects exist
-        bundle = self.validate( bundle )
-
-        # Save any objects that need saving (i.e. have new data)
-        bundle = self.update( bundle )
+            # Replace the data for the field with its hydrated version.
+            bundle.data[ field_name ] = data
 
         return bundle
 
@@ -644,7 +610,7 @@ class Resource( object ):
         bundle = self.pre_serialize( bundle, request )
         return self.create_response( bundle, request )
 
-    def upsert( self, request, **kwargs ):
+    def save( self, request, **kwargs ):
         """
         Creates or updates a Resource including any nested Resources from 
         the data provided in the Request.
@@ -656,12 +622,18 @@ class Resource( object ):
         data = self.post_deserialize( request, data )
 
         bundle = self.bundle_from_data( data=data, request=request )
-        bundle = self.save( bundle, request=request, **kwargs )
 
-        if self._meta.return_data_on_post:
-            # Re-populate the data from the saved object.
-            bundle = self.dehydrate(bundle)
-            bundle = self.pre_serialize( bundle, request )
+        # Hydrate parses the data recursively, looking up or instantiating
+        # nested objects along the way and replacing related resources data
+        # with related bundles.
+        bundle = self.hydrate( bundle )
+
+        # First create any new resources in the bundle. 
+        # This is done to ensure that all related resources exist.
+        # Then validate the resource tree, and save updated documents again.
+        bundle = self.save_new( bundle )
+        bundle = self.validate( bundle )
+        bundle = self.update( bundle )
 
         return bundle
 
@@ -672,10 +644,12 @@ class Resource( object ):
         Returns `HTTPCreated` (201 Created) if all went well.
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
-        bundle = self.upsert( request, **kwargs )
+        bundle = self.save( request, **kwargs )
         location = self.get_resource_uri( request )
-
         if self._meta.return_data_on_post:
+            # Re-populate the data from the objects.
+            bundle = self.dehydrate(bundle)
+            bundle = self.pre_serialize( bundle, request )
             return self.create_response( bundle, request, response_class=http.HTTPCreated, location=location )
         else:
             return http.HTTPCreated( location=location )
@@ -702,10 +676,12 @@ class Resource( object ):
         if return data was also requested.
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
-        bundle = self.upsert( request, **kwargs )
-
+        bundle = self.save( request, **kwargs )
         location = self.get_resource_uri( request, bundle )
-        if self._meta.return_data_on_post:
+        if self._meta.return_data_on_put:
+            # Re-populate the data from the objects.
+            bundle = self.dehydrate(bundle)
+            bundle = self.pre_serialize( bundle, request )
             return self.create_response( bundle, request, response_class=http.HTTPAccepted, location=location )
         else:
             return http.HTTPNoContent( location=location )
@@ -1157,6 +1133,7 @@ class DocumentResource( Resource ):
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
                 related_data = bundle.data[ field_name ]
+
                 if not related_data:
                     # This can happen if the field is not required and no data
                     # was given, so bundle.data[ field_name ] can be None or []
@@ -1167,9 +1144,13 @@ class DocumentResource( Resource ):
                 related_resource = fld.get_related_resource()
                 if getattr( fld, 'is_tomany', False ):
                     for related_bundle in related_data:
+                        if not isinstance( related_bundle, Bundle):
+                            raise ValidationError('Expected a Bundle for field `{0}` on resource `{1}`\nGot {2}'.format( field_name, self,  related_bundle) )
                         updated_bundle = related_resource.save_new( related_bundle )
                         bundle.created |= updated_bundle.created
                 else:
+                    if not isinstance( related_data, Bundle):
+                        raise ValidationError('Expected a Bundle for field `{0}` on resource `{1}`\nGot {2}'.format( field_name, self, related_data) )
                     updated_bundle = related_resource.save_new( related_data )
                     bundle.created |= updated_bundle.created
 
