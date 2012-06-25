@@ -365,9 +365,8 @@ class Resource( object ):
             bundle.obj = self.obj_get_single( request=request, uri=uri )
         except Exception, e:
             bundle.errors['ResourceDoesNotExist'] = "Ouch! Something went wrong trying to get a resource at `{0}`. \n\nThe original exception was: \n {1}".format( uri, e )
+            raise
 
-        # Since our data was a uri only, there's no need to do any further
-        # hydration. Just return the bundle.
         return bundle
 
     def bundle_from_data( self, data, request=None ):
@@ -376,14 +375,12 @@ class Resource( object ):
         created using that data.
 
         If the data contains a resource_uri, any other keys in the data are 
-        assumed to be updates to an existing object's properties.
-
+        assumed to be updates to the existing object's properties.
         If the data contains no resource_uri, a new object is instantiated.
 
         Errors are added to the bundle if a new resource may not be created or 
         if an existing resource is not found or may not be updated.
         """
-        
         if 'resource_uri' in data:
             # We seem to be wanting to modify an existing resource. 
             # Try to retrieve the object and put it in a bundle.
@@ -391,21 +388,21 @@ class Resource( object ):
 
             # Only populate data in the bundle if we may update it. Otherwise
             # we'll just ignore any other data so hydration will stop here.
-            # If the bundle pointed to a resource that didn't exist, it will
-            # already contain errors.
             if self.may_put:
                 bundle.data = data
             else:
-                bundle.warnings[ 'ValidationWarning' ] = 'Additional data was provided for `{0}`, but it was discarded because the resource may not be updated.'.format( bundle.data['resource_uri'] ) 
+                bundle.errors.append( ValidationError('Additional data was provided for `{0}`, but it was discarded because the resource may not be updated.'.format( bundle.data['resource_uri'] ))) 
 
         elif self.may_post:
-            # We may post the new resource. Build a fresh bundle for it.
+            # No resource_uri in data and we may post the new resource. 
+            # Create a fresh bundle with the posted data in it.
             bundle = self.build_bundle( data=data, request=request )
 
         else:
-            # Create a bundle without data and put an error in it.
+            # There's no resource_uri or we may not post the resource.
+            # Create a bundle with errors to propagate back.
             bundle = self.build_bundle( request=request )
-            bundle.errors['ValidationError'] = 'You may not create a new {0} resource.'.format( self._meta.resource_name )
+            bundle.errors.append( ValidationError('You may not create a new {0} resource.'.format( self._meta.resource_name )))
 
         if not bundle.errors:
             bundle = self.hydrate( bundle )
@@ -422,20 +419,16 @@ class Resource( object ):
     def hydrate( self, bundle ):
         """
         Takes data from the resource and converts it to a form ready to be 
-        stored on objects. Returns the fully hydrated bundle.
+        stored on objects. Returns a fully hydrated bundle.
 
         Creates related bundles for related fields, instantiating corresponding
-        objects along the way. 
+        objects along the way and nesting them in the data for the main bundle. 
 
         The result of the hydrate function is a fully populated bundle with 
         nested bundles for related objects. 
 
-        * Related field's resources are (recursively) instantiated by the 
-          field's `hydrate` method, that in turn calls the related resource's 
-          `hydrate` method. 
-
-        * Any errors encountered in the data for the related objects are
-          propagated to the parent's bundle.
+        Any errors encountered in the data for the related objects are
+        propagated to the parent's bundle.
         """
 
         if bundle.obj is None:
@@ -446,34 +439,33 @@ class Resource( object ):
         for field_name, fld in self.fields.items():
             method = getattr(self, "hydrate_{0}".format(field_name), None)
             if method:
-                value = method( bundle )
+                data = method( bundle )
             else:
-                value = fld.hydrate( bundle )
+                data = fld.hydrate( bundle )
 
-            if not value:
+            if data is None:
                 continue
 
             if getattr(fld, 'is_related', False): 
                 # Replace the data for the field with its hydrated version.
-                bundle.data[ field_name ] = value
+                bundle.data[ field_name ] = data
 
                 # Copy any errors that occured for this field to the parent.
                 if getattr(fld, 'is_tomany', False):
                     # A ToManyField. Copy any errors from each bundle and 
                     # assign a list of DBRefs to the field.
-                    bundle.errors = [ v.errors for v in value if v.errors ]
-                    setattr( bundle.obj, fld.attribute, [v.obj for v in value] )
+                    bundle.errors = [ v.errors for v in data if v.errors ]
+                    setattr( bundle.obj, fld.attribute, [v.obj for v in data] )
                 else:
                     # A ToOneField. Copy any errors from the bundle and assign
-                    # a DBRef to the field.
-                    bundle.errors = value.errors 
-                    setattr( bundle.obj, fld.attribute, value.obj )
+                    # the associated object to the field.
+                    bundle.errors = data.errors 
+                    setattr( bundle.obj, fld.attribute, data.obj )
 
             elif fld.attribute:
-                setattr(bundle.obj, fld.attribute, value)
+                setattr(bundle.obj, fld.attribute, data)
 
         return bundle
-
 
     def save(self, bundle, request=None, **kwargs):
         """
@@ -486,7 +478,7 @@ class Resource( object ):
         # Validate our bundle now that all nested objects exist
         bundle = self.validate( bundle )
 
-        # Save the rest
+        # Save any objects that need saving (i.e. have new data)
         bundle = self.update( bundle )
 
         return bundle
@@ -663,9 +655,7 @@ class Resource( object ):
         data = self.deserialize( request, request.body, format=request.content_type )
         data = self.post_deserialize( request, data )
 
-        bundle = self.build_bundle( data=data, request=request )
-        bundle = self.hydrate( bundle )
-
+        bundle = self.bundle_from_data( data=data, request=request )
         bundle = self.save( bundle, request=request, **kwargs )
 
         if self._meta.return_data_on_post:
@@ -714,7 +704,7 @@ class Resource( object ):
         """
         bundle = self.upsert( request, **kwargs )
 
-        location = self.get_resource_uri( request )
+        location = self.get_resource_uri( request, bundle )
         if self._meta.return_data_on_post:
             return self.create_response( bundle, request, response_class=http.HTTPAccepted, location=location )
         else:
@@ -1156,6 +1146,7 @@ class DocumentResource( Resource ):
             try:
                 bundle.obj.save( request=bundle.request, cascade=False ) 
                 bundle.created.add( bundle.obj )
+                bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
             except MongoEngineValidationError, e:
                 # Ouch, that didn't work... Let's see if there's any embedded
                 # relations holding us up.
@@ -1165,8 +1156,6 @@ class DocumentResource( Resource ):
         # STEP 2: Recurse to create any nested related resources that are new.
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
-                # Find out if any related resource needs to be created
-
                 related_data = bundle.data[ field_name ]
                 if not related_data:
                     # This can happen if the field is not required and no data
@@ -1191,6 +1180,7 @@ class DocumentResource( Resource ):
             try:
                 bundle.obj.save( request=bundle.request, cascade=False ) 
                 bundle.created.add( bundle.obj )
+                bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
             except Exception, e:
                 # Something went wrong. Test more specific exceptions later.
                 # For now, roll back any objects we created along the way.
@@ -1212,6 +1202,8 @@ class DocumentResource( Resource ):
         # STEP 4: All objects now exist and all relations are assigned, so
         # everything should validate. 
 
+        assert isinstance( bundle, Bundle )
+
         try:
             bundle.obj.validate( request=bundle.request )
         except MongoEngineValidationError, e:
@@ -1220,11 +1212,11 @@ class DocumentResource( Resource ):
         if not bundle.errors:
             for field_name, fld in self.fields.items():
                 if getattr( fld, 'is_related', False ):
+                    # FIXME: this is bullshit
                     try:
                         bundle.obj.validate( request=bundle.request )
                     except MongoEngineValidationError, e:
                         bundle.errors[ field_name ] = e
-                        break
 
         if bundle.errors:
             # Validation failed along the way. Roll back all we created.
@@ -1258,14 +1250,33 @@ class DocumentResource( Resource ):
            which you can use to create your own rollback scenario.
         '''
 
-        # Save ourself first
-        bundle.obj.save( request=bundle.request, cascade=False )
+        # Save ourself first if we require saving.
+        if isinstance( bundle, basestring ):
+            # Data contains a URI only so there's nothing to update.
+            return bundle
 
-        # STEP 5: And recursively save our related resources.
+        if isinstance( bundle, Bundle ) and len(bundle.data.keys())>1:
+            # There's at least some data beside a resource_uri
+            if not bundle.obj.pk:
+                raise ValidationError( 'Trying to update an object that has no pk yet' )
+            bundle.obj.save( request=bundle.request, cascade=False )
+
+        # STEP 5: And recursively save our related resources where needed
         for field_name, fld in self.fields.items():
-            if getattr( fld, 'is_related', False ) and field_name in bundle.data:
+            if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
+                related_data = bundle.data[ field_name ]
+                if not related_data:
+                    # This can happen if the field is not required and no data
+                    # was given, so bundle.data[ field_name ] can be None or []
+                    continue
+
+                # The field has data in the form of one or a list of Bundles.
+                # See if it they have new objects without pk that need creation.
                 related_resource = fld.get_related_resource()
-                related_resource.update( bundle.data[ field_name ] )
+                if getattr( fld, 'is_tomany', False ):
+                    bundle.data[ field_name ] = [related_resource.update( related_bundle ) for related_bundle in related_data]
+                else:
+                    bundle.data[ field_name ] = related_resource.update( related_data )
 
         return bundle
 
