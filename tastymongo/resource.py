@@ -1252,16 +1252,14 @@ class DocumentResource( Resource ):
            which you can use to create your own rollback scenario.
         '''
 
-        # Save ourself first if we require saving.
-        if isinstance( bundle, basestring ):
-            # Data contains a URI only so there's nothing to update.
-            return bundle
+        if not isinstance( bundle, Bundle ):
+            raise ValidationError( 'Expected a Bundle, got {0}'.format(bundle))
 
-        if isinstance( bundle, Bundle ) and len(bundle.data.keys())>1:
-            # There's at least some data beside a resource_uri
-            if not bundle.obj.pk:
-                raise ValidationError( 'Trying to update an object that has no pk yet' )
-            bundle.obj.save( request=bundle.request, cascade=False )
+        if not bundle.obj.pk:
+            raise ValidationError( 'Trying to update an object that has no pk yet' )
+
+        # Update ourself
+        bundle.obj.save( request=bundle.request, cascade=False )
 
         # STEP 5: And recursively save our related resources where needed
         for field_name, fld in self.fields.items():
