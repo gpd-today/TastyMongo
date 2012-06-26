@@ -9,7 +9,6 @@ import re
 
 from .exceptions import ApiFieldError
 from .utils import *
-from .bundle import Bundle
 
 
 class NOT_PROVIDED:

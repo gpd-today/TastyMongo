@@ -13,7 +13,7 @@ from .throttle import BaseThrottle
 from .paginator import Paginator
 
 from pyramid.response import Response
-from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
+from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned, OperationError as MongoEngineOperationError
 import mongoengine.document 
 from mongoengine.base import ValidationError as MongoEngineValidationError
 import mongoengine.fields as mf
@@ -441,11 +441,14 @@ class Resource( object ):
 
                     # Now set the new ones.
                     setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
-                    bundle.errors[ field_name ] = [b.errors for b in data]
+                    related_errors = [b.errors for b in data if b.errors]
+                    if related_errors:
+                        bundle.errors[ field_name ] = related_errors
                 else:
                     #assert isinstance( data, Bundle )
                     setattr( bundle.obj, fld.attribute, data.obj )
-                    bundle.errors[ field_name ] = data.errors 
+                    if data.errors:
+                        bundle.errors[ field_name ] = data.errors 
 
             else:
                 if fld.attribute:
@@ -724,13 +727,13 @@ class Resource( object ):
         """
         Destroys a single resource/object.
 
-        Calls `obj_delete`.
+        Calls `obj_delete_single`.
 
         If the resource is deleted, return `HTTPNoContent` (204 No Content).
         If the resource did not exist, return `HTTP404` (404 Not Found).
         """
         try:
-            self.obj_delete(request=request, **kwargs)
+            self.obj_delete_single(request=request, **kwargs)
             return http.HTTPNoContent()
         except NotFound:
             return http.HTTPNotFound()
@@ -1188,8 +1191,11 @@ class DocumentResource( Resource ):
             except Exception, e:
                 # Something went wrong. Test more specific exceptions later.
                 # For now, roll back any objects we created along the way.
-                for object in bundle.created:
-                    object.delete()
+                # FIXME: this is more involved since created objects trigger
+                # relational and privilege updates. Use `self.obj_delete` after
+                # we've fleshed that out.
+                #for doc in bundle.created:
+                #    doc.delete( request=bundle.request )
                 raise 
 
         return bundle
@@ -1228,20 +1234,22 @@ class DocumentResource( Resource ):
                     related_resource = fld.get_related_resource()
                     if getattr( fld, 'is_tomany', False ):
                         bundle.data[ field_name ] = [ related_resource.validate( related_bundle ) for related_bundle in related_data ]
-                        bundle.errors[ field_name ] = [ related_bundle.errors for related_bundle in bundle.data[ field_name ] ]
-                    elif isinstance( bundle.data[ field_name ]):
+                        errors = [ related_bundle.errors for related_bundle in bundle.data[ field_name ] if related_bundle.errors ]
+                        if errors:
+                            bundle.errors[ field_name ] = errors
+                    else:
                         bundle.data[ field_name ] = related_resource.validate( bundle.data[ field_name ] )
-                        bundle.errors[ field_name ] = bundle.data[ field_name ].errors
+                        if bundle.data[ field_name ].errors:
+                            bundle.errors[ field_name ] = bundle.data[ field_name ].errors
 
         if bundle.errors:
-            # Validation failed along the way. Roll back all we created.
-            # FIXME: do this more efficiently
-            for object in bundle.created:
-                try:
-                    object.delete()
-                except ObjectDoesNotExist:
-                    # It's been removed already
-                    pass
+            # Validation failed along the way. Delete any created documents.
+            # FIXME: this is more involved since created objects trigger
+            # relational and privilege updates. Use `self.obj_delete` after
+            # we've fleshed that out.
+            #for doc in bundle.created:
+            #    doc.delete( request=bundle.request )
+            raise ValidationError('Errors were encountered validating the document: {0}'.format(bundle.errors))
 
         return bundle
 
@@ -1265,10 +1273,10 @@ class DocumentResource( Resource ):
            which you can use to create your own rollback scenario.
         '''
 
-        # Update ourself
+        # Update the object in the bundle.
         bundle.obj.save( request=bundle.request, cascade=False )
 
-        # STEP 5: And recursively save our related resources where needed
+        # STEP 5: Recursively update related resources 
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
                 related_data = bundle.data[ field_name ]
@@ -1343,3 +1351,11 @@ class DocumentResource( Resource ):
         # Okay, we're good to go without superfluous queries!
         return object
 
+    def obj_delete_single( self, request=None, **kwargs ):
+        """
+        Tries to retrieve a resource per the given `request` and `kwargs` and
+        deletes it if found. 
+
+        Returns `HTTPNoContent` if successful, of `HTTPNotFound`.
+        """
+        raise NotImplementedError('`obj_delete_single` is not yet implemented')
