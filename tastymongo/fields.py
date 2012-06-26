@@ -591,7 +591,7 @@ class ToManyField( RelatedField ):
         if data is None:
             return []
 
-        assert isinstance( data, list )
+        #assert isinstance( data, list )
 
         return [self.hydrate_related( value, request=bundle.request ) for value in data if value]
 

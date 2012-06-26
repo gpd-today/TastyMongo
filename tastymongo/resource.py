@@ -374,7 +374,7 @@ class Resource( object ):
         Errors are added to the bundle if a new resource may not be created or 
         if an existing resource is not found or may not be updated.
         """
-        assert isinstance( data, dict )
+        #assert isinstance( data, dict )
 
         if 'resource_uri' in data:
             # We seem to be wanting to modify an existing resource. 
@@ -405,6 +405,10 @@ class Resource( object ):
         The result of the hydrate function is a fully populated bundle with 
         nested bundles for related objects. 
 
+        Also stores ids of formerly related objects in the bundle. These need
+        to be saved later because their privileges or embedded references will 
+        have changed.
+
         Any errors encountered in the data for the related objects are
         propagated to the parent's bundle.
         """
@@ -417,12 +421,12 @@ class Resource( object ):
         for field_name, fld in self.fields.items():
             method = getattr(self, "hydrate_{0}".format(field_name), None)
 
-            # Hydrate the data for the field. Recurses for related resources.
-            data = fld.hydrate( bundle )
-            
             if method:
                 # A custom `hydrate_foo` method may provide data for the field
                 data = method( bundle )
+            else:
+                # Hydrate the data for the field. Recurses for related resources.
+                data = fld.hydrate( bundle )
 
             # Replace the data for the field with its hydrated version.
             bundle.data[ field_name ] = data
@@ -432,13 +436,16 @@ class Resource( object ):
 
             if getattr(fld, 'is_related', False): 
                 if getattr(fld, 'is_tomany', False):
-                    assert isinstance( data, list )
+                    #assert isinstance( data, list )
+                    # Save our current relations before setting new ones.
+
+                    # Now set the new ones.
                     setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
-                    bundle.errors = [b.errors for b in data]
+                    bundle.errors[ field_name ] = [b.errors for b in data]
                 else:
-                    assert isinstance( data, Bundle )
+                    #assert isinstance( data, Bundle )
                     setattr( bundle.obj, fld.attribute, data.obj )
-                    bundle.errors = data.errors 
+                    bundle.errors[ field_name ] = data.errors 
 
             else:
                 if fld.attribute:
@@ -669,7 +676,7 @@ class Resource( object ):
         data = self.deserialize( request, request.body, format=request.content_type )
         data = self.post_deserialize( request, data )
 
-        assert isinstance( data, list )
+        #assert isinstance( data, list )
 
         bundles = []
         for item in data:
@@ -1204,11 +1211,12 @@ class DocumentResource( Resource ):
         # STEP 4: All objects now exist and all relations are assigned, so
         # everything should validate. 
 
-        assert isinstance( bundle, Bundle )
+        #assert isinstance( bundle, Bundle )
 
         try:
             bundle.obj.validate( request=bundle.request )
         except MongoEngineValidationError, e:
+            # FIXME: flesh out these errors instead of just returning the last
             bundle.errors['ValidationError'] = e
 
         if not bundle.errors:
