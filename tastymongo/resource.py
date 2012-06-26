@@ -1161,26 +1161,21 @@ class DocumentResource( Resource ):
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
                 related_data = bundle.data[ field_name ]
-
                 if not related_data:
                     # This can happen if the field is not required and no data
                     # was given, so bundle.data[ field_name ] can be None or []
                     continue
 
                 # The field has data in the form of a single or list of Bundles.
-                # See if they have new objects without pk that need creation.
+                # Delegate saving of new related objects to the related resource.
                 related_resource = fld.get_related_resource()
                 if getattr( fld, 'is_tomany', False ):
-                    for related_bundle in related_data:
-                        if not isinstance( related_bundle, Bundle):
-                            raise ValidationError('Expected a Bundle for field `{0}` on resource `{1}`\nGot {2}'.format( field_name, self,  related_data) )
-                        updated_bundle = related_resource.save_new( related_bundle )
-                        bundle.created |= updated_bundle.created
+                    bundle.data[ field_name ] = [ related_resource.save_new( related_bundle ) for related_bundle in related_data ]
+                    for related_bundle in bundle.data[ field_name ]:
+                        bundle.created |= related_bundle.created
                 else:
-                    if not isinstance( related_data, Bundle):
-                        raise ValidationError('Expected a Bundle for field `{0}` on resource `{1}`\nGot {2}'.format( field_name, self, related_data) )
-                    updated_bundle = related_resource.save_new( related_data )
-                    bundle.created |= updated_bundle.created
+                    bundle.data[ field_name ] = related_resource.save_new( related_data )
+                    bundle.created |= bundle.data[ field_name ].created
 
 
         # STEP 3: Every member should have received an id now, so we should be
@@ -1210,23 +1205,33 @@ class DocumentResource( Resource ):
 
         # STEP 4: All objects now exist and all relations are assigned, so
         # everything should validate. 
+        if not isinstance( bundle, Bundle):
+            return bundle
 
         #assert isinstance( bundle, Bundle )
 
         try:
             bundle.obj.validate( request=bundle.request )
         except MongoEngineValidationError, e:
-            # FIXME: flesh out these errors instead of just returning the last
             bundle.errors['ValidationError'] = e
 
         if not bundle.errors:
             for field_name, fld in self.fields.items():
-                if getattr( fld, 'is_related', False ):
-                    # FIXME: this is bullshit
-                    try:
-                        bundle.obj.validate( request=bundle.request )
-                    except MongoEngineValidationError, e:
-                        bundle.errors[ field_name ] = e
+                if getattr( fld, 'is_related', False ) and field_name in bundle.data:
+                    related_data = bundle.data[ field_name ]
+                    if not related_data:
+                        # This can happen if the field is not required and no data
+                        # was given, so bundle.data[ field_name ] can be None or []
+                        continue
+
+                    # Have the related resource validate its document(s) in turn.
+                    related_resource = fld.get_related_resource()
+                    if getattr( fld, 'is_tomany', False ):
+                        bundle.data[ field_name ] = [ related_resource.validate( related_bundle ) for related_bundle in related_data ]
+                        bundle.errors[ field_name ] = [ related_bundle.errors for related_bundle in bundle.data[ field_name ] ]
+                    elif isinstance( bundle.data[ field_name ]):
+                        bundle.data[ field_name ] = related_resource.validate( bundle.data[ field_name ] )
+                        bundle.errors[ field_name ] = bundle.data[ field_name ].errors
 
         if bundle.errors:
             # Validation failed along the way. Roll back all we created.
@@ -1260,12 +1265,6 @@ class DocumentResource( Resource ):
            which you can use to create your own rollback scenario.
         '''
 
-        if not isinstance( bundle, Bundle ):
-            raise ValidationError( 'Expected a Bundle, got {0}'.format(bundle))
-
-        if not bundle.obj.pk:
-            raise ValidationError( 'Trying to update an object that has no pk yet' )
-
         # Update ourself
         bundle.obj.save( request=bundle.request, cascade=False )
 
@@ -1279,7 +1278,7 @@ class DocumentResource( Resource ):
                     continue
 
                 # The field has data in the form of one or a list of Bundles.
-                # See if it they have new objects without pk that need creation.
+                # Delegate updating new and former relations to the related resource.
                 related_resource = fld.get_related_resource()
                 if getattr( fld, 'is_tomany', False ):
                     bundle.data[ field_name ] = [related_resource.update( related_bundle ) for related_bundle in related_data]
