@@ -521,7 +521,6 @@ class RelatedField( ApiField ):
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
 
-
     def hydrate( self, bundle ):
         """
         When there's data for the field, create a related bundle with the data 
