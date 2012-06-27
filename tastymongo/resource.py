@@ -1141,7 +1141,7 @@ class DocumentResource( Resource ):
             raise NotImplementedError('Resource needs a `queryset` to return objects')
 
 
-    def save_new( self, bundle ):
+    def save_new( self, bundle, recurse=True ):
         '''
         Creates the object in the bundle if it doesn't have a primary key yet.
         Recurses for embedded related bundles.
@@ -1155,30 +1155,34 @@ class DocumentResource( Resource ):
                 bundle.created.add( bundle.obj )
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
             except MongoEngineValidationError, e:
-                # Ouch, that didn't work... Let's see if there's any embedded
-                # relations holding us up.
-                pass
-
-
-        # STEP 2: Create any nested related resources that are new (may recurse)
-        for field_name, fld in self.fields.items():
-            if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
-                related_data = bundle.data[ field_name ]
-                if not related_data:
-                    # This can happen if the field is not required and no data
-                    # was given, so bundle.data[ field_name ] can be None or []
-                    continue
-
-                # The field has data in the form of a single or list of Bundles.
-                # Delegate saving of new related objects to the related resource.
-                related_resource = fld.get_related_resource()
-                if getattr( fld, 'is_tomany', False ):
-                    bundle.data[ field_name ] = [ related_resource.save_new( related_bundle ) for related_bundle in related_data ]
-                    for related_bundle in bundle.data[ field_name ]:
-                        bundle.created |= related_bundle.created
+                # Ouch, that didn't work...
+                if recurse:
+                    # Let's see if there's any embedded relations holding us up.
+                    pass
                 else:
-                    bundle.data[ field_name ] = related_resource.save_new( related_data )
-                    bundle.created |= bundle.data[ field_name ].created
+                    raise
+
+
+        if recurse: 
+            # STEP 2: Create any nested related resources that are new (may recurse)
+            for field_name, fld in self.fields.items():
+                if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
+                    related_data = bundle.data[ field_name ]
+                    if not related_data:
+                        # This can happen if the field is not required and no data
+                        # was given, so bundle.data[ field_name ] can be None or []
+                        continue
+
+                    # The field has data in the form of a single or list of Bundles.
+                    # Delegate saving of new related objects to the related resource.
+                    related_resource = fld.get_related_resource()
+                    if getattr( fld, 'is_tomany', False ):
+                        bundle.data[ field_name ] = [ related_resource.save_new( related_bundle ) for related_bundle in related_data ]
+                        for related_bundle in bundle.data[ field_name ]:
+                            bundle.created |= related_bundle.created
+                    else:
+                        bundle.data[ field_name ] = related_resource.save_new( related_data )
+                        bundle.created |= bundle.data[ field_name ].created
 
 
         # STEP 3: Every member should have received an id now, so we should be
@@ -1200,7 +1204,7 @@ class DocumentResource( Resource ):
 
         return bundle
 
-    def validate( self, bundle ):
+    def validate( self, bundle, recurse=True ):
         '''
         Recursively validates the (embedded) object(s) in the bundle.
 
@@ -1221,7 +1225,7 @@ class DocumentResource( Resource ):
         except MongoEngineValidationError, e:
             bundle.errors['ValidationError'] = e
 
-        if not bundle.errors:
+        if recurse and not bundle.errors:
             for field_name, fld in self.fields.items():
                 if getattr( fld, 'is_related', False ) and field_name in bundle.data:
                     related_data = bundle.data[ field_name ]
@@ -1253,7 +1257,7 @@ class DocumentResource( Resource ):
 
         return bundle
 
-    def update( self, bundle, **kwargs ):
+    def update( self, bundle, recurse=True ):
         '''
         Recursively saves the (embedded) object(s) in the validated bundle.
 
@@ -1276,22 +1280,22 @@ class DocumentResource( Resource ):
         # Update the object in the bundle.
         bundle.obj.save( request=bundle.request, cascade=False )
 
-        # STEP 5: Recursively update related resources 
-        for field_name, fld in self.fields.items():
-            if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
-                related_data = bundle.data[ field_name ]
-                if not related_data:
-                    # This can happen if the field is not required and no data
-                    # was given, so bundle.data[ field_name ] can be None or []
-                    continue
+        if recurse:
+            for field_name, fld in self.fields.items():
+                if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
+                    related_data = bundle.data[ field_name ]
+                    if not related_data:
+                        # This can happen if the field is not required and no data
+                        # was given, so bundle.data[ field_name ] can be None or []
+                        continue
 
-                # The field has data in the form of one or a list of Bundles.
-                # Delegate updating new and former relations to the related resource.
-                related_resource = fld.get_related_resource()
-                if getattr( fld, 'is_tomany', False ):
-                    bundle.data[ field_name ] = [related_resource.update( related_bundle ) for related_bundle in related_data]
-                else:
-                    bundle.data[ field_name ] = related_resource.update( related_data )
+                    # The field has data in the form of one or a list of Bundles.
+                    # Delegate updating new and former relations to the related resource.
+                    related_resource = fld.get_related_resource()
+                    if getattr( fld, 'is_tomany', False ):
+                        bundle.data[ field_name ] = [related_resource.update( related_bundle ) for related_bundle in related_data]
+                    else:
+                        bundle.data[ field_name ] = related_resource.update( related_data )
 
         return bundle
 
