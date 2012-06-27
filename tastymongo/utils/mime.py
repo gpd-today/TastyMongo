@@ -12,12 +12,12 @@ def determine_format(request, serializer, default_format='application/json'):
     to ``application/json`` if not provided).
     """
     # First, check if they forced the format.
-    if request.GET.get('format'):
+    if 'format' in request.GET:
         if request.GET['format'] in serializer.formats:
             return serializer.get_mime_for_format(request.GET['format'])
     
     # If callback parameter is present, use JSONP.
-    if request.GET.has_key('callback'):
+    if 'callback' in request.GET:
         return serializer.get_mime_for_format('jsonp')
     
     # Try to fallback on the Accepts header.
@@ -39,4 +39,4 @@ def build_content_type(format, encoding='utf-8'):
     if 'charset' in format:
         return format
     
-    return str("%s; charset=%s" % (format, encoding))
+    return str("{0}; charset={1}".format(format, encoding))
