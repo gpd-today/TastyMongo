@@ -855,15 +855,13 @@ class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
         meta = attrs.get( 'Meta' )
 
         if meta:
-            # We may either define a queryset, or an object_class, not both.
+            # We may define a queryset or an object_class.
             if hasattr( meta, 'queryset' ) and not hasattr( meta, 'object_class' ):
                 setattr( meta, 'object_class', meta.queryset._document )
             
             elif hasattr( meta, 'object_class' ) and not hasattr( meta, 'queryset' ):
                 if hasattr( meta.object_class, 'objects' ):
                     setattr( meta, 'queryset', meta.object_class.objects )
-            else:
-                raise ConfigurationError('Resource Meta should declare either a `queryset` or an `object_class`')
 
         new_class = super( DocumentDeclarativeMetaclass, cls ).__new__( cls, name, bases, attrs )
         include_fields = getattr( new_class._meta, 'fields', [] )
@@ -1153,7 +1151,7 @@ class DocumentResource( Resource ):
         if not bundle.obj.pk:
             try:
                 bundle.obj.save( request=bundle.request, cascade=False ) 
-                print('    ~~~~~ CREATED new {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
+                print('    ~~~~~ CREATED {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.created.add( bundle.obj )
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
             except MongoEngineValidationError, e:
@@ -1192,7 +1190,7 @@ class DocumentResource( Resource ):
         if not bundle.obj.pk:
             try:
                 bundle.obj.save( request=bundle.request, cascade=False ) 
-                print('    ~~~~~ CREATED new {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
+                print('    ~~~~~ CREATED {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.created.add( bundle.obj )
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
             except Exception, e:
