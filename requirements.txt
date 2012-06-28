@@ -1,5 +1,6 @@
 pyramid
 pymongo
 mongoengine
+mongoengine_privileges
 blinker # events for mongoengine
 python-dateutil

@@ -13,9 +13,10 @@ from .throttle import BaseThrottle
 from .paginator import Paginator
 
 from pyramid.response import Response
-from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned, OperationError as MongoEngineOperationError
-import mongoengine.document 
+from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
 from mongoengine.base import ValidationError as MongoEngineValidationError
+from mongoengine_privileges import PrivilegeMixin
+import mongoengine.document 
 import mongoengine.fields as mf
 
 from copy import deepcopy
@@ -1366,3 +1367,32 @@ class DocumentResource( Resource ):
         Returns `HTTPNoContent` if successful, of `HTTPNotFound`.
         """
         raise NotImplementedError('`obj_delete_single` is not yet implemented')
+
+
+class PrivilegedDocumentResource( DocumentResource ):
+    """
+    A special DocumentResource that inserts Privileges from the Document
+    """
+    def __init__( self, api=None ):
+        # Make sure our corresponding Document actually has privileges
+        if not issubclass( self._meta.object_class, PrivilegeMixin ):
+            raise ConfigurationError( 'Document must also inherit from PrivilegeMixin' )
+        super( PrivilegedDocumentResource, self ).__init__( api=api )
+
+    # The privileges field will be present on all our resources
+    privileges = fields.ListField( 
+        default = [], 
+        readonly = True 
+    )
+
+    def get_queryset( self, request ):
+        return self._meta.object_class.objects( __raw__={ '$or': [
+            { 'privileges.person.$id' : request.user.pk, 'privileges.permissions': 'read' },
+            { 'privileges.person.groups': { '$in': request.user.groups }, 'privileges.permissions': 'read' }
+        ]})
+
+    def dehydrate_privileges( self, request, bundle ):
+        priv = bundle.obj.get_privilege( request.user )
+        return priv.permissions if priv else []
+
+
