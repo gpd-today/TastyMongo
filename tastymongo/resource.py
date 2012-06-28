@@ -152,13 +152,13 @@ class Resource( object ):
         """
         raise NotImplementedError()
 
-    def dehydrate_resource_uri( self, request, bundle ):
+    def dehydrate_resource_uri( self, bundle ):
         """
         For the automatically included `resource_uri` field, dehydrate
         the relative URI for the given bundle.
         """
         try:
-            return self.get_resource_uri( request, bundle )
+            return self.get_resource_uri( bundle.request, bundle )
         except NotImplementedError:
             return '<not implemented>'
 
@@ -480,7 +480,7 @@ class Resource( object ):
             # Check for an optional method to do further dehydration.
             method = getattr( self, "dehydrate_{0}".format(field_name), None )
             if method:
-                bundle.data[field_name] = method( bundle.request, bundle )
+                bundle.data[field_name] = method( bundle )
 
         return self.post_dehydrate( bundle )
 
@@ -1002,7 +1002,7 @@ class DocumentResource( Resource ):
 
         return final_fields
 
-    def dehydrate_id( self, request, bundle ):
+    def dehydrate_id( self, bundle ):
         '''
         pk is present on objects, but not a MongoEngine field. Hence we need to
         explicitly dehydrate it since it won't be included in _fields.
@@ -1389,8 +1389,8 @@ class PrivilegedDocumentResource( DocumentResource ):
             { 'privileges.person.groups': { '$in': request.user.groups }, 'privileges.permissions': 'read' }
         ]})
 
-    def dehydrate_privileges( self, request, bundle ):
-        priv = bundle.obj.get_privilege( request.user )
+    def dehydrate_privileges( self, bundle ):
+        priv = bundle.obj.get_privilege( bundle.request.user )
         return priv.permissions if priv else []
 
 
