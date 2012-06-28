@@ -1152,7 +1152,7 @@ class DocumentResource( Resource ):
         if not bundle.obj.pk:
             try:
                 bundle.obj.save( request=bundle.request, cascade=False ) 
-                print('    ~~~~~ CREATED new object: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk))
+                print('    ~~~~~ CREATED new {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.created.add( bundle.obj )
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
             except MongoEngineValidationError, e:
@@ -1191,7 +1191,7 @@ class DocumentResource( Resource ):
         if not bundle.obj.pk:
             try:
                 bundle.obj.save( request=bundle.request, cascade=False ) 
-                print('    ~~~~~ CREATED new object: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk))
+                print('    ~~~~~ CREATED new {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.created.add( bundle.obj )
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
             except Exception, e:
@@ -1281,7 +1281,7 @@ class DocumentResource( Resource ):
 
         # Update the object in the bundle.
         bundle.obj.save( request=bundle.request, cascade=False )
-        print('    ~~~~~ UPDATED existing object: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk))
+        print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
 
         if recurse:
             for field_name, fld in self.fields.items():
