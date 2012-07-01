@@ -7,8 +7,8 @@ import json
 from pyramid import testing
 from pyramid.request import Request
 
-from .documents import Activity, Person
-from .resources import ActivityResource, PersonResource
+from tests_tastymongo.documents import Activity, Person
+from tests_tastymongo.resources import ActivityResource, PersonResource
 
 from tastymongo.api import Api
 
@@ -81,7 +81,7 @@ class DetailTests( unittest.TestCase ):
         deserialized = json.loads( response.body )
 
         # Find out if we got multiple activities
-        self.assertEqual( len(deserialized['documents']), deserialized['meta']['total_count'] )
+        self.assertEqual( len(deserialized['objects']), deserialized['meta']['total_count'] )
 
     def test_post_list( self ):
         request = Request.blank( '/api/v1/' )

@@ -719,9 +719,14 @@ class Resource( object ):
         
     def delete_list(self, request, **kwargs):
         """
-        Not implemented since we don't allow destroying whole lists
+        Destroys a collection of resources/documents.
+
+        Calls ``obj_delete_list``.
+
+        If the resources are deleted, return ``HttpNoContent`` (204 No Content).
         """
-        return http.HTTPNotImplemented('delete_list is not yet implemented')
+        self.obj_delete_list(request=request, **self.remove_api_resource_names(kwargs))
+        return http.HttpNoContent()
 
     def delete_single(self, request, **kwargs):
         """
@@ -732,13 +737,13 @@ class Resource( object ):
         If the resource is deleted, return `HTTPNoContent` (204 No Content).
         If the resource did not exist, return `HTTP404` (404 Not Found).
         """
+        # construct a filter from the request path.
+        kwargs['uri'] = request.path 
         try:
             self.obj_delete_single(request=request, **kwargs)
             return http.HTTPNoContent()
         except NotFound:
             return http.HTTPNotFound()
-
-
 
     def check_filtering( self, field_name, filter_type='exact', filter_bits=None ):
         """
@@ -1196,7 +1201,7 @@ class DocumentResource( Resource ):
                 # Something went wrong. Test more specific exceptions later.
                 # For now, roll back any objects we created along the way.
                 # FIXME: this is more involved since created objects trigger
-                # relational and privilege updates. Use `self.obj_delete` after
+                # relational and privilege updates. Use `self.obj_delete_single` after
                 # we've fleshed that out.
                 #for doc in bundle.created:
                 #    doc.delete( request=bundle.request )
@@ -1249,7 +1254,7 @@ class DocumentResource( Resource ):
         if bundle.errors:
             # Validation failed along the way. Delete any created documents.
             # FIXME: this is more involved since created objects trigger
-            # relational and privilege updates. Use `self.obj_delete` after
+            # relational and privilege updates. Use `self.obj_delete_single` after
             # we've fleshed that out.
             #for doc in bundle.created:
             #    doc.delete( request=bundle.request )
@@ -1363,7 +1368,12 @@ class DocumentResource( Resource ):
 
         Returns `HTTPNoContent` if successful, of `HTTPNotFound`.
         """
-        raise NotImplementedError('`obj_delete_single` is not yet implemented')
+        try:
+            obj = self.obj_get_single(request, **kwargs)
+        except DoesNotExist:
+            raise NotFound("A model instance matching the provided arguments could not be found.")
+
+        obj.delete( request=request )
 
 
 class PrivilegedDocumentResource( DocumentResource ):

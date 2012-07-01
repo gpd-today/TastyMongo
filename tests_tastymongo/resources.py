@@ -4,18 +4,7 @@ from __future__ import unicode_literals
 from tastymongo.resource import DocumentResource
 from tastymongo import fields
 
-from .documents import Activity, Person
-
-class ActivityResource( DocumentResource ):
-
-    name = fields.StringField('name')
-    person = fields.ToOneField(
-            'basic.resources.PersonResource',
-            'person', )
-
-    class Meta:
-        resource_name = 'activity'
-        queryset = Activity.objects
+from tests_tastymongo.documents import Activity, Person
 
 
 class PersonResource( DocumentResource ):
@@ -25,3 +14,15 @@ class PersonResource( DocumentResource ):
     class Meta:
         resource_name = 'person'
         queryset = Person.objects
+
+
+class ActivityResource( DocumentResource ):
+
+    name = fields.StringField('name')
+    person = fields.ToOneField( PersonResource, 'person', )
+
+    class Meta:
+        resource_name = 'activity'
+        queryset = Activity.objects
+
+
