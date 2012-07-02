@@ -1373,6 +1373,31 @@ class DocumentResource( Resource ):
         except DoesNotExist:
             raise NotFound("A model instance matching the provided arguments could not be found.")
 
+        # We must first notify our relations that we're going to be removed.
+        obj.clear_relations()
+
+        # Find out if our no-longer-related documents still validate...
+        changed_documents = set()
+        changed_relations = obj.get_changed_relations()
+        for c in changed_relations:
+            added, removed = obj.get_changes_for_relation(c)
+            changed_documents |= added
+            changed_documents |= removed
+
+        # For good measure (shouldn't happen any more) 
+        changed_documents.discard(None)
+
+        for doc in changed_documents:
+            try: 
+                doc.validate( request=request )
+            except MongoEngineValidationError, e:
+                raise ValidationError('Deletion of `{0}` prohibited since it would invalidate some relations')
+
+        # All clear. 
+        for doc in changed_documents:
+            changed_relation.save( request=request )
+
+        # We should no longer have dangling relations: remove ourself.
         obj.delete( request=request )
 
 
