@@ -123,7 +123,7 @@ class ApiField( object ):
             # We're seriously out of options here.
             raise ApiFieldError( 'field `{0}` has no data in bundle `{1}` and no default.'.format( self.field_name, bundle ))
 
-    def dehydrate( self, bundle ):
+    def create_data( self, bundle ):
         '''
         Returns the Document's data for the field.
 
@@ -545,7 +545,7 @@ class RelatedField( ApiField ):
 
         return self.hydrate_related( data, request=bundle.request )
 
-    def dehydrate( self, bundle ):
+    def create_data( self, bundle ):
         """
         Returns the URI only or the (nested) data for the related resource.
 
@@ -554,7 +554,7 @@ class RelatedField( ApiField ):
         the related resource's dehydrate method to populate the data from
         the object. The related resource may in turn recurse for nested data.
         """
-        related_object = super( RelatedField, self ).dehydrate( bundle )
+        related_object = super( RelatedField, self ).create_data( bundle )
         if related_object is None:
             # ApiField's `dehydrate` will have raised an ApiFieldError if 
             # the object may not be None, so we can safely return None.
@@ -602,7 +602,7 @@ class ToManyField( RelatedField ):
 
         return [self.hydrate_related( data, request=bundle.request ) for data in related_data if data]
 
-    def dehydrate( self, bundle ):
+    def create_data( self, bundle ):
         """
         Returns the URIs only or the (nested) data for the related resources.
 
@@ -611,7 +611,7 @@ class ToManyField( RelatedField ):
         the related resource's dehydrate method to populate the data from
         the object. The related resources may in turn recurse for nested data.
         """
-        related_objects = super( RelatedField, self ).dehydrate( bundle )
+        related_objects = super( RelatedField, self ).create_data( bundle )
         if related_objects is None:
             related_objects = []
 

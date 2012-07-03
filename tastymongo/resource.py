@@ -474,7 +474,7 @@ class Resource( object ):
         """
         # Dehydrate each field.
         for field_name, fld in self.fields.items():
-            bundle.data[field_name] = fld.dehydrate( bundle )
+            bundle.data[field_name] = fld.create_data( bundle )
 
             # Check for an optional method to do further dehydration.
             method = getattr( self, "dehydrate_{0}".format(field_name), None )
@@ -631,7 +631,7 @@ class Resource( object ):
 
         # First create any new resources in the bundle. 
         # This is done to ensure that all related resources exist.
-        # Then validate the resource tree, and save updated documents again.
+        # Then validate the resource tree, and save updated documents.
         bundle = self.save_new( bundle )
         bundle = self.validate( bundle )
         bundle = self.update( bundle )
@@ -1282,9 +1282,10 @@ class DocumentResource( Resource ):
            which you can use to create your own rollback scenario.
         '''
 
-        # Update the object in the bundle.
-        bundle.obj.save( request=bundle.request, cascade=False )
-        print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
+        # Update the object in the bundle (if it hasn't been just created)
+        if not bundle.obj in bundle.created:
+            bundle.obj.save( request=bundle.request, cascade=False )
+            print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
 
         if recurse:
             for field_name, fld in self.fields.items():
