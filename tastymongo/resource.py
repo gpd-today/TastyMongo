@@ -426,7 +426,7 @@ class Resource( object ):
                 data = method( bundle )
             else:
                 # Hydrate the data for the field. Recurses for related resources.
-                data = fld.hydrate( bundle )
+                data = fld.get_data( bundle )
 
             # Replace the data for the field with its hydrated version.
             bundle.data[ field_name ] = data

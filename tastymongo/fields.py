@@ -60,7 +60,6 @@ class ApiField( object ):
         self._default = default
         self.required = required
         self.readonly = readonly
-        self.value = None
         self.unique = unique
 
         if help_text:
@@ -97,7 +96,7 @@ class ApiField( object ):
         """
         return value
 
-    def hydrate( self, bundle ):
+    def get_data( self, bundle ):
         """
         Returns any data for the field that is present in the bundle.
 
@@ -108,7 +107,7 @@ class ApiField( object ):
             # We may not update this field, so don't return any data.
             return None
 
-        if self.field_name in bundle.data:
+        if self.field_name in bundle.data and bundle.data[ self.field_name ]:
             # The bundle has data for this field. Return it.
             return bundle.data[ self.field_name ]
 
@@ -211,6 +210,13 @@ class StringField( ApiField ):
 
         return unicode( value )
 
+    def get_data( self, bundle ):
+        data = super( StringField, self ).get_data( bundle )
+        if data is None:
+            return None
+        
+        return unicode( data )
+        
 
 class IntegerField( ApiField ):
     """
@@ -318,20 +324,20 @@ class DateField( ApiField ):
 
         return value
 
-    def hydrate( self, bundle ):
-        value = super( DateField, self ).hydrate( bundle )
+    def get_data( self, bundle ):
+        data = super( DateField, self ).get_data( bundle )
 
-        if value and not hasattr( value, 'year' ):
+        if data and not hasattr( data, 'year' ):
             try:
                 # Try to rip a date/datetime out of it.
-                value = make_aware( parse( value ))
+                data = make_aware( parse( data ))
 
-                if hasattr( value, 'hour' ):
-                    value = value.date()
+                if hasattr( data, 'hour' ):
+                    data = data.date()
             except ValueError:
                 pass
 
-        return value
+        return data
 
 
 class DateTimeField( ApiField ):
@@ -356,17 +362,17 @@ class DateTimeField( ApiField ):
 
         return value
 
-    def hydrate( self, bundle ):
-        value = super( DateTimeField, self ).hydrate( bundle )
+    def get_data( self, bundle ):
+        data = super( DateTimeField, self ).get_data( bundle )
 
-        if value and not hasattr( value, 'year' ):
+        if data and not hasattr( data, 'year' ):
             try:
                 # Try to rip a date/datetime out of it.
-                value = make_aware( parse( value ))
+                data = make_aware( parse( data ))
             except ValueError:
                 pass
 
-        return value
+        return data
 
 
 class TimeField( ApiField ):
@@ -374,8 +380,12 @@ class TimeField( ApiField ):
     help_text = 'A time as string. Ex: "20:05:23"'
 
     def to_data( self, value ):
+        if value is None:
+            return None
+
         if isinstance( value, basestring ):
             return self.to_time( value )
+
         return value
 
     def to_time( self, s ):
@@ -386,13 +396,13 @@ class TimeField( ApiField ):
         else:
             return datetime.time( dt.hour, dt.minute, dt.second )
 
-    def hydrate( self, bundle ):
-        value = super( TimeField, self ).hydrate( bundle )
+    def get_data( self, bundle ):
+        data = super( TimeField, self ).get_data( bundle )
 
-        if value and not isinstance( value, datetime.time ):
-            value = self.to_time( value )
+        if data and not isinstance( data, datetime.time ):
+            data = self.to_time( data )
 
-        return value
+        return data
 
 
 class RelatedField( ApiField ):
@@ -516,11 +526,11 @@ class RelatedField( ApiField ):
         elif hasattr( data, 'items' ):
             # We've got a data dictionary. Create a fresh bundle for it.
             related_bundle = related_resource.bundle_from_data( data, request=request ) 
-            return related_resource.hydrate( related_bundle )
+            return related_resource.get_data( related_bundle )
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
 
-    def hydrate( self, bundle ):
+    def get_data( self, bundle ):
         """
         When there's data for the field, create a related bundle with the data 
         and a new or existing related object in it. 
@@ -528,7 +538,7 @@ class RelatedField( ApiField ):
         It calls upon the related resource's hydrate method to instantiate the 
         object. The related resource may in turn recurse for nested data.
         """
-        data = super( RelatedField, self ).hydrate( bundle )
+        data = super( RelatedField, self ).get_data( bundle )
 
         if data is None:
             return None
@@ -573,7 +583,7 @@ class ToManyField( RelatedField ):
     help_text = 'Many related resources. Can be either a list of URIs or a list of individually nested resource data.'
     is_tomany = True
 
-    def hydrate( self, bundle ):
+    def get_data( self, bundle ):
         '''
         Returns the data from the Resource in a form ready to be set on documents. 
 
@@ -585,14 +595,12 @@ class ToManyField( RelatedField ):
         
         Returns a list of bundles or an empty list.
         '''
-        data = super( RelatedField, self ).hydrate( bundle )
+        related_data = super( RelatedField, self ).get_data( bundle )
 
-        if data is None:
+        if related_data is None:
             return []
 
-        #assert isinstance( data, list )
-
-        return [self.hydrate_related( value, request=bundle.request ) for value in data if value]
+        return [self.hydrate_related( data, request=bundle.request ) for data in related_data if data]
 
     def dehydrate( self, bundle ):
         """
