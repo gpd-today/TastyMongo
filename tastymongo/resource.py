@@ -1146,6 +1146,24 @@ class DocumentResource( Resource ):
             raise NotImplementedError('Resource needs a `queryset` to return objects')
 
 
+    def track_changes( self, bundle ):
+        # Find out if our no-longer-related documents still validate...
+        if not hasattr(bundle, 'added_relations'):
+            bundle.added_relations = set()
+            bundle.removed_relations = set()
+
+        changed_relations = bundle.obj.get_changed_relations()
+        for c in changed_relations:
+            added, removed = bundle.obj.get_changes_for_relation(c)
+            bundle.added_relations |= added
+            bundle.removed_relations |= removed
+
+        # For good measure (shouldn't happen any more) 
+        bundle.added_relations.discard(None)
+        bundle.removed_relations.discard(None)
+
+        return bundle
+
     def save_new( self, bundle ):
         '''
         Creates the object in the bundle if it doesn't have a primary key yet.
@@ -1156,6 +1174,7 @@ class DocumentResource( Resource ):
         # STEP 1: If we're brand spankin' new try to get us an id.
         if not bundle.obj.pk:
             try:
+                bundle = self.track_changes( bundle )
                 bundle.obj.save( request=bundle.request, cascade=False ) 
                 print('    ~~~~~ CREATED {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
@@ -1190,6 +1209,7 @@ class DocumentResource( Resource ):
         # able to save ourself unless something really unexpected happened.
         if not bundle.obj.pk:
             try:
+                bundle = self.track_changes( bundle )
                 bundle.obj.save( request=bundle.request, cascade=False ) 
                 print('    ~~~~~ CREATED {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
@@ -1280,10 +1300,9 @@ class DocumentResource( Resource ):
         '''
 
         # Save the object in the bundle. 
+        bundle = self.track_changes( bundle )
         bundle.obj.save( request=bundle.request, cascade=False )
         print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
-
-        changed_relations = bundle.obj.get_changed_relations()
 
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
@@ -1293,14 +1312,6 @@ class DocumentResource( Resource ):
                     # was given, so bundle.data[ field_name ] can be None or []
                     continue
 
-                if fld.attribute in changed_relations:
-                    # Leverage RelationalMixin to minimize the number of saves and
-                    # to save formerly related documents that have been removed.
-                    added, removed = bundle.obj.get_changes_for_relation( fld.attribute )
-                else:
-                    added = []
-                    removed = []
-
                 # The field has data in the form of one or a list of Bundles.
                 # Delegate updating new and former relations to the related resource.
                 related_resource = fld.get_related_resource()
@@ -1309,20 +1320,20 @@ class DocumentResource( Resource ):
                     updated_data = []
                     for related_bundle in related_data:
                         # Only update when the relation has actually changed.
-                        if related_bundle.from_data and related_bundle.obj in added:
+                        if related_bundle.from_data or (related_bundle.from_uri and related_bundle.obj in bundle.added_relations):
                             related_bundle = related_resource.update( related_bundle )
                         updated_data.append(related_bundle)
 
                     bundle.data[ field_name ] = updated_data
 
-                elif related_data.from_data and related_data.obj in added:
+                elif related_data.from_data or (related_data.from_uri and related_data.obj in bundle.added_relations):
                     # Related data contains a bundle for a single related resource
                     bundle.data[ field_name ] = related_resource.update( related_data )
 
                 # When objects are removed, at least their reverse relational 
                 # data and likely their privileges have changed. Since they're 
                 # not present in the bundle tree, we need to save them here.
-                for obj in removed:
+                for obj in bundle.removed_relations:
                     obj.save( request=bundle.request )
 
         return bundle

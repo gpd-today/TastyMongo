@@ -17,3 +17,4 @@ class Bundle( object ):
 
     def __repr__( self ):
         return "<Bundle for obj='%s' with data='%s'>" % ( self.obj, self.data )
+
