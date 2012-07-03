@@ -1395,7 +1395,7 @@ class DocumentResource( Resource ):
 
         # All clear. 
         for doc in changed_documents:
-            changed_relation.save( request=request )
+            doc.save( request=request )
 
         # We should no longer have dangling relations: remove ourself.
         obj.delete( request=request )
