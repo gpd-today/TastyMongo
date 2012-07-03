@@ -1311,7 +1311,7 @@ class DocumentResource( Resource ):
                         # Only update when the relation has actually changed.
                         if related_bundle.from_data and related_bundle.obj in added:
                             related_bundle = related_resource.update( related_bundle )
-                        updated_data[ field_name ].append(related_bundle)
+                        updated_data.append(related_bundle)
 
                     bundle.data[ field_name ] = updated_data
 
