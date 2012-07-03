@@ -526,7 +526,7 @@ class RelatedField( ApiField ):
         elif hasattr( data, 'items' ):
             # We've got a data dictionary. Create a fresh bundle for it.
             related_bundle = related_resource.bundle_from_data( data, request=request ) 
-            return related_resource.get_data( related_bundle )
+            return related_resource.hydrate( related_bundle )
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
 

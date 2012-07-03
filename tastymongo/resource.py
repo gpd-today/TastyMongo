@@ -1282,10 +1282,9 @@ class DocumentResource( Resource ):
            which you can use to create your own rollback scenario.
         '''
 
-        # Update the object in the bundle (if it hasn't been just created)
-        if not bundle.obj in bundle.created:
-            bundle.obj.save( request=bundle.request, cascade=False )
-            print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
+        # Update the object in the bundle
+        bundle.obj.save( request=bundle.request, cascade=False )
+        print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
 
         if recurse:
             for field_name, fld in self.fields.items():
