@@ -10,9 +10,10 @@ class Bundle( object ):
     def __init__( self, obj=None, data=None, request=None ):
         self.obj = obj
         self.data = data or {}
+        self.from_data = False
+        self.from_uri = False
         self.request = request
         self.errors = {}
-        self.warnings = {}
 
     def __repr__( self ):
         return "<Bundle for obj='%s' with data='%s'>" % ( self.obj, self.data )
