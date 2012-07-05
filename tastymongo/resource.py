@@ -1323,6 +1323,13 @@ class DocumentResource( Resource ):
         bundle.obj.save( request=bundle.request, cascade=False )
         print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
 
+        # When objects are removed, at least their reverse relational 
+        # data and likely their privileges have changed. Since they're 
+        # not present in the bundle tree, we need to save them here.
+        for obj in bundle.removed_relations:
+            obj.save( request=bundle.request )
+            print('    ~~~~~ SAVED `{0}` for removed relations'.format( obj ) )
+
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
                 related_data = bundle.data[ field_name ]
@@ -1348,12 +1355,6 @@ class DocumentResource( Resource ):
                 elif related_data.from_data or (related_data.from_uri and related_data.obj in bundle.added_relations):
                     # Related data contains a bundle for a single related resource
                     bundle.data[ field_name ] = related_resource.update( related_data )
-
-                # When objects are removed, at least their reverse relational 
-                # data and likely their privileges have changed. Since they're 
-                # not present in the bundle tree, we need to save them here.
-                for obj in bundle.removed_relations:
-                    obj.save( request=bundle.request )
 
         return bundle
 
