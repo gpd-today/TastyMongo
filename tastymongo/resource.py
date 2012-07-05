@@ -35,7 +35,6 @@ class ResourceOptions( object ):
     single_allowed_methods = None
     limit = 20
     max_limit = 1000
-    collection_name = 'objects'
     api = None
     resource_name = None
     default_format = 'application/json'
