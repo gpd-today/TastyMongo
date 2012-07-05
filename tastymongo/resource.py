@@ -328,7 +328,16 @@ class Resource( object ):
         format = format or request.content_type or self._meta.default_format
         return self._meta.serializer.deserialize( data, format )
 
-    def post_deserialize( self, request, data ):
+    def post_deserialize_list( self, data, request ):
+        """
+        A hook to alter data just after it has been received from the user &
+        gets deserialized.
+
+        Useful for altering the user data before any hydration is applied.
+        """
+        return data
+
+    def post_deserialize_single( self, data, request ):
         """
         A hook to alter data just after it has been received from the user &
         gets deserialized.
@@ -380,7 +389,7 @@ class Resource( object ):
         if 'resource_uri' in data:
             # We seem to be wanting to modify an existing resource. 
             # Try to retrieve the object and put it in fresh bundle.
-            bundle = self.bundle_from_uri( data['resource_uri'], request=request )
+            bundle = self.bundle_from_uri( uri=data['resource_uri'], request=request )
             bundle.data = data
         else:
             # No resource_uri in data. Create a fresh bundle for it.
@@ -467,8 +476,6 @@ class Resource( object ):
     def update( self, bundle ):
         raise NotImplementedError()
 
-
-
     def dehydrate( self, bundle ):
         """
         Given a bundle with an object instance, extract the information from 
@@ -492,14 +499,23 @@ class Resource( object ):
         '''
         return bundle
 
-    def pre_serialize( self, bundle_or_data, request ):
+    def pre_serialize_list( self, bundles_list, request ):
         """
         A hook to alter data just before it gets serialized & sent to the user.
 
         Useful for restructuring/renaming aspects of the what's going to be
         sent.
         """
-        return bundle_or_data
+        return bundles_list
+
+    def pre_serialize_single( self, bundle, request ):
+        """
+        A hook to alter data just before it gets serialized & sent to the user.
+
+        Useful for restructuring/renaming aspects of the what's going to be
+        sent.
+        """
+        return bundle
 
     def serialize( self, request, data, format, options=None ):
         """
@@ -589,13 +605,13 @@ class Resource( object ):
                 resource_uri=self.get_resource_uri( request ), 
                 limit=self._meta.limit, 
                 max_limit=self._meta.max_limit, 
-                collection_name=self._meta.collection_name
                 )
         data = paginator.page()
 
-        bundles = [self.build_bundle( obj=object, request=request ) for object in data[self._meta.collection_name]]
-        data[self._meta.collection_name] = [self.dehydrate( bundle ) for bundle in bundles]
-        data = self.pre_serialize( data, request )
+        # Create a bundle for every object and dehydrate those bundles individually
+        bundles = [self.build_bundle( obj=object, request=request ) for object in data['objects']]
+        bundles = [self.dehydrate( bundle ) for bundle in bundles]
+        data['objects'] = self.pre_serialize_list( bundles, request )
         return self.create_response( data, request )
 
     def get_single( self, request ):
@@ -616,8 +632,8 @@ class Resource( object ):
 
         bundle = self.build_bundle( obj=object, request=request )
         bundle = self.dehydrate( bundle )
-        bundle = self.pre_serialize( bundle, request )
-        return self.create_response( bundle, request )
+        data = self.pre_serialize_single( bundle, request )
+        return self.create_response( data, request )
 
     def save( self, bundle ):
         """
@@ -648,7 +664,7 @@ class Resource( object ):
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
         data = self.deserialize( request, request.body, format=request.content_type )
-        data = self.post_deserialize( request, data )
+        data = self.post_deserialize_single( data, request )
 
         bundle = self.bundle_from_data( data=data, request=request )
         bundle = self.save( bundle )
@@ -657,8 +673,8 @@ class Resource( object ):
         if self._meta.return_data_on_post:
             # Re-populate the data from the objects.
             bundle = self.dehydrate(bundle)
-            bundle = self.pre_serialize( bundle, request )
-            return self.create_response( bundle, request, response_class=http.HTTPCreated, location=location )
+            data = self.pre_serialize_single( bundle, request )
+            return self.create_response( data, request, response_class=http.HTTPCreated, location=location )
         else:
             return http.HTTPCreated( location=location )
         
@@ -679,9 +695,7 @@ class Resource( object ):
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
         data = self.deserialize( request, request.body, format=request.content_type )
-        data = self.post_deserialize( request, data )
-
-        #assert isinstance( data, list )
+        data = self.post_deserialize_list( data, request )
 
         bundles = []
         for item in data:
@@ -691,8 +705,8 @@ class Resource( object ):
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
             bundles = [self.dehydrate( bundle ) for bundle in bundles]
-            bundles = [self.pre_serialize( bundle, request ) for bundle in bundles]
-            return self.create_response( bundles, request, response_class=http.HTTPAccepted )
+            data = {'objects': self.pre_serialize_list( bundles, request )}
+            return self.create_response( data, request, response_class=http.HTTPAccepted )
         else:
             return http.HTTPNoContent()
 
@@ -705,7 +719,7 @@ class Resource( object ):
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
         data = self.deserialize( request, request.body, format=request.content_type )
-        data = self.post_deserialize( request, data )
+        data = self.post_deserialize_single( data, request )
 
         bundle = self.bundle_from_data( data=data, request=request )
         bundle = self.save( bundle )
@@ -713,9 +727,9 @@ class Resource( object ):
         location = self.get_resource_uri( request, bundle )
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
-            bundle = self.dehydrate(bundle)
-            bundle = self.pre_serialize( bundle, request )
-            return self.create_response( bundle, request, response_class=http.HTTPAccepted, location=location )
+            bundle = self.dehydrate( bundle )
+            data = self.pre_serialize_single( bundle, request )
+            return self.create_response( data, request, response_class=http.HTTPAccepted, location=location )
         else:
             return http.HTTPNoContent( location=location )
         
