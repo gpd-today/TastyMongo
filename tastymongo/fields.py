@@ -513,7 +513,7 @@ class RelatedField( ApiField ):
 
         return related_resource
 
-    def hydrate_related( self, data, request=None ):
+    def get_related_data( self, data, request=None ):
         """
         Returns a bundle built and hydrated by the related resource. 
         Accepts either a URI or a dictionary-like structure.
@@ -543,7 +543,7 @@ class RelatedField( ApiField ):
         if data is None:
             return None
 
-        return self.hydrate_related( data, request=bundle.request )
+        return self.get_related_data( data, request=bundle.request )
 
     def create_data( self, bundle ):
         """
@@ -595,12 +595,12 @@ class ToManyField( RelatedField ):
         
         Returns a list of bundles or an empty list.
         '''
-        related_data = super( RelatedField, self ).get_data( bundle )
+        related_data = super( ToManyField, self ).get_data( bundle )
 
         if related_data is None:
             return []
 
-        return [self.hydrate_related( data, request=bundle.request ) for data in related_data if data]
+        return [self.get_related_data( data, request=bundle.request ) for data in related_data if data]
 
     def create_data( self, bundle ):
         """
