@@ -104,7 +104,7 @@ class ApiField( object ):
         None if the field is not required, or raise ApiFieldError.
         """
 
-        if self.field_name in bundle.data and bundle.data[ self.field_name ]:
+        if self.field_name in bundle.data: 
             # The bundle has data for this field. Return it.
             return bundle.data[ self.field_name ]
 
