@@ -885,14 +885,15 @@ class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
         new_class = super( DocumentDeclarativeMetaclass, cls ).__new__( cls, name, bases, attrs )
         include_fields = getattr( new_class._meta, 'fields', [] )
         excludes = getattr( new_class._meta, 'excludes', [] )
-        field_names = new_class.base_fields.keys()
 
-        for field_name in field_names:
-            if field_name in ( 'resource_uri', ):
+        for field_name, fld in new_class.base_fields.items():
+            if field_name == 'resource_uri':
                 # Embedded objects don't have their own resource_uri
                 if meta and hasattr( meta, 'object_class' ) and issubclass( meta.object_class, mongoengine.EmbeddedDocument ):
                     del( new_class.base_fields[field_name] )
                 continue
+            if fld.attribute and hasattr( new_class._meta, 'object_class') and not hasattr( new_class._meta.object_class, fld.attribute):
+                raise ConfigurationError( "Field `{0}` on `{1}` has an attribute `{2}` that doesn't exist on object class `{3}`".format( field_name, new_class, fld.attribute, new_class._meta.object_class ) )
             if field_name in new_class.declared_fields:
                 continue
             if len( include_fields ) and not field_name in include_fields:
@@ -1045,7 +1046,12 @@ class DocumentResource( Resource ):
                 try:
                     kwargs['id'] = bundle_or_object.obj.pk
                 except AttributeError:
-                    raise NotImplementedError()
+                    # We may have received a DBRef, that doesn't have 'pk' but does have 'id'
+                    try:
+                        kwargs['id'] = bundle_or_object.obj.id
+                    except AttributeError:
+                        # No way to make up a uri.
+                        raise NotImplementedError(' Could not find a pk or id for {0}'.format(bundle_or_object))
             else:
                 kwargs['id'] = bundle_or_object.pk
         else:
