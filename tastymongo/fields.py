@@ -103,9 +103,6 @@ class ApiField( object ):
         If there's no data for this field, return a default value if given,
         None if the field is not required, or raise ApiFieldError.
         """
-        if self.readonly:
-            # We may not update this field, so don't return any data.
-            return None
 
         if self.field_name in bundle.data and bundle.data[ self.field_name ]:
             # The bundle has data for this field. Return it.
@@ -524,26 +521,18 @@ class RelatedField( ApiField ):
             # We got a resource URI. Try to create a bundle with the resource.
             return related_resource.bundle_from_uri( data, request=request )
         elif hasattr( data, 'items' ):
-            # We've got a data dictionary. Create a fresh bundle for it.
-            related_bundle = related_resource.bundle_from_data( data, request=request ) 
-            return related_resource.hydrate( related_bundle )
+            # We've got a data dictionary. 
+            if self.readonly:
+                # Ignore any posted data and just return a bundle with the uri.
+                if 'resource_uri' in data and len(data.keys()) == 1:
+                    return related_resource.bundle_from_uri( data['resource_uri'], request=request )
+                else:
+                    raise ApiFieldError("The `{0}` field was given data but is readonly: `{1}`.".format( self.field_name, data ) )
+            else:
+                related_bundle = related_resource.bundle_from_data( data, request=request ) 
+                return related_resource.hydrate( related_bundle )
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
-
-    def get_data( self, bundle ):
-        """
-        When there's data for the field, create a related bundle with the data 
-        and a new or existing related object in it. 
-       
-        It calls upon the related resource's hydrate method to instantiate the 
-        object. The related resource may in turn recurse for nested data.
-        """
-        data = super( RelatedField, self ).get_data( bundle )
-
-        if data is None:
-            return None
-
-        return self.get_related_data( data, request=bundle.request )
 
     def create_data( self, bundle ):
         """
@@ -575,6 +564,21 @@ class ToOneField( RelatedField ):
     """
     help_text = 'A single related resource. Can be either a URI or nested resource data.'
 
+    def get_data( self, bundle ):
+        """
+        When there's data for the field, create a related bundle with the data 
+        and a new or existing related object in it. 
+       
+        It calls upon the related resource's hydrate method to instantiate the 
+        object. The related resource may in turn recurse for nested data.
+        """
+        data = super( RelatedField, self ).get_data( bundle )
+
+        if data is None:
+            return None
+
+        return self.get_related_data( data, request=bundle.request )
+
 
 class ToManyField( RelatedField ):
     """
@@ -596,7 +600,6 @@ class ToManyField( RelatedField ):
         Returns a list of bundles or an empty list.
         '''
         related_data = super( ToManyField, self ).get_data( bundle )
-
         if related_data is None:
             return []
 
