@@ -87,7 +87,7 @@ class ApiField( object ):
 
         return self._default
 
-    def to_data( self, value ):
+    def convert( self, value ):
         """
         Handles conversion from the object data to the type of the field.
 
@@ -106,19 +106,21 @@ class ApiField( object ):
 
         if self.field_name in bundle.data: 
             # The bundle has data for this field. Return it.
-            return bundle.data[ self.field_name ]
+            data = self.convert(bundle.data[ self.field_name ])
 
         elif self.has_default:
-            # The bundle has no data but there's a default value for the field.
-            return self.default
+            # The bundle has no data, but there's a default value for the field.
+            data = self.default
 
         elif not self.required:
             # There's no default but the field is not required. 
-            return None
+            data = None
 
         else:
             # We're seriously out of options here.
             raise ApiFieldError( 'field `{0}` has no data in bundle `{1}` and no default.'.format( self.field_name, bundle ))
+
+        return data
 
     def create_data( self, bundle ):
         '''
@@ -169,14 +171,14 @@ class ApiField( object ):
             if callable( current_object ):
                 current_object = current_object()
 
-            return self.to_data( current_object )
+            return self.convert( current_object )
 
         elif callable( self.attribute ):
             # `attribute` is a method on the Resource that provides data.
             return self.attribute()
 
         elif self.has_default:
-            return self.to_data(self.default)
+            return self.convert( self.default )
 
         else:
             return None
@@ -201,19 +203,12 @@ class StringField( ApiField ):
     dehydrated_type = 'string'
     help_text = 'Unicode string data. Ex: "Hello World"'
 
-    def to_data( self, value ):
+    def convert( self, value ):
         if value is None:
             return None
 
         return unicode( value )
 
-    def get_data( self, bundle ):
-        data = super( StringField, self ).get_data( bundle )
-        if data is None:
-            return None
-        
-        return unicode( data )
-        
 
 class IntegerField( ApiField ):
     """
@@ -222,7 +217,7 @@ class IntegerField( ApiField ):
     dehydrated_type = 'integer'
     help_text = 'Integer data. Ex: 2673'
 
-    def to_data( self, value ):
+    def convert( self, value ):
         if value is None:
             return None
 
@@ -236,7 +231,7 @@ class FloatField( ApiField ):
     dehydrated_type = 'float'
     help_text = 'Floating point numeric data. Ex: 26.73'
 
-    def to_data( self, value ):
+    def convert( self, value ):
         if value is None:
             return None
 
@@ -250,7 +245,7 @@ class DecimalField( ApiField ):
     dehydrated_type = 'decimal'
     help_text = 'Fixed precision numeric data. Ex: 26.73'
 
-    def to_data( self, value ):
+    def convert( self, value ):
         if value is None:
             return None
 
@@ -264,7 +259,7 @@ class BooleanField( ApiField ):
     dehydrated_type = 'boolean'
     help_text = 'Boolean data. Ex: True'
 
-    def to_data( self, value ):
+    def convert( self, value ):
         if value is None:
             return None
 
@@ -278,7 +273,7 @@ class ListField( ApiField ):
     dehydrated_type = 'list'
     help_text = "A list of data. Ex: ['abc', 26.73, 8]"
 
-    def to_data( self, value ):
+    def convert( self, value ):
         if value is None:
             return None
 
@@ -292,7 +287,7 @@ class DictField( ApiField ):
     dehydrated_type = 'dict'
     help_text = "A dictionary of data. Ex: {'price': 26.73, 'name': 'Daniel'}"
 
-    def to_data( self, value ):
+    def convert( self, value ):
         if value is None:
             return None
 
@@ -306,8 +301,8 @@ class DateField( ApiField ):
     dehydrated_type = 'date'
     help_text = 'A date as a string. Ex: "2010-11-10"'
 
-    def to_data( self, value ):
-        if value is None:
+    def convert( self, value ):
+        if not value:
             return None
 
         if isinstance( value, basestring ):
@@ -344,18 +339,26 @@ class DateTimeField( ApiField ):
     dehydrated_type = 'datetime'
     help_text = 'A date & time as a string. Ex: "2010-11-10T03:07:43"'
 
-    def to_data( self, value ):
-        if value is None:
+    def convert( self, value ):
+        if not value:
             return None
 
         if isinstance( value, basestring ):
             match = DATETIME_REGEX.search( value )
-
+            
             if match:
                 data = match.groupdict()
                 return make_aware( datetime.datetime( int( data['year'] ), int( data['month'] ), int( data['day'] ), int( data['hour'] ), int( data['minute'] ), int( data['second'] )) )
+
+            # MongoDB doesn't have separate `dates`, only `datetimes`, so if
+            # `value` is a date string without datetime, pad it with 0 time.
+            match = DATE_REGEX.search( value )
+            if match: 
+                data = match.groupdict()
+                return make_aware( datetime.datetime( int( data['year'] ), int( data['month'] ), int( data['day'] ), 0, 0, 0 ))
+
             else:
-                raise ApiFieldError( "Datetime `{0}` provided to `{0}` field doesn't appear to be a valid datetime string.".format( value, self.field_name ))
+                raise ApiFieldError( "Datetime `{0}` provided to `{1}` field doesn't appear to be a valid datetime string.".format( value, self.field_name ))
 
         return value
 
@@ -376,8 +379,8 @@ class TimeField( ApiField ):
     dehydrated_type = 'time'
     help_text = 'A time as string. Ex: "20:05:23"'
 
-    def to_data( self, value ):
-        if value is None:
+    def convert( self, value ):
+        if not value:
             return None
 
         if isinstance( value, basestring ):
