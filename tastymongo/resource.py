@@ -435,33 +435,43 @@ class Resource( object ):
                 # A custom `hydrate_foo` method may provide data for the field
                 data = method( bundle )
             else:
-                # Hydrate the data for the field. Recurses for related resources.
+                # Get data in the bundle for the related field. May recurse
+                # when there are deeper nested related resources.
                 data = fld.get_data( bundle )
 
-            # Replace the data for the field with its hydrated version.
-            bundle.data[ field_name ] = data
-
             if data is None:
+                # There either was no data for the field or the field decided
+                # it shouldn't have any data. Remove any data from the bundle.
+                if field_name in data:
+                    del data['field_name']
+
                 continue
 
-            if getattr(fld, 'is_related', False): 
-                if getattr(fld, 'is_tomany', False):
-                    #assert isinstance( data, list )
-                    # Save our current relations before setting new ones.
+            # We have data for the field.
+            bundle.data[ field_name ] = data
 
-                    # Now set the new ones.
-                    setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
+            if getattr(fld, 'is_related', False): 
+
+                if getattr(fld, 'is_tomany', False):
+                    # ToManyFields return a list of bundles.
                     related_errors = [b.errors for b in data if b.errors]
                     if related_errors:
                         bundle.errors[ field_name ] = related_errors
+
+                    if not fld.readonly:
+                        setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
+
                 else:
-                    #assert isinstance( data, Bundle )
-                    setattr( bundle.obj, fld.attribute, data.obj )
+                    # ToOneFields return a single bundle.
                     if data.errors:
                         bundle.errors[ field_name ] = data.errors 
 
+                    if not fld.readonly:
+                        setattr( bundle.obj, fld.attribute, data.obj )
+
             else:
-                if fld.attribute:
+                # An ordinary field.
+                if fld.attribute and not fld.readonly:
                     setattr( bundle.obj, fld.attribute, data )
 
         return bundle

@@ -510,7 +510,7 @@ class RelatedField( ApiField ):
 
         return related_resource
 
-    def get_related_data( self, data, request=None ):
+    def get_related_bundle( self, data, request=None ):
         """
         Returns a bundle built and hydrated by the related resource. 
         Accepts either a URI or a dictionary-like structure.
@@ -523,10 +523,11 @@ class RelatedField( ApiField ):
         elif hasattr( data, 'items' ):
             # We've got a data dictionary. 
             if self.readonly:
-                # Ignore any posted data and just return a bundle with the uri.
                 if 'resource_uri' in data and len(data.keys()) == 1:
+                    # Ignore any other posted data and just return a URI.
                     return related_resource.bundle_from_uri( data['resource_uri'], request=request )
                 else:
+                    # Or should we just return None?
                     raise ApiFieldError("The `{0}` field was given data but is readonly: `{1}`.".format( self.field_name, data ) )
             else:
                 related_bundle = related_resource.bundle_from_data( data, request=request ) 
@@ -572,12 +573,11 @@ class ToOneField( RelatedField ):
         It calls upon the related resource's hydrate method to instantiate the 
         object. The related resource may in turn recurse for nested data.
         """
-        data = super( RelatedField, self ).get_data( bundle )
-
-        if data is None:
+        related_data = super( ToOneField, self ).get_data( bundle )
+        if related_data is None:
             return None
 
-        return self.get_related_data( data, request=bundle.request )
+        return self.get_related_bundle( related_data, request=bundle.request )
 
 
 class ToManyField( RelatedField ):
@@ -603,7 +603,7 @@ class ToManyField( RelatedField ):
         if related_data is None:
             return []
 
-        return [self.get_related_data( data, request=bundle.request ) for data in related_data if data]
+        return [self.get_related_bundle( related_item, request=bundle.request ) for related_item in related_data if related_item]
 
     def create_data( self, bundle ):
         """
