@@ -519,19 +519,18 @@ class RelatedField( ApiField ):
 
         if isinstance( data, basestring ):
             # We got a resource URI. Try to create a bundle with the resource.
-            return related_resource.build_bundle( data=data, request=request )
+            return related_resource.bundle_from_uri( data, request=request )
         elif hasattr( data, 'items' ):
             # We've got a data dictionary. 
             if self.readonly:
                 if 'resource_uri' in data and len(data.keys()) == 1:
-                    # Ignore any other posted data and create a bundle from uri.
-                    return related_resource.build_bundle( data=data['resource_uri'], request=request )
+                    # Ignore any other posted data and just return a URI.
+                    return related_resource.bundle_from_uri( data['resource_uri'], request=request )
                 else:
                     # Or should we just return None?
                     raise ApiFieldError("The `{0}` field was given data but is readonly: `{1}`.".format( self.field_name, data ) )
             else:
-                # The related resource may be updated, create a bundle from the posted data
-                related_bundle = related_resource.build_bundle( data=data, request=request ) 
+                related_bundle = related_resource.bundle_from_data( data, request=request ) 
                 return related_resource.hydrate( related_bundle )
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
