@@ -442,8 +442,8 @@ class Resource( object ):
             if data is None:
                 # There either was no data for the field or the field decided
                 # it shouldn't have any data. Remove any data from the bundle.
-                if field_name in data:
-                    del data['field_name']
+                if field_name in bundle.data:
+                    del bundle.data[ field_name ]
 
                 continue
 
