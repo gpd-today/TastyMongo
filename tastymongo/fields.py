@@ -526,7 +526,7 @@ class RelatedField( ApiField ):
         elif hasattr( data, 'items' ):
             # We've got a data dictionary. 
             if self.readonly:
-                if 'resource_uri' in data and len(data.keys()) == 1:
+                if 'resource_uri' in data:
                     # Ignore any other posted data and just return a URI.
                     return related_resource.build_bundle( data=data['resource_uri'], request=request )
                 else:
