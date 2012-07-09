@@ -383,18 +383,20 @@ class Resource( object ):
         Errors are added to the bundle if a new resource may not be created or 
         if an existing resource is not found or may not be updated.
         """
-        #assert isinstance( data, dict )
 
         if 'resource_uri' in data:
             # We seem to be wanting to modify an existing resource. 
             # Try to retrieve the object and put it in fresh bundle.
             bundle = self.bundle_from_uri( uri=data['resource_uri'], request=request )
             bundle.data = data
+            if len(data) > 1:
+                # There's more than just the resource_uri in data.
+                bundle.from_uri = False
         else:
             # No resource_uri in data. Create a fresh bundle for it.
             bundle = self.build_bundle( data=data, request=request )
+            bundle.from_uri = False
 
-        bundle.from_data = True
         return bundle
 
     def pre_hydrate( self, bundle ):
@@ -1361,13 +1363,13 @@ class DocumentResource( Resource ):
                     updated_data = []
                     for related_bundle in related_data:
                         # Only update when the relation has actually changed.
-                        if related_bundle.from_data or (related_bundle.from_uri and related_bundle.obj in bundle.added_relations):
+                        if not related_bundle.from_uri or (related_bundle.obj in bundle.added_relations):
                             related_bundle = related_resource.update( related_bundle )
                         updated_data.append(related_bundle)
 
                     bundle.data[ field_name ] = updated_data
 
-                elif related_data.from_data or (related_data.from_uri and related_data.obj in bundle.added_relations):
+                elif not related_data.from_uri or (related_data.obj in bundle.added_relations):
                     # Related data contains a bundle for a single related resource
                     bundle.data[ field_name ] = related_resource.update( related_data )
 

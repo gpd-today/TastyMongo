@@ -530,9 +530,9 @@ class RelatedField( ApiField ):
                     # Ignore any other posted data and just return a URI.
                     return related_resource.bundle_from_uri( data['resource_uri'], request=request )
                 else:
-                    # Or should we just return None?
                     raise ApiFieldError("The `{0}` field was given data but is readonly: `{1}`.".format( self.field_name, data ) )
             else:
+                # We may update the related resource.
                 related_bundle = related_resource.bundle_from_data( data, request=request ) 
                 return related_resource.hydrate( related_bundle )
         else:

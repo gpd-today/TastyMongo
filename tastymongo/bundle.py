@@ -10,7 +10,6 @@ class Bundle( object ):
     def __init__( self, obj=None, data=None, request=None ):
         self.obj = obj
         self.data = data or {}
-        self.from_data = False
         self.from_uri = False
         self.request = request
         self.errors = {}
