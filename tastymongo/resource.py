@@ -350,52 +350,33 @@ class Resource( object ):
         Given either an object, a data dictionary or both, builds a `Bundle`
         for use throughout the `dehydrate/hydrate` cycle.
 
-        If no object is provided, an empty object from
-        `Resource._meta.object_class` is created so that attempts to access
-        `bundle.obj` do not fail (i.e. during validation/hydration)
-        """
-        if obj is None:
-            obj = self._meta.object_class()
-
-        bundle = Bundle( obj=obj, data=data, request=request )
-        return bundle
-
-    def bundle_from_uri( self, uri, request=None ):
-        """
-        Given a URI is provided, the resource is attempted to be loaded and put
-        in a fresh bundle.
-        """
-        bundle = self.build_bundle( data={'resource_uri': uri}, request=request )
-        bundle.obj = self.obj_get_single( request=request, uri=uri ).select_related(max_depth=1)
-
-        bundle.from_uri = True
-        return bundle
-
-    def bundle_from_data( self, data, request=None ):
-        """
         Given a dictionary-like structure is provided, a fresh bundle is 
         created using that data.
 
         If the data contains a resource_uri, any other keys in the data are 
         assumed to be updates to the existing object's properties.
-        If the data contains no resource_uri, a new object is instantiated.
+        If the data contains no resource_uri and no object is provided, an 
+        empty object from `Resource._meta.object_class` is created so that 
+        attempts to access `bundle.obj` do not fail 
+        (i.e. during validation/hydration)
 
         Errors are added to the bundle if a new resource may not be created or 
         if an existing resource is not found or may not be updated.
         """
+        if isinstance( data, basestring ):
+            # Assume data /is/ the uri
+            data = { 'resource_uri': data }
 
-        if 'resource_uri' in data:
-            # We seem to be wanting to modify an existing resource. 
+        if data and 'resource_uri' in data:
             # Try to retrieve the object and put it in fresh bundle.
-            bundle = self.bundle_from_uri( uri=data['resource_uri'], request=request )
-            bundle.data = data
-            if len(data) > 1:
-                # There's more than just the resource_uri in data.
-                bundle.from_uri = False
-        else:
-            # No resource_uri in data. Create a fresh bundle for it.
-            bundle = self.build_bundle( data=data, request=request )
-            bundle.from_uri = False
+            obj = self.obj_get_single( request=request, uri=data['resource_uri'] )
+        elif obj is None:
+            obj = self._meta.object_class()
+
+        assert isinstance(obj, self._meta.object_class )
+        bundle = Bundle( obj=obj, data=data, request=request )
+        if len(bundle.data) > 1:
+            bundle.uri_only = False
 
         return bundle
 
@@ -673,7 +654,7 @@ class Resource( object ):
         data = self.deserialize( request, request.body, format=request.content_type )
         data = self.post_deserialize_single( data, request )
 
-        bundle = self.bundle_from_data( data=data, request=request )
+        bundle = self.build_bundle( data=data, request=request )
         bundle = self.hydrate( bundle )
 
         bundle = self.save( bundle )
@@ -708,7 +689,7 @@ class Resource( object ):
 
         bundles = []
         for item in data:
-            bundle = self.bundle_from_data( data=item, request=request )
+            bundle = self.build_bundle( data=item, request=request )
             bundle = self.hydrate( bundle )
             bundle = self.save( bundle )
 
@@ -733,7 +714,7 @@ class Resource( object ):
         data = self.deserialize( request, request.body, format=request.content_type )
         data = self.post_deserialize_single( data, request )
 
-        bundle = self.bundle_from_data( data=data, request=request )
+        bundle = self.build_bundle( data=data, request=request )
         bundle = self.hydrate( bundle )
         bundle = self.save( bundle )
 
@@ -1363,13 +1344,13 @@ class DocumentResource( Resource ):
                     updated_data = []
                     for related_bundle in related_data:
                         # Only update when the relation has actually changed.
-                        if not related_bundle.from_uri or (related_bundle.obj in bundle.added_relations):
+                        if not related_bundle.uri_only or (related_bundle.obj in bundle.added_relations):
                             related_bundle = related_resource.update( related_bundle )
                         updated_data.append(related_bundle)
 
                     bundle.data[ field_name ] = updated_data
 
-                elif not related_data.from_uri or (related_data.obj in bundle.added_relations):
+                elif not related_data.uri_only or (related_data.obj in bundle.added_relations):
                     # Related data contains a bundle for a single related resource
                     bundle.data[ field_name ] = related_resource.update( related_data )
 
