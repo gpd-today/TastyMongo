@@ -366,7 +366,7 @@ class Resource( object ):
         in a fresh bundle.
         """
         bundle = self.build_bundle( data={'resource_uri': uri}, request=request )
-        bundle.obj = self.obj_get_single( request=request, uri=uri )
+        bundle.obj = self.obj_get_single( request=request, uri=uri ).select_related(max_depth=1)
 
         bundle.from_uri = True
         return bundle
@@ -437,7 +437,7 @@ class Resource( object ):
             else:
                 # Get data in the bundle for the related field. May recurse
                 # when there are deeper nested related resources.
-                data = fld.get_data( bundle )
+                data = fld.hydrate( bundle )
 
             if data is None:
                 # There either was no data for the field or the field decided
@@ -492,7 +492,7 @@ class Resource( object ):
         """
         # Dehydrate each field.
         for field_name, fld in self.fields.items():
-            bundle.data[field_name] = fld.create_data( bundle )
+            bundle.data[field_name] = fld.dehydrate( bundle )
 
             # Check for an optional method to do further dehydration.
             method = getattr( self, "dehydrate_{0}".format(field_name), None )
@@ -650,15 +650,11 @@ class Resource( object ):
 
         Returns a bundle with the new or updated objects, their data ready to 
         be deserialized and any errors that occured along the way.
-        """
-        # Hydrate parses the data recursively, looking up or instantiating
-        # nested objects along the way and replacing related resources data
-        # with related bundles.
-        bundle = self.hydrate( bundle )
 
-        # First create any new resources in the bundle. 
-        # This is done to ensure that all related resources exist.
-        # Then validate the resource tree, and save updated documents.
+        First create any new resources in the bundle. This is done to ensure 
+        that all related resources exist. Then validate the resource tree, 
+        and finally save all updated documents.
+        """
         bundle = self.save_new( bundle )
         bundle = self.validate( bundle )
         bundle = self.update( bundle )
@@ -676,6 +672,8 @@ class Resource( object ):
         data = self.post_deserialize_single( data, request )
 
         bundle = self.bundle_from_data( data=data, request=request )
+        bundle = self.hydrate( bundle )
+
         bundle = self.save( bundle )
 
         location = self.get_resource_uri( request )
@@ -709,7 +707,10 @@ class Resource( object ):
         bundles = []
         for item in data:
             bundle = self.bundle_from_data( data=item, request=request )
-            bundles.append( self.save( bundle ) )
+            bundle = self.hydrate( bundle )
+            bundle = self.save( bundle )
+
+            bundles.append( bundle )
 
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
@@ -731,6 +732,7 @@ class Resource( object ):
         data = self.post_deserialize_single( data, request )
 
         bundle = self.bundle_from_data( data=data, request=request )
+        bundle = self.hydrate( bundle )
         bundle = self.save( bundle )
 
         location = self.get_resource_uri( request, bundle )
@@ -1176,6 +1178,7 @@ class DocumentResource( Resource ):
 
 
     def track_changes( self, bundle ):
+
         # Find out if our no-longer-related documents still validate...
         if not hasattr(bundle, 'added_relations'):
             bundle.added_relations = set()
@@ -1183,7 +1186,9 @@ class DocumentResource( Resource ):
 
         changed_relations = bundle.obj.get_changed_relations()
         for c in changed_relations:
+            # Now find out the changes
             added, removed = bundle.obj.get_changes_for_relation(c)
+
             bundle.added_relations |= added
             bundle.removed_relations |= removed
 
@@ -1462,34 +1467,5 @@ class DocumentResource( Resource ):
 
         # We should no longer have dangling relations: remove ourself.
         obj.delete( request=request )
-
-
-class PrivilegedDocumentResource( DocumentResource ):
-    """
-    A special DocumentResource that inserts Privileges from the Document
-    """
-    def __init__( self, api=None ):
-        from mongoengine_privileges import PrivilegeMixin
-
-        # Make sure our corresponding Document actually has privileges
-        if not issubclass( self._meta.object_class, PrivilegeMixin ):
-            raise ConfigurationError( 'Document must also inherit from PrivilegeMixin' )
-        super( PrivilegedDocumentResource, self ).__init__( api=api )
-
-    # The privileges field will be present on all our resources
-    privileges = fields.ListField(
-        default = [],
-        readonly = True
-    )
-
-    def get_queryset( self, request ):
-        return self._meta.object_class.objects( __raw__={ '$or': [
-            { 'privileges.user.$id' : request.user.pk, 'privileges.permissions': 'read' },
-            { 'privileges.user.groups': { '$in': request.user.groups }, 'privileges.permissions': 'read' }
-        ]})
-
-    def dehydrate_privileges( self, bundle ):
-        priv = bundle.obj.get_privilege( bundle.request.user )
-        return priv.permissions if priv else []
 
 

@@ -96,7 +96,7 @@ class ApiField( object ):
         """
         return value
 
-    def get_data( self, bundle ):
+    def hydrate( self, bundle ):
         """
         Returns any data for the field that is present in the bundle.
 
@@ -122,7 +122,7 @@ class ApiField( object ):
 
         return data
 
-    def create_data( self, bundle ):
+    def dehydrate( self, bundle ):
         '''
         Returns the Document's data for the field.
 
@@ -316,8 +316,8 @@ class DateField( ApiField ):
 
         return value
 
-    def get_data( self, bundle ):
-        data = super( DateField, self ).get_data( bundle )
+    def hydrate( self, bundle ):
+        data = super( DateField, self ).hydrate( bundle )
 
         if data and not hasattr( data, 'year' ):
             try:
@@ -362,8 +362,8 @@ class DateTimeField( ApiField ):
 
         return value
 
-    def get_data( self, bundle ):
-        data = super( DateTimeField, self ).get_data( bundle )
+    def hydrate( self, bundle ):
+        data = super( DateTimeField, self ).hydrate( bundle )
 
         if data and not hasattr( data, 'year' ):
             try:
@@ -396,8 +396,8 @@ class TimeField( ApiField ):
         else:
             return datetime.time( dt.hour, dt.minute, dt.second )
 
-    def get_data( self, bundle ):
-        data = super( TimeField, self ).get_data( bundle )
+    def hydrate( self, bundle ):
+        data = super( TimeField, self ).hydrate( bundle )
 
         if data and not isinstance( data, datetime.time ):
             data = self.to_time( data )
@@ -538,7 +538,7 @@ class RelatedField( ApiField ):
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
 
-    def create_data( self, bundle ):
+    def dehydrate( self, bundle ):
         """
         Returns the URI only or the (nested) data for the related resource.
 
@@ -547,7 +547,7 @@ class RelatedField( ApiField ):
         the related resource's dehydrate method to populate the data from
         the object. The related resource may in turn recurse for nested data.
         """
-        related_object = super( RelatedField, self ).create_data( bundle )
+        related_object = super( RelatedField, self ).dehydrate( bundle )
         if related_object is None:
             # ApiField's `dehydrate` will have raised an ApiFieldError if 
             # the object may not be None, so we can safely return None.
@@ -568,7 +568,7 @@ class ToOneField( RelatedField ):
     """
     help_text = 'A single related resource. Can be either a URI or nested resource data.'
 
-    def get_data( self, bundle ):
+    def hydrate( self, bundle ):
         """
         When there's data for the field, create a related bundle with the data 
         and a new or existing related object in it. 
@@ -576,7 +576,7 @@ class ToOneField( RelatedField ):
         It calls upon the related resource's hydrate method to instantiate the 
         object. The related resource may in turn recurse for nested data.
         """
-        related_data = super( ToOneField, self ).get_data( bundle )
+        related_data = super( ToOneField, self ).hydrate( bundle )
         if related_data is None:
             return None
 
@@ -590,7 +590,7 @@ class ToManyField( RelatedField ):
     help_text = 'Many related resources. Can be either a list of URIs or a list of individually nested resource data.'
     is_tomany = True
 
-    def get_data( self, bundle ):
+    def hydrate( self, bundle ):
         '''
         Returns the data from the Resource in a form ready to be set on documents. 
 
@@ -602,13 +602,13 @@ class ToManyField( RelatedField ):
         
         Returns a list of bundles or an empty list.
         '''
-        related_data = super( ToManyField, self ).get_data( bundle )
+        related_data = super( ToManyField, self ).hydrate( bundle )
         if related_data is None:
             return []
 
         return [self.get_related_bundle( related_item, request=bundle.request ) for related_item in related_data if related_item]
 
-    def create_data( self, bundle ):
+    def dehydrate( self, bundle ):
         """
         Returns the URIs only or the (nested) data for the related resources.
 
@@ -617,7 +617,7 @@ class ToManyField( RelatedField ):
         the related resource's dehydrate method to populate the data from
         the object. The related resources may in turn recurse for nested data.
         """
-        related_objects = super( RelatedField, self ).create_data( bundle )
+        related_objects = super( RelatedField, self ).dehydrate( bundle )
         if related_objects is None:
             related_objects = []
 
