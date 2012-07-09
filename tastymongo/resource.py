@@ -1342,7 +1342,7 @@ class DocumentResource( Resource ):
         # data and likely their privileges have changed. Since they're 
         # not present in the bundle tree, we need to save them here.
         for obj in bundle.removed_relations:
-            obj.save( request=bundle.request )
+            obj.save( request=bundle.request, cascade=False )
             print('    ~~~~~ SAVED `{0}` for removed relations'.format( obj ) )
 
         for field_name, fld in self.fields.items():
@@ -1463,7 +1463,7 @@ class DocumentResource( Resource ):
 
         # All clear. 
         for doc in changed_documents:
-            doc.save( request=request )
+            doc.save( request=request, cascade=False )
 
         # We should no longer have dangling relations: remove ourself.
         obj.delete( request=request )
