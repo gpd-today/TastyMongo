@@ -373,7 +373,6 @@ class Resource( object ):
         elif obj is None:
             obj = self._meta.object_class()
 
-        assert isinstance(obj, self._meta.object_class )
         bundle = Bundle( obj=obj, data=data, request=request )
         if len(bundle.data) > 1:
             bundle.uri_only = False
@@ -1323,10 +1322,10 @@ class DocumentResource( Resource ):
 
         # When objects are removed, at least their reverse relational 
         # data and likely their privileges have changed. Since they're 
-        # not present in the bundle tree, we need to save them here.
+        # not present in the bundle tree, we need to save or delete them here.
         for obj in bundle.removed_relations:
+            print('    ~~~~~ SAVING `{0}` for removed relations'.format( obj ) )
             obj.save( request=bundle.request, cascade=False )
-            print('    ~~~~~ SAVED `{0}` for removed relations'.format( obj ) )
 
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
