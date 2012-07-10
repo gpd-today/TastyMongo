@@ -430,12 +430,6 @@ class Resource( object ):
                         bundle.errors[ field_name ] = related_errors
 
                     if not fld.readonly:
-                        # FIXME: This should move to RelationalMixin:
-                        # Retrieve the current relations and memoize them.
-                        to_memo = getattr(bundle.obj, fld.attribute)
-                        for doc in to_memo:
-                            if doc not in bundle.obj._memo_related_docs:
-                                bundle.obj._memo_related_docs.add(doc)
                         setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
 
                 else:
@@ -444,11 +438,6 @@ class Resource( object ):
                         bundle.errors[ field_name ] = data.errors 
 
                     if not fld.readonly:
-                        # FIXME: This should move to RelationalMixin:
-                        # Retrieve the current relations and memoize them.
-                        doc = getattr(bundle.obj, fld.attribute)
-                        if doc and doc not in bundle.obj._memo_related_docs:
-                            bundle.obj._memo_related_docs.add(doc)
                         if data is not None:
                             setattr( bundle.obj, fld.attribute, data.obj )
                         else:
