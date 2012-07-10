@@ -421,21 +421,10 @@ class Resource( object ):
                 # when there are deeper nested related resources.
                 data = fld.hydrate( bundle )
 
-            if data is None:
-                # There either was no data for the field or the field decided
-                # it shouldn't have any data. Remove any data from the bundle.
-                if field_name in bundle.data:
-                    del bundle.data[ field_name ]
-
-                continue
-
-            # We have data for the field.
-            bundle.data[ field_name ] = data
-
             if getattr(fld, 'is_related', False): 
 
                 if getattr(fld, 'is_tomany', False):
-                    # ToManyFields return a list of bundles.
+                    # ToManyFields return a list of bundles or an empty list.
                     related_errors = [b.errors for b in data if b.errors]
                     if related_errors:
                         bundle.errors[ field_name ] = related_errors
@@ -444,17 +433,23 @@ class Resource( object ):
                         setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
 
                 else:
-                    # ToOneFields return a single bundle.
-                    if data.errors:
+                    # ToOneFields return a single bundle or None.
+                    if data and data.errors:
                         bundle.errors[ field_name ] = data.errors 
 
                     if not fld.readonly:
-                        setattr( bundle.obj, fld.attribute, data.obj )
+                        if data is not None:
+                            setattr( bundle.obj, fld.attribute, data.obj )
+                        else:
+                            setattr( bundle.obj, fld.attribute, None )
 
             else:
-                # An ordinary field.
+                # An ordinary field returns its converted data.
                 if fld.attribute and not fld.readonly:
                     setattr( bundle.obj, fld.attribute, data )
+
+            # Reassign the -possibly changed- data
+            bundle.data[ field_name ] = data
 
         return bundle
 
