@@ -1309,14 +1309,14 @@ class DocumentResource( Resource ):
                     bundle.data[ field_name ] = related_resource.update( related_data )
 
 
-        # FIXME: this is where all the relational stuff has to come together.
         # Save or delete related objects where necessary
         for obj in bundle.to_save:
+            obj.save( request=bundle.request, cascade=False )
             print('    ~~~~~ DUMMY SAVING `{0}` for updated relations'.format( obj ) )
-            #obj.save( request=bundle.request, cascade=False )
+
         for obj in bundle.to_delete:
-            print('    ~~~~~ DUMMY DELETING `{0}` for updated relations'.format( obj ) )
-            #obj.delete( request=bundle.request )
+            obj.delete( request=bundle.request )
+            print('    ~~~~~ DELETED `{0}` for updated relations'.format( obj ) )
 
         # Now that our former relations have also been updated, we can save ourself.
         bundle.obj.save( request=bundle.request, cascade=False )
