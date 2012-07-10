@@ -13,7 +13,7 @@ from .throttle import BaseThrottle
 from .paginator import Paginator
 
 from pyramid.response import Response
-from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
+from mongoengine.queryset import *
 from mongoengine.base import ValidationError as MongoEngineValidationError
 import mongoengine.document 
 import mongoengine.fields as mf
@@ -1154,44 +1154,25 @@ class DocumentResource( Resource ):
             raise NotImplementedError('Resource needs a `queryset` to return objects')
 
 
-    def track_changes( self, bundle ):
-
-        # Find out if our no-longer-related documents still validate...
-        if not hasattr(bundle, 'added_relations'):
-            bundle.added_relations = set()
-            bundle.removed_relations = set()
-
-        changed_relations = bundle.obj.get_changed_relations()
-        for c in changed_relations:
-            # Now find out the changes
-            added, removed = bundle.obj.get_changes_for_relation(c)
-
-            bundle.added_relations |= added
-            bundle.removed_relations |= removed
-
-        # For good measure (shouldn't happen any more) 
-        bundle.added_relations.discard(None)
-        bundle.removed_relations.discard(None)
-
-        return bundle
-
     def save_new( self, bundle ):
         '''
         Creates the object in the bundle if it doesn't have a primary key yet.
         Recurses for embedded related bundles.
         '''
-        bundle.created = set()
 
         # STEP 1: If we're brand spankin' new try to get us an id.
         if not bundle.obj.pk:
+            # Track our relations
+            to_save, to_delete = bundle.obj.get_related_documents_to_update()
+            bundle.to_save = getattr( bundle, 'to_save', set() ) | to_save 
+            bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
+
             try:
-                bundle = self.track_changes( bundle )
                 bundle.obj.save( request=bundle.request, cascade=False ) 
-                print('    ~~~~~ CREATED {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
-                bundle.created.add( bundle.data['resource_uri'] )
+                print('    ~~~~~ CREATED {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
             except MongoEngineValidationError, e:
-                # Ouch, that didn't work...
+                # Ouch, that didn't work... Let's try creating related stuff first.
                 pass
 
 
@@ -1209,22 +1190,21 @@ class DocumentResource( Resource ):
                 related_resource = fld.get_related_resource()
                 if getattr( fld, 'is_tomany', False ):
                     bundle.data[ field_name ] = [ related_resource.save_new( related_bundle ) for related_bundle in related_data ]
-                    for related_bundle in bundle.data[ field_name ]:
-                        bundle.created |= related_bundle.created
                 else:
                     bundle.data[ field_name ] = related_resource.save_new( related_data )
-                    bundle.created |= bundle.data[ field_name ].created
 
 
         # STEP 3: Every member should have received an id now, so we should be
         # able to save ourself unless something really unexpected happened.
         if not bundle.obj.pk:
+            # Creating any nested related objects may have triggered updates.
+            to_save, to_delete = bundle.obj.get_related_documents_to_update()
+            bundle.to_save = getattr( bundle, 'to_save', set() ) | to_save 
+            bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
             try:
-                bundle = self.track_changes( bundle )
                 bundle.obj.save( request=bundle.request, cascade=False ) 
                 print('    ~~~~~ CREATED {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
-                bundle.created.add( bundle.data['resource_uri'] )
             except Exception, e:
                 # Something went wrong. Test more specific exceptions later.
                 # For now, roll back any objects we created along the way.
@@ -1242,17 +1222,10 @@ class DocumentResource( Resource ):
         Recursively validates the (embedded) object(s) in the bundle.
 
         Call validate on every related object and then validate ourselves.
-        If validation fails, roll back by deleting objects that were created
-        and raise a ValidationError.
         '''
 
         # STEP 4: All objects now exist and all relations are assigned, so
         # everything should validate. 
-        if not isinstance( bundle, Bundle):
-            return bundle
-
-        #assert isinstance( bundle, Bundle )
-
         try:
             bundle.obj.validate( request=bundle.request )
         except MongoEngineValidationError, e:
@@ -1297,31 +1270,18 @@ class DocumentResource( Resource ):
         5. This is wicked! We have a totally valid bundle!
            Try to save ourselves again, recursing for related resources.
 
-           IMPORTANT NOTE: 
-           We cannot assume that objects for which we only provided a URI 
-           have not changed: they likely have received updates from the other
-           side of their relations (if you use RelationalMixin), or have 
-           updated privileges (if you use PrivilegeMixin)
-
-           MongoEngine will take care of not updating fields that haven't changed. 
-
-           We do a bit of accounting as an additional check: if anything goes 
-           amiss here you get the ids of objects that were and weren't saved,
-           which you can use to create your own rollback scenario.
+        IMPORTANT NOTE: 
+        We cannot assume that objects for which we only provided a URI 
+        have not changed: they likely have received updates from the other
+        side of their relations (if you use RelationalMixin), or have 
+        updated privileges (if you use PrivilegeMixin).
         '''
 
-        # Save the object in the bundle. 
-        bundle = self.track_changes( bundle )
-        bundle.obj.save( request=bundle.request, cascade=False )
-        print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
+        to_save, to_delete = bundle.obj.get_related_documents_to_update()
+        bundle.to_save = getattr( bundle, 'to_save', set() ) | to_save 
+        bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
 
-        # When objects are removed, at least their reverse relational 
-        # data and likely their privileges have changed. Since they're 
-        # not present in the bundle tree, we need to save or delete them here.
-        for obj in bundle.removed_relations:
-            print('    ~~~~~ SAVING `{0}` for removed relations'.format( obj ) )
-            obj.save( request=bundle.request, cascade=False )
-
+        # Start by updating any nested related bundles.
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
                 related_data = bundle.data[ field_name ]
@@ -1337,16 +1297,30 @@ class DocumentResource( Resource ):
 
                     updated_data = []
                     for related_bundle in related_data:
-                        # Only update when the relation has actually changed.
-                        if not related_bundle.uri_only or (related_bundle.obj in bundle.added_relations):
+                        # Only update when the related document has actually changed.
+                        if not related_bundle.uri_only or (related_bundle.obj in bundle.to_save):
                             related_bundle = related_resource.update( related_bundle )
                         updated_data.append(related_bundle)
 
                     bundle.data[ field_name ] = updated_data
 
-                elif not related_data.uri_only or (related_data.obj in bundle.added_relations):
+                elif not related_data.uri_only or (related_data.obj in bundle.to_save):
                     # Related data contains a bundle for a single related resource
                     bundle.data[ field_name ] = related_resource.update( related_data )
+
+
+        # FIXME: this is where all the relational stuff has to come together.
+        # Save or delete related objects where necessary
+        for obj in bundle.to_save:
+            print('    ~~~~~ DUMMY SAVING `{0}` for updated relations'.format( obj ) )
+            #obj.save( request=bundle.request, cascade=False )
+        for obj in bundle.to_delete:
+            print('    ~~~~~ DUMMY DELETING `{0}` for updated relations'.format( obj ) )
+            #obj.delete( request=bundle.request )
+
+        # Now that our former relations have also been updated, we can save ourself.
+        bundle.obj.save( request=bundle.request, cascade=False )
+        print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
 
         return bundle
 
@@ -1421,28 +1395,17 @@ class DocumentResource( Resource ):
         # We must first notify our relations that we're going to be removed.
         obj.clear_relations()
 
-        # Find out if our no-longer-related documents still validate...
-        changed_documents = set()
-        changed_relations = obj.get_changed_relations()
-        for c in changed_relations:
-            added, removed = obj.get_changes_for_relation(c)
-            changed_documents |= added
-            changed_documents |= removed
+        # Now find out what we need to do with our new and former relations.
+        to_save, to_delete = obj.get_related_documents_to_update()
 
-        # For good measure (shouldn't happen any more) 
-        changed_documents.discard(None)
-
-        for doc in changed_documents:
-            try: 
-                doc.validate( request=request )
-            except MongoEngineValidationError, e:
-                raise ValidationError('Deletion of `{0}` prohibited since it would invalidate some relations')
-
-        # All clear. 
-        for doc in changed_documents:
+        # Validate and save updated relations that need saving.
+        for doc in to_save:
+            doc.validate( request=request )
             doc.save( request=request, cascade=False )
 
-        # We should no longer have dangling relations: remove ourself.
-        obj.delete( request=request )
+        # Ignore objects in `to_delete` since the reverse_delete_rule in 
+        # MongoEngine already takes care of that.
 
+        # Now that we should no longer have dangling relations, delete ourself.
+        obj.delete( request=request )
 
