@@ -13,7 +13,7 @@ from .throttle import BaseThrottle
 from .paginator import Paginator
 
 from pyramid.response import Response
-from mongoengine.queryset import *
+from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
 from mongoengine.base import ValidationError as MongoEngineValidationError
 import mongoengine.document 
 import mongoengine.fields as mf
@@ -611,9 +611,9 @@ class Resource( object ):
         """
         try:
             object = self.obj_get_single( request=request, **request.matchdict )
-        except DoesNotExist:
+        except DoesNotExist, e:
             return http.HTTPNotFound()
-        except MultipleObjectsReturned:
+        except MultipleObjectsReturned, e:
             return http.HTTPMultipleChoices( "More than one resource is found at this URI." )
 
         bundle = self.build_bundle( obj=object, request=request )
