@@ -1154,26 +1154,33 @@ class DocumentResource( Resource ):
             raise NotImplementedError('Resource needs a `queryset` to return objects')
 
     def save( self, bundle ):
+        print( '\n\n-------- about to validate and save `{0}`... ------------\n'.format(bundle.obj) )
         bundle = super( DocumentResource, self ).save( bundle )
-
-        print( '  ----------------------------------- ')
-        print( '  updating for relations ')
-        print( 'created: {0}'.format(bundle.created))
-        print( 'updated: {0}'.format(bundle.updated))
-        print( 'to_save: {0}'.format(bundle.to_save))
-        print( 'to_delete: {0}'.format(bundle.to_delete))
-        print( '  ----------------------------------- ')
 
         # For our Documents there's one more step involved : there may be 
         # relations that need to be saved that aren't part of the bundle,
         # but changed due to RelationalMixin updates.
-        for obj in bundle.to_save - bundle.created - bundle.updated:
-            obj.save( request=bundle.request, cascade=False )
-            print('    ~~~~~ SAVED `{0}` for updated relations'.format( obj ) )
+
+        for obj in bundle.to_delete:
+            obj.clear_relations()
+            to_save, to_delete = obj.get_related_documents_to_update()
+
+            for doc in to_save:
+                doc.validate( request=bundle.request )
+                bundle.to_save.add(doc)
+
+        print( '\n   created: {0}'.format(bundle.created))
+        print( '   updated: {0}'.format(bundle.updated))
+        print( '   to_save: {0}'.format(bundle.to_save))
+        print( '   to_delete: {0}'.format(bundle.to_delete))
 
         for obj in bundle.to_delete:
             obj.delete( request=bundle.request )
             print('    ~~~~~ DELETED `{0}` for updated relations'.format( obj ) )
+
+        for obj in bundle.to_save - bundle.created - bundle.updated:
+            obj.save( request=bundle.request, cascade=False )
+            print('    ~~~~~ SAVED `{0}` for updated relations'.format( obj ) )
 
         return bundle
 
@@ -1340,6 +1347,7 @@ class DocumentResource( Resource ):
                         # Only update when the related document has actually changed.
                         if not related_bundle.uri_only or (related_bundle.obj in bundle.to_save):
                             related_bundle = related_resource.update( related_bundle )
+                            bundle.updated.add( related_bundle.obj )
                         updated_data.append(related_bundle)
 
                     bundle.data[ field_name ] = updated_data
@@ -1347,6 +1355,7 @@ class DocumentResource( Resource ):
                 elif not related_data.uri_only or (related_data.obj in bundle.to_save):
                     # Related data contains a bundle for a single related resource
                     bundle.data[ field_name ] = related_resource.update( related_data )
+                    bundle.updated.add( bundle.data[ field_name ].obj )
 
         return bundle
 
@@ -1433,5 +1442,6 @@ class DocumentResource( Resource ):
         # MongoEngine already takes care of that.
 
         # Now that we should no longer have dangling relations, delete ourself.
+        print('    ~~~~~ DELETING `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
         obj.delete( request=request )
 
