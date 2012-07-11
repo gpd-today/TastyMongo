@@ -1204,12 +1204,13 @@ class DocumentResource( Resource ):
             bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
 
             try:
+                print('    ~~~~~ CREATING {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.obj.save( request=bundle.request, cascade=False ) 
                 bundle.created.add( bundle.obj )
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
-                print('    ~~~~~ CREATED {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
             except MongoEngineValidationError, e:
                 # Ouch, that didn't work... Let's try creating related stuff first.
+                print('       failed. Try to update relations first. ')
                 pass
 
 
@@ -1240,9 +1241,9 @@ class DocumentResource( Resource ):
             bundle.to_save = getattr( bundle, 'to_save', set() ) | to_save 
             bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
             try:
+                print('    ~~~~~ CREATING (retry) {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.obj.save( request=bundle.request, cascade=False ) 
                 bundle.created.add( bundle.obj )
-                print('    ~~~~~ CREATED {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
             except Exception, e:
                 # Something went wrong. Test more specific exceptions later.
