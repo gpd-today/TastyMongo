@@ -1154,7 +1154,7 @@ class DocumentResource( Resource ):
             raise NotImplementedError('Resource needs a `queryset` to return objects')
 
     def save( self, bundle ):
-        print( '\n\n-------- about to validate and save `{0}`... ------------\n'.format(bundle.obj) )
+        print( '\n-------- about to validate and save `{0}`... ------------'.format(bundle.obj) )
         bundle = super( DocumentResource, self ).save( bundle )
 
         # For our Documents there's one more step involved : there may be 
@@ -1173,10 +1173,9 @@ class DocumentResource( Resource ):
         # bundle recursion.
         bundle.to_save = bundle.to_save - bundle.created - bundle.updated
 
-        print( '\n   created from bundle: {0}'.format(bundle.created))
-        print( '   updated from bundle: {0}'.format(bundle.updated))
-        print( '   save for relations: {0}'.format(bundle.to_save))
-        print( '   delete for relations: {0}'.format(bundle.to_delete))
+        for s in ['created', 'updated', 'to_save', 'to_delete']:
+            if getattr(bundle, s, None):
+                print( '    {0}: {1}'.format(s, bundle.created))
 
         for obj in bundle.to_delete:
             obj.delete( request=bundle.request )
