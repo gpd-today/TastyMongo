@@ -1156,10 +1156,18 @@ class DocumentResource( Resource ):
     def save( self, bundle ):
         bundle = super( DocumentResource, self ).save( bundle )
 
+        print( '  ----------------------------------- ')
+        print( '  updating for relations ')
+        print( 'created: {0}'.format(bundle.created))
+        print( 'updated: {0}'.format(bundle.updated))
+        print( 'to_save: {0}'.format(bundle.to_save))
+        print( 'to_delete: {0}'.format(bundle.to_delete))
+        print( '  ----------------------------------- ')
+
         # For our Documents there's one more step involved : there may be 
         # relations that need to be saved that aren't part of the bundle,
         # but changed due to RelationalMixin updates.
-        for obj in bundle.to_save:
+        for obj in bundle.to_save - bundle.created - bundle.updated:
             obj.save( request=bundle.request, cascade=False )
             print('    ~~~~~ SAVED `{0}` for updated relations'.format( obj ) )
 
@@ -1297,13 +1305,16 @@ class DocumentResource( Resource ):
         updated privileges (if you use PrivilegeMixin).
         '''
 
+        if not hasattr( bundle, 'updated' ):
+            bundle.updated = set()
+
         to_save, to_delete = bundle.obj.get_related_documents_to_update()
         bundle.to_save = getattr( bundle, 'to_save', set() ) | to_save 
         bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
 
         try:
             bundle.obj.save( request=bundle.request, cascade=False )
-            bundle.to_save.discard( bundle.obj )
+            bundle.updated.add( bundle.obj )
             print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
         except MongoEngineValidationError, e:
             # Ouch, that didn't work... Let's try creating related stuff first.
