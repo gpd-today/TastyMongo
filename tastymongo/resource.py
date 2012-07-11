@@ -1169,16 +1169,20 @@ class DocumentResource( Resource ):
                 doc.validate( request=bundle.request )
                 bundle.to_save.add(doc)
 
-        print( '\n   created: {0}'.format(bundle.created))
-        print( '   updated: {0}'.format(bundle.updated))
-        print( '   to_save: {0}'.format(bundle.to_save))
-        print( '   to_delete: {0}'.format(bundle.to_delete))
+        # No need to save objects for relations that already got saved by the
+        # bundle recursion.
+        bundle.to_save = bundle.to_save - bundle.created - bundle.updated
+
+        print( '\n   created from bundle: {0}'.format(bundle.created))
+        print( '   updated from bundle: {0}'.format(bundle.updated))
+        print( '   save for relations: {0}'.format(bundle.to_save))
+        print( '   delete for relations: {0}'.format(bundle.to_delete))
 
         for obj in bundle.to_delete:
             obj.delete( request=bundle.request )
             print('    ~~~~~ DELETED `{0}` for updated relations'.format( obj ) )
 
-        for obj in bundle.to_save - bundle.created - bundle.updated:
+        for obj in bundle.to_save:
             obj.save( request=bundle.request, cascade=False )
             print('    ~~~~~ SAVED `{0}` for updated relations'.format( obj ) )
 
@@ -1442,6 +1446,6 @@ class DocumentResource( Resource ):
         # MongoEngine already takes care of that.
 
         # Now that we should no longer have dangling relations, delete ourself.
-        print('    ~~~~~ DELETING `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
+        print('    ~~~~~ DELETING `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
         obj.delete( request=request )
 
