@@ -1175,7 +1175,7 @@ class DocumentResource( Resource ):
 
         for s in ['created', 'updated', 'to_save', 'to_delete']:
             if getattr(bundle, s, None):
-                print( '    {0}: {1}'.format(s, bundle.created))
+                print( '    {0}: {1}'.format(s, getattr( bundle, s )))
 
         for obj in bundle.to_delete:
             obj.delete( request=bundle.request )
