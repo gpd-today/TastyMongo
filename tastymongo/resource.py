@@ -1154,7 +1154,6 @@ class DocumentResource( Resource ):
             raise NotImplementedError('Resource needs a `queryset` to return objects')
 
     def save( self, bundle ):
-        print( '\n-------- about to validate and save `{0}`... ------------'.format(bundle.obj) )
         bundle = super( DocumentResource, self ).save( bundle )
 
         # For our Documents there's one more step involved : there may be 
