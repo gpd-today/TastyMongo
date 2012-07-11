@@ -1153,12 +1153,29 @@ class DocumentResource( Resource ):
         else:
             raise NotImplementedError('Resource needs a `queryset` to return objects')
 
+    def save( self, bundle ):
+        bundle = super( DocumentResource, self ).save( bundle )
+
+        # For our Documents there's one more step involved : there may be 
+        # relations that need to be saved that aren't part of the bundle,
+        # but changed due to RelationalMixin updates.
+        for obj in bundle.to_save:
+            obj.save( request=bundle.request, cascade=False )
+            print('    ~~~~~ SAVED `{0}` for updated relations'.format( obj ) )
+
+        for obj in bundle.to_delete:
+            obj.delete( request=bundle.request )
+            print('    ~~~~~ DELETED `{0}` for updated relations'.format( obj ) )
+
+        return bundle
 
     def save_new( self, bundle ):
         '''
         Creates the object in the bundle if it doesn't have a primary key yet.
         Recurses for embedded related bundles.
         '''
+        if not hasattr( bundle, 'created' ):
+            bundle.created = set()
 
         # STEP 1: If we're brand spankin' new try to get us an id.
         if not bundle.obj.pk:
@@ -1169,6 +1186,7 @@ class DocumentResource( Resource ):
 
             try:
                 bundle.obj.save( request=bundle.request, cascade=False ) 
+                bundle.created.add( bundle.obj )
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
                 print('    ~~~~~ CREATED {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
             except MongoEngineValidationError, e:
@@ -1179,8 +1197,7 @@ class DocumentResource( Resource ):
         # STEP 2: Create any nested related resources that are new (may recurse)
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
-                related_data = bundle.data[ field_name ]
-                if not related_data:
+                if not bundle.data[ field_name ]:
                     # This can happen if the field is not required and no data
                     # was given, so bundle.data[ field_name ] can be None or []
                     continue
@@ -1189,9 +1206,11 @@ class DocumentResource( Resource ):
                 # Delegate saving of new related objects to the related resource.
                 related_resource = fld.get_related_resource()
                 if getattr( fld, 'is_tomany', False ):
-                    bundle.data[ field_name ] = [ related_resource.save_new( related_bundle ) for related_bundle in related_data ]
+                    for related_bundle in bundle.data[ field_name ]:
+                        related_bundle = related_resource.save_new( related_bundle )
+                        bundle.created |= related_bundle.created
                 else:
-                    bundle.data[ field_name ] = related_resource.save_new( related_data )
+                    bundle.data[ field_name ] = related_resource.save_new( bundle.data[ field_name ] )
 
 
         # STEP 3: Every member should have received an id now, so we should be
@@ -1203,11 +1222,12 @@ class DocumentResource( Resource ):
             bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
             try:
                 bundle.obj.save( request=bundle.request, cascade=False ) 
+                bundle.created.add( bundle.obj )
                 print('    ~~~~~ CREATED {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
             except Exception, e:
                 # Something went wrong. Test more specific exceptions later.
-                # For now, roll back any objects we created along the way.
+                # For now, roll back any objects we created along the way by 
                 # FIXME: this is more involved since created objects trigger
                 # relational and privilege updates. Use `self.obj_delete_single` after
                 # we've fleshed that out.
@@ -1281,6 +1301,15 @@ class DocumentResource( Resource ):
         bundle.to_save = getattr( bundle, 'to_save', set() ) | to_save 
         bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
 
+        try:
+            bundle.obj.save( request=bundle.request, cascade=False )
+            bundle.to_save.discard( bundle.obj )
+            print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
+        except MongoEngineValidationError, e:
+            # Ouch, that didn't work... Let's try creating related stuff first.
+            # FIXME: work out what to do in case `update` fails.
+            raise
+
         # Start by updating any nested related bundles.
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
@@ -1307,20 +1336,6 @@ class DocumentResource( Resource ):
                 elif not related_data.uri_only or (related_data.obj in bundle.to_save):
                     # Related data contains a bundle for a single related resource
                     bundle.data[ field_name ] = related_resource.update( related_data )
-
-
-        # Save or delete related objects where necessary
-        for obj in bundle.to_save:
-            obj.save( request=bundle.request, cascade=False )
-            print('    ~~~~~ DUMMY SAVING `{0}` for updated relations'.format( obj ) )
-
-        for obj in bundle.to_delete:
-            obj.delete( request=bundle.request )
-            print('    ~~~~~ DELETED `{0}` for updated relations'.format( obj ) )
-
-        # Now that our former relations have also been updated, we can save ourself.
-        bundle.obj.save( request=bundle.request, cascade=False )
-        print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
 
         return bundle
 
