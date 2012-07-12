@@ -76,6 +76,7 @@ class DeclarativeMetaclass( type ):
     def __new__( cls, name, bases, attrs ):
         attrs['base_fields'] = {}
         declared_fields = {}
+        related_fields_map = {}
 
         # Inherit any fields from parent clas( ses ).
         try:
@@ -96,10 +97,14 @@ class DeclarativeMetaclass( type ):
             if isinstance( obj, fields.ApiField ):
                 field = attrs.pop( field_name )
                 declared_fields[field_name] = field
+                if getattr( field, 'is_related', False ):
+                    # A reverse lookup from Document to Resource fields
+                    related_fields_map[ field.attribute ] = field
 
         # Add the explicitly defined fields to our base_fields
         attrs['base_fields'].update( declared_fields )
         attrs['declared_fields'] = declared_fields
+        attrs['related_fields_map'] = related_fields_map
 
         # Create the class
         new_class = super( DeclarativeMetaclass, cls ).__new__( cls, name, bases, attrs )
@@ -397,51 +402,38 @@ class Resource( object ):
         The result of the hydrate function is a fully populated bundle with 
         nested bundles for related objects. 
 
-        Also stores ids of formerly related objects in the bundle. These need
-        to be saved later because their privileges or embedded references will 
-        have changed.
-
-        Any errors encountered in the data for the related objects are
-        propagated to the parent's bundle.
+        Errors encountered along the way are propagated to the parent bundle.
         """
-
-        if bundle.obj is None:
-            bundle.obj = self._meta.object_class()
 
         bundle = self.pre_hydrate( bundle )
 
         for field_name, fld in self.fields.items():
+            # You may provide a custom method on the resource that will replace
+            # the default hydration behaviour for the field.
             method = getattr(self, "hydrate_{0}".format(field_name), None)
 
-            if method:
-                # A custom `hydrate_foo` method may provide data for the field
-                data = method( bundle )
-            else:
-                # Get data in the bundle for the related field. May recurse
-                # when there are deeper nested related resources.
+            if method is None:
+                method = fld.hydrate
+
+            try:
                 data = fld.hydrate( bundle )
+            except Exception, e:
+                bundle.errors['HydrationErrors'].append(e)
 
             if getattr(fld, 'is_related', False): 
-
                 if getattr(fld, 'is_tomany', False):
-                    # ToManyFields return a list of bundles or an empty list.
-                    related_errors = [b.errors for b in data if b.errors]
-                    if related_errors:
-                        bundle.errors[ field_name ] = related_errors
 
+                    # ToManyFields return a list of bundles or an empty list.
                     if not fld.readonly:
                         setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
 
                 else:
                     # ToOneFields return a single bundle or None.
-                    if data and data.errors:
-                        bundle.errors[ field_name ] = data.errors 
-
                     if not fld.readonly:
-                        if data is not None:
-                            setattr( bundle.obj, fld.attribute, data.obj )
-                        else:
+                        if data is None:
                             setattr( bundle.obj, fld.attribute, None )
+                        else:
+                            setattr( bundle.obj, fld.attribute, data.obj )
 
             else:
                 # An ordinary field returns its converted data.
@@ -450,6 +442,34 @@ class Resource( object ):
 
             # Reassign the -possibly changed- data
             bundle.data[ field_name ] = data
+
+        return bundle
+
+    def save( self, bundle ):
+        """
+        Creates or updates a Resource including any nested Resources in the bundle.
+
+        Returns a bundle with the new or updated objects, their data ready to 
+        be deserialized and any errors that occured along the way.
+
+        First create any new resources in the bundle. This is done to ensure 
+        that all related resources exist. Then validate the resource tree, 
+        and finally save all updated documents.
+        """
+        if bundle.errors:
+            raise ImmediateHTTPResponse( 'Errors occured during hydration:\n{0}'.format(e) )
+
+        bundle = self.save_new( bundle )
+        if bundle.errors:
+            raise ImmediateHTTPResponse( 'Errors occured during new object creation:\n{0}'.format(e) )
+
+        bundle = self.validate( bundle )
+        if bundle.errors:
+            raise ImmediateHTTPResponse( 'Errors occured during document validation:\n{0}'.format(e) )
+
+        bundle = self.update( bundle )
+        if bundle.errors:
+            raise ImmediateHTTPResponse( 'Errors occured during document updates:\n{0}'.format(e) )
 
         return bundle
 
@@ -620,23 +640,6 @@ class Resource( object ):
         bundle = self.dehydrate( bundle )
         data = self.pre_serialize_single( bundle, request )
         return self.create_response( data, request )
-
-    def save( self, bundle ):
-        """
-        Creates or updates a Resource including any nested Resources in the bundle.
-
-        Returns a bundle with the new or updated objects, their data ready to 
-        be deserialized and any errors that occured along the way.
-
-        First create any new resources in the bundle. This is done to ensure 
-        that all related resources exist. Then validate the resource tree, 
-        and finally save all updated documents.
-        """
-        bundle = self.save_new( bundle )
-        bundle = self.validate( bundle )
-        bundle = self.update( bundle )
-
-        return bundle
 
     def post_list( self, request, **kwargs ):
         """
@@ -902,6 +905,67 @@ class DocumentResource( Resource ):
     '''
     __metaclass__ = DocumentDeclarativeMetaclass
 
+    def _log_relational_changes( self, bundle ):
+        # Track and store any changes to our relations
+        to_save, to_delete = bundle.obj.get_related_documents_to_update()
+        bundle.to_save = getattr( bundle, 'to_save', set() ) | to_save 
+        bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
+
+        return bundle
+
+    def _stash_invalid_relations( self, bundle ):
+        bundle.stashed = {}
+
+        try:
+            bundle.obj.validate( request=bundle.request )
+        except MongoEngineValidationError, e:
+            for k in e.errors.keys():  # ! Document, not Resource, fields 
+                fld = self.related_fields_map.get( k ) 
+                if fld and not fld.required:
+                    bundle.stashed[ k ] = getattr( bundle.obj, k )
+                    if getattr( fld, 'is_tomany', False ):
+                        setattr( bundle.obj, k, [] )
+                    else:  # ToOne
+                        setattr( bundle.obj, k, None )
+
+        return bundle
+
+    def _pop_invalid_relations( self, bundle ):
+        for k, v in bundle.stashed.items():
+            setattr( bundle.obj, k, v )
+
+        bundle.stashed = {}
+
+        return bundle
+
+    def _delete_relational( self, objects, request ):
+        '''
+        Deletes objects making sure related objects still validate and will be
+        saved without relations to the deleted objects. May recurse.
+        '''
+        for obj in objects:
+            # We must first notify our relations that we're going to be removed.
+            obj.clear_relations()
+
+            # Now find out if we need to remove or save further away relations.
+            to_save, to_delete = obj.get_related_documents_to_update()
+            self._save_relational( objects=to_save, request=request )
+            self._delete_relational( objects=to_delete, request=request )
+
+            # Now that we should no longer have dangling relations, delete ourself.
+            obj.delete( request=request )
+            print('    ~~~~~ DELETED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
+
+    def _save_relational( self, objects, request ):
+        '''
+        Saves objects making sure related objects still validate and will be
+        saved with new relations to the saved objects. 
+        '''
+        for obj in objects:
+            obj.save( request=request, cascade=False )
+            print('    ~~~~~ SAVED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
+
+
     @classmethod
     def should_skip_field( cls, field ):
         """
@@ -910,14 +974,11 @@ class DocumentResource( Resource ):
         """
         # Ignore reference fields for now, because objects know nothing about 
         # any API through which they're exposed. 
-        if isinstance( field, mf.ReferenceField ):
-            # The equivalent of ToOne
-            return True
+        if isinstance( field, mf.ListField ) and hasattr( field, 'field' ):
+            field = field.field
 
-        if isinstance( field, mf.ListField ):
-            if isinstance( field.field, ( mf.ReferenceField ) ):
-                # The equivalent of ToMany ( many ToOne's )
-                return True
+        if isinstance( field, ( mf.ReferenceField ) ):
+            return True
 
         return False
 
@@ -1010,6 +1071,8 @@ class DocumentResource( Resource ):
             final_fields[name].field_name = name
 
         return final_fields
+
+
 
     def dehydrate_id( self, bundle ):
         '''
@@ -1153,185 +1216,253 @@ class DocumentResource( Resource ):
         else:
             raise NotImplementedError('Resource needs a `queryset` to return objects')
 
+
     def save( self, bundle ):
         bundle = super( DocumentResource, self ).save( bundle )
 
         # For our Documents there's one more step involved : there may be 
-        # relations that need to be saved that aren't part of the bundle,
-        # but changed due to RelationalMixin updates.
-
-        for obj in bundle.to_delete:
-            obj.clear_relations()
-            to_save, to_delete = obj.get_related_documents_to_update()
-
-            for doc in to_save:
-                doc.validate( request=bundle.request )
-                bundle.to_save.add(doc)
-
-        # No need to save objects for relations that already got saved by the
-        # bundle recursion.
-        bundle.to_save = bundle.to_save - bundle.created - bundle.updated
-
-        for s in ['created', 'updated', 'to_save', 'to_delete']:
-            if getattr(bundle, s, None):
-                print( '    {0}: {1}'.format(s, getattr( bundle, s )))
-
-        for obj in bundle.to_delete:
-            obj.delete( request=bundle.request )
-            print('    ~~~~~ DELETED `{0}` for updated relations'.format( obj ) )
-
-        for obj in bundle.to_save:
-            obj.save( request=bundle.request, cascade=False )
-            print('    ~~~~~ SAVED `{0}` for updated relations'.format( obj ) )
+        # relations that need to be updated that aren't part of the bundle.
+        try:
+            self._delete_relational( objects=bundle.to_delete, request=bundle.request )
+            self._save_relational( objects=bundle.to_save - bundle.created - bundle.updated, request=bundle.request )
+        except Exception, e:
+            raise ImmediateHTTPResponse( 'Errors occured during relational consistency updates:\n{0}'.format(e) )
 
         return bundle
 
     def save_new( self, bundle ):
         '''
-        Creates the object in the bundle if it doesn't have a primary key yet.
-        Recurses for embedded related bundles.
+        Creates objects in the bundle tree that don't have a primary key yet.
+
+        Introspects invalidating fields to see if they can be made to validate
+        by staging the creation of related objects.
+        
+        Relations are always defined as two-way links between resources.
+
+        It can resolve in case:
+         - there is a single relation between the parent and child resources 
+           for which none or only one link is required
+         - there are multiple relations between the resources, but only 1 link 
+           is required in one direction: assume this is the intended relation
+
+        It obviously *doesn't* work if:
+         - there is a relation required by both ends (deadlock). 
+           This should however already be prevented during class instantiation.
+         - there are multiple relations between the parent and child resources 
+           but none is required (how should we choose?)
+
+        NOTE: 
+        The foregoing hydrate phase has already established all links between
+        existing objects, so here we're only concerned with objects that
+        don't have a primary key yet and must be assumed new.
+        
+        .. Example: 2 new objects that are related: `organization` and `owner`.
+
+            { name: 'ACME', 
+              owner: { name: 'boss' } }
+
+            Validating `organization` fails because `owner` doesn't exist yet.
+            We have one of 2 cases (can't be both):
+            I) `owner` requires an organization
+            II) `organization` requires an owner
+
+            Heuristics 
+            ===
+
+            phase 1) `ACME`
+            ---
+
+            - Validate `organization` and stash any invalid, not-required,
+              related fields (in case I: `owner`) 
+            - try to save `organization` 
+            - for case I, `ACME` will have been created now.
+            - for case II, we still have to wait a bit till phase 3.
+            - pop the relations back on because we need them down the line.
+
+              Bail out if there are validationerrors on non-related fields: 
+              we won't be able to resolve invalid data being passed in.
+
+            phase 2) `ACME`
+            ---
+
+            - recurse down to nested objects passing our annotated self along.
+
+            phase 1) `boss`
+            ---
+
+            - for case I, no problem, save ourself.
+            - for case II, `owner` won't validate: it has a required link to
+              `organization`, but `ACME` doesn't have a pk yet.
+
+            phase 2) `boss`
+            ---
+
+            - no further nested bundles to traverse for either case.
+
+            phase 3) `boss`
+            ---
+
+            - for case I, we have a pk here so just return.
+            - for case II, we don't have a pk yet. Validate ourself again and
+              verify that there's only 1 invalid field left (`organization`)
+              and that that field corresponds to our `parent`. Stash it
+              temporarily, save ourself and pop it back on if succesful.
+            - If validation still fails we're out of luck (shouldn't happen
+              here since we would've bailed out earlier).
+
+            phase 3) `ACME`
+            ---
+
+            - we're done for case I.
+            - for case II, we don't have a pk yet. But validation and saving
+              should be fine now that all others have received an id. 
+            - If validation still fails or if we encountered errors along the
+              way we're out of luck.
+
         '''
-        if not hasattr( bundle, 'created' ):
-            bundle.created = set()
+        bundle = self._log_relational_changes( bundle )
 
-        # STEP 1: If we're brand spankin' new try to get us an id.
+        # PHASE 1: If we're brand spankin' new try to get us an id.
         if not bundle.obj.pk:
-            # Track our relations
-            to_save, to_delete = bundle.obj.get_related_documents_to_update()
-            bundle.to_save = getattr( bundle, 'to_save', set() ) | to_save 
-            bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
-
+            bundle = self._stash_invalid_relations( bundle )
             try:
-                print('    ~~~~~ CREATING {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
                 bundle.obj.save( request=bundle.request, cascade=False ) 
                 bundle.created.add( bundle.obj )
-                bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
+                print('    ~~~~~ CREATED (phase 1) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
-                # Ouch, that didn't work... Let's try creating related stuff first.
-                print('       failed. Try to update relations first. ')
+                # We'll have to wait for phase 3.
                 pass
+            bundle = self._pop_invalid_relations( bundle )
 
 
-        # STEP 2: Create any nested related resources that are new (may recurse)
+        # PHASE 2: Recurse for any nested related resources.
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
-                if not bundle.data[ field_name ]:
+                related_data = bundle.data[ field_name ]
+                if not related_data: 
                     # This can happen if the field is not required and no data
-                    # was given, so bundle.data[ field_name ] can be None or []
+                    # was given, so related_data can be None or []
                     continue
-
-                # The field has data in the form of a single or list of Bundles.
-                # Delegate saving of new related objects to the related resource.
+                
                 related_resource = fld.get_related_resource()
-                if getattr( fld, 'is_tomany', False ):
-                    for related_bundle in bundle.data[ field_name ]:
-                        related_bundle = related_resource.save_new( related_bundle )
-                        bundle.created |= related_bundle.created
-                else:
-                    bundle.data[ field_name ] = related_resource.save_new( bundle.data[ field_name ] )
+                
+                if not getattr( fld, 'is_tomany', False ):
+                    related_data = [ related_data, ] 
+
+                for related_bundle in related_data:
+                    related_bundle.parent = bundle
+                    related_bundle = related_resource.save_new( related_bundle )
+
+                    # Copy some fields over
+                    bundle.created |= related_bundle.created
+                    bundle.to_save |= related_bundle.to_save
+                    bundle.to_delete |= related_bundle.to_delete
+
+                    if related_bundle.errors:
+                        bundle.errors[ field_name ].append( related_bundle.errors )
+
+                if not getattr( fld, 'is_tomany', False ):
+                    bundle.data[ field_name ] = related_data[0]
 
 
-        # STEP 3: Every member should have received an id now, so we should be
-        # able to save ourself unless something really unexpected happened.
+        bundle = self._log_relational_changes( bundle )
+
+        # PHASE 3: If we don't have an id yet we should be able to get one now.
         if not bundle.obj.pk:
-            # Creating any nested related objects may have triggered updates.
-            to_save, to_delete = bundle.obj.get_related_documents_to_update()
-            bundle.to_save = getattr( bundle, 'to_save', set() ) | to_save 
-            bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
+            bundle = self._stash_invalid_relations( bundle )
+
+            if bundle.stashed:
+                if not len( bundle.stashed ) == 1 or not getattr( bundle, 'parent', None ):
+                    bundle.errors[ ValidationError ].append( ValidationError( 'Could not auto-create new resources from provided data.' ) )
+
+                # There should only be 1 invalid relation in the stash, which
+                # should correspond to our `parent`, since all other relations
+                # should exist or have been created by now.
+                k = bundle.stashed.keys()[0]  # ! Mongo field name
+                #try:
+                    # Maybe not needed since MongoEngine will check this?
+                #    assert type( bundle.parent.obj ) == type( getattr( bundle.obj, k ).document_type)
+                #except AssertionError, e:
+                #    bundle.errors[ AssertionError ].append( e )
+                #else:
+                #    setattr( bundle.obj, k, bundle.parent.obj )
+                setattr( bundle.obj, k, bundle.parent.obj )
+            
             try:
-                print('    ~~~~~ CREATING (retry) {2}: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
-                bundle.obj.save( request=bundle.request, cascade=False ) 
+                bundle.obj.save( request=bundle.request, cascade=False, ) 
                 bundle.created.add( bundle.obj )
-                bundle.data['resource_uri'] = self.get_resource_uri( bundle.request, bundle )
-            except Exception, e:
-                # Something went wrong. Test more specific exceptions later.
-                # For now, roll back any objects we created along the way by 
-                # FIXME: this is more involved since created objects trigger
-                # relational and privilege updates. Use `self.obj_delete_single` after
-                # we've fleshed that out.
-                #for doc in bundle.created:
-                #    doc.delete( request=bundle.request )
-                raise 
+                print('    ~~~~~ CREATED (phase 3) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
+            except MongoEngineValidationError, e:
+                # Failed to save. 
+                bundle.errors[ MongoEngineValidationError ].append( e )
 
         return bundle
 
     def validate( self, bundle ):
         '''
         Recursively validates the (embedded) object(s) in the bundle.
+        Does not change any data nor update the database. Returns the bundle.
 
-        Call validate on every related object and then validate ourselves.
+        Adds validationerrors to the bundle so previously created objects may
+        be rolled back.
         '''
 
-        # STEP 4: All objects now exist and all relations are assigned, so
+        # PHASE 4: All objects now exist and all relations are assigned, so
         # everything should validate. 
         try:
             bundle.obj.validate( request=bundle.request )
-        except MongoEngineValidationError, e:
-            bundle.errors['ValidationError'] = e
+        except Exception, e:
+            bundle.errors[ Exception ].append( e )
 
-        if not bundle.errors:
-            for field_name, fld in self.fields.items():
-                if getattr( fld, 'is_related', False ) and field_name in bundle.data:
-                    related_data = bundle.data[ field_name ]
-                    if not related_data:
-                        # This can happen if the field is not required and no data
-                        # was given, so bundle.data[ field_name ] can be None or []
-                        continue
+        # Continue despite possible errors. An Exception will be raised but we
+        # want it to be as informative as possible, collecting more errors.
+        for field_name, fld in self.fields.items():
+            if getattr( fld, 'is_related', False ) and field_name in bundle.data:
+                related_data = bundle.data[ field_name ]
+                if not related_data:
+                    # This can happen if the field is not required and no data
+                    # was given, so bundle.data[ field_name ] can be None or []
+                    continue
 
-                    # Have the related resource validate its document(s) in turn.
-                    related_resource = fld.get_related_resource()
-                    if getattr( fld, 'is_tomany', False ):
-                        bundle.data[ field_name ] = [ related_resource.validate( related_bundle ) for related_bundle in related_data ]
-                        errors = [ related_bundle.errors for related_bundle in bundle.data[ field_name ] if related_bundle.errors ]
-                        if errors:
-                            bundle.errors[ field_name ] = errors
-                    else:
-                        bundle.data[ field_name ] = related_resource.validate( bundle.data[ field_name ] )
-                        if bundle.data[ field_name ].errors:
-                            bundle.errors[ field_name ] = bundle.data[ field_name ].errors
+                related_resource = fld.get_related_resource()
 
-        if bundle.errors:
-            # Validation failed along the way. Delete any created documents.
-            # FIXME: this is more involved since created objects trigger
-            # relational and privilege updates. Use `self.obj_delete_single` after
-            # we've fleshed that out.
-            #for doc in bundle.created:
-            #    doc.delete( request=bundle.request )
-            raise ValidationError('Errors were encountered validating the document: {0}'.format(bundle.errors))
+                if not getattr( fld, 'is_tomany', False ):
+                    related_data = [ related_data, ]
+
+                for related_bundle in related_data:
+                    related_bundle = related_resource.validate( related_bundle ) 
+
+                    if related_bundle.errors: 
+                        bundle.errors[ field_name ].append( related_bundle.errors ) 
+
+                if not getattr( fld, 'is_tomany', False ):
+                    bundle.data[ field_name ] = related_data[0]
 
         return bundle
 
     def update( self, bundle ):
         '''
-        Recursively saves the (embedded) object(s) in the validated bundle.
-
-        5. This is wicked! We have a totally valid bundle!
-           Try to save ourselves again, recursing for related resources.
-
-        IMPORTANT NOTE: 
-        We cannot assume that objects for which we only provided a URI 
-        have not changed: they likely have received updates from the other
-        side of their relations (if you use RelationalMixin), or have 
-        updated privileges (if you use PrivilegeMixin).
+        Recursively updates the (embedded) object(s) in the validated bundle.
+        NOTE: doesn't do any validation since that should've been done already.
         '''
 
-        if not hasattr( bundle, 'updated' ):
-            bundle.updated = set()
+        # PHASE 5: Woohooo! We got a completely validated nested bundle set!
+        # Let's update what needs updating.
 
-        to_save, to_delete = bundle.obj.get_related_documents_to_update()
-        bundle.to_save = getattr( bundle, 'to_save', set() ) | to_save 
-        bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
+        bundle = self._log_relational_changes( bundle )
 
         try:
-            bundle.obj.save( request=bundle.request, cascade=False )
+            bundle.obj.save( request=bundle.request, cascade=False, validate=False )
             bundle.updated.add( bundle.obj )
             print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
-        except MongoEngineValidationError, e:
-            # Ouch, that didn't work... Let's try creating related stuff first.
-            # FIXME: work out what to do in case `update` fails.
-            raise
+        except Exception, e:
+            bundle.errors[ Exception ].append( e )
 
-        # Start by updating any nested related bundles.
+        if bundle.errors:
+            # Try to minimize database updates, but properly pass back errors.
+            return bundle
+
+        # Continue updating any nested related bundles.
         for field_name, fld in self.fields.items():
             if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
                 related_data = bundle.data[ field_name ]
@@ -1340,25 +1471,25 @@ class DocumentResource( Resource ):
                     # was given, so bundle.data[ field_name ] can be None or []
                     continue
 
-                # The field has data in the form of one or a list of Bundles.
-                # Delegate updating new and former relations to the related resource.
                 related_resource = fld.get_related_resource()
-                if getattr( fld, 'is_tomany', False ):
 
-                    updated_data = []
-                    for related_bundle in related_data:
-                        # Only update when the related document has actually changed.
-                        if not related_bundle.uri_only or (related_bundle.obj in bundle.to_save):
-                            related_bundle = related_resource.update( related_bundle )
-                            bundle.updated.add( related_bundle.obj )
-                        updated_data.append(related_bundle)
+                if not getattr( fld, 'is_tomany', False ):
+                    related_data = [ related_data, ]
 
-                    bundle.data[ field_name ] = updated_data
+                for related_bundle in related_data:
+                    if not related_bundle.uri_only: 
+                        related_bundle = related_resource.update( related_bundle )
 
-                elif not related_data.uri_only or (related_data.obj in bundle.to_save):
-                    # Related data contains a bundle for a single related resource
-                    bundle.data[ field_name ] = related_resource.update( related_data )
-                    bundle.updated.add( bundle.data[ field_name ].obj )
+                        # Copy some fields over
+                        bundle.updated |= related_bundle.updated
+                        bundle.to_save |= related_bundle.to_save
+                        bundle.to_delete |= related_bundle.to_delete
+
+                        if related_bundle.errors:
+                            bundle.errors[ field_name ] = related_bundle.errors
+
+                if not getattr( fld, 'is_tomany', False ):
+                    bundle.data[ field_name ] = related_data[0]
 
         return bundle
 
@@ -1418,33 +1549,27 @@ class DocumentResource( Resource ):
         # Okay, we're good to go without superfluous queries!
         return object
 
+    def obj_delete_list( self, request=None, **kwargs ):
+        """
+        Tries to retrieve a set of resources per the given `request` and 
+        `kwargs` and deletes them if all are found. 
+
+        Returns `HTTPNoContent` if successful, or `HTTPNotFound`.
+        """
+        objects = self.obj_get_list(request, **kwargs)
+        self._delete_relational( objects=objects, request=request )
+
     def obj_delete_single( self, request=None, **kwargs ):
         """
         Tries to retrieve a resource per the given `request` and `kwargs` and
         deletes it if found. 
 
-        Returns `HTTPNoContent` if successful, of `HTTPNotFound`.
+        Returns `HTTPNoContent` if successful, or `HTTPNotFound`.
         """
         try:
             obj = self.obj_get_single(request, **kwargs)
         except DoesNotExist:
             raise NotFound("A model instance matching the provided arguments could not be found.")
 
-        # We must first notify our relations that we're going to be removed.
-        obj.clear_relations()
-
-        # Now find out what we need to do with our new and former relations.
-        to_save, to_delete = obj.get_related_documents_to_update()
-
-        # Validate and save updated relations that need saving.
-        for doc in to_save:
-            doc.validate( request=request )
-            doc.save( request=request, cascade=False )
-
-        # Ignore objects in `to_delete` since the reverse_delete_rule in 
-        # MongoEngine already takes care of that.
-
-        # Now that we should no longer have dangling relations, delete ourself.
-        print('    ~~~~~ DELETING `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
-        obj.delete( request=request )
+        self._delete_relational( objects=[obj,], request=request)
 
