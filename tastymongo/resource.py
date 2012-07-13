@@ -446,40 +446,6 @@ class Resource( object ):
         return bundle
 
     def save( self, bundle ):
-        """
-        Creates or updates a Resource including any nested Resources in the bundle.
-
-        Returns a bundle with the new or updated objects, their data ready to 
-        be deserialized and any errors that occured along the way.
-
-        First create any new resources in the bundle. This is done to ensure 
-        that all related resources exist. Then validate the resource tree, 
-        and finally save all updated documents.
-        """
-        if bundle.errors:
-            raise ImmediateHTTPResponse( 'Errors occured during hydration:\n{0}'.format(e) )
-
-        bundle = self.save_new( bundle )
-        if bundle.errors:
-            raise ImmediateHTTPResponse( 'Errors occured during new object creation:\n{0}'.format(e) )
-
-        bundle = self.validate( bundle )
-        if bundle.errors:
-            raise ImmediateHTTPResponse( 'Errors occured during document validation:\n{0}'.format(e) )
-
-        bundle = self.update( bundle )
-        if bundle.errors:
-            raise ImmediateHTTPResponse( 'Errors occured during document updates:\n{0}'.format(e) )
-
-        return bundle
-
-    def save_new( self, bundle ):
-        raise NotImplementedError()
-
-    def validate( self, bundle ):
-        raise NotImplementedError()
-
-    def update( self, bundle ):
         raise NotImplementedError()
 
     def dehydrate( self, bundle ):
@@ -911,6 +877,8 @@ class DocumentResource( Resource ):
         bundle.to_save = getattr( bundle, 'to_save', set() ) | to_save 
         bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
 
+        bundle.to_save -= bundle.to_delete | bundle.created | bundle.updated
+
         return bundle
 
     def _stash_invalid_relations( self, bundle ):
@@ -938,32 +906,22 @@ class DocumentResource( Resource ):
 
         return bundle
 
-    def _delete_relational( self, objects, request ):
+    def _update_relations( self, bundle ):
+        ''' 
+        Updates any relational changes stored in the bundle.
         '''
-        Deletes objects making sure related objects still validate and will be
-        saved without relations to the deleted objects. May recurse.
-        '''
-        for obj in objects:
-            # We must first notify our relations that we're going to be removed.
-            obj.clear_relations()
+        while bundle.to_save:
+            obj = bundle.to_save.pop()
+            obj.save( request=bundle.request, cascade=False )
+            bundle.updated.add(obj)
+            print('    ~~~~~ SAVED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
 
-            # Now find out if we need to remove or save further away relations.
-            to_save, to_delete = obj.get_related_documents_to_update()
-            self._save_relational( objects=to_save, request=request )
-            self._delete_relational( objects=to_delete, request=request )
-
-            # Now that we should no longer have dangling relations, delete ourself.
-            obj.delete( request=request )
+        while bundle.to_delete:
+            obj = bundle.to_delete.pop()
+            obj.delete( request=bundle.request )
             print('    ~~~~~ DELETED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
 
-    def _save_relational( self, objects, request ):
-        '''
-        Saves objects making sure related objects still validate and will be
-        saved with new relations to the saved objects. 
-        '''
-        for obj in objects:
-            obj.save( request=request, cascade=False )
-            print('    ~~~~~ SAVED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
+        return bundle
 
 
     @classmethod
@@ -1218,15 +1176,36 @@ class DocumentResource( Resource ):
 
 
     def save( self, bundle ):
-        bundle = super( DocumentResource, self ).save( bundle )
+        """
+        Creates or updates a Resource including any nested Resources in the bundle.
 
-        # For our Documents there's one more step involved : there may be 
-        # relations that need to be updated that aren't part of the bundle.
-        try:
-            self._delete_relational( objects=bundle.to_delete, request=bundle.request )
-            self._save_relational( objects=bundle.to_save - bundle.created - bundle.updated, request=bundle.request )
-        except Exception, e:
-            raise ImmediateHTTPResponse( 'Errors occured during relational consistency updates:\n{0}'.format(e) )
+        Returns a bundle with the new or updated objects, their data ready to 
+        be deserialized and any errors that occured along the way.
+
+        First create any new resources in the bundle. This is done to ensure 
+        that all related resources exist. Then validate the resource tree, 
+        and finally save all updated documents.
+        """
+        if bundle.errors:
+            raise ValidationError( 'Errors occured during hydration:\n{0}'.format(e) )
+
+        bundle = self.save_new( bundle )
+        if bundle.errors:
+            # Try to roll back what we created so far.
+            raise ValidationError( 'Errors occured during new object creation:\n{0}'.format(e) )
+        bundle = self._update_relations( bundle )
+
+        bundle = self.validate( bundle )
+        if bundle.errors:
+            raise ValidationError( 'Errors occured during document validation:\n{0}'.format(e) )
+
+        bundle = self.update( bundle )
+        if bundle.errors:
+            raise ValidationError( 'Errors occured during document updates:\n{0}'.format(e) )
+        bundle = self._update_relations( bundle )
+
+        return bundle
+
 
         return bundle
 
@@ -1557,7 +1536,9 @@ class DocumentResource( Resource ):
         Returns `HTTPNoContent` if successful, or `HTTPNotFound`.
         """
         objects = self.obj_get_list(request, **kwargs)
-        self._delete_relational( objects=objects, request=request )
+        for object in objects:
+            obj.delete( request=request )
+            print('    ~~~~~ DELETED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
 
     def obj_delete_single( self, request=None, **kwargs ):
         """
@@ -1571,5 +1552,6 @@ class DocumentResource( Resource ):
         except DoesNotExist:
             raise NotFound("A model instance matching the provided arguments could not be found.")
 
-        self._delete_relational( objects=[obj,], request=request)
+        obj.delete( request=request )
+        print('    ~~~~~ DELETED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
 
