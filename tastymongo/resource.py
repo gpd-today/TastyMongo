@@ -374,8 +374,15 @@ class Resource( object ):
 
         if data and 'resource_uri' in data:
             # Try to retrieve the object and put it in fresh bundle.
-            obj = self.obj_get_single( request=request, uri=data['resource_uri'] )
-        elif obj is None:
+            try:
+                obj = self.obj_get_single( request=request, uri=data['resource_uri'] )
+            except:
+                # Object is gone. Create a fresh object.
+                print('  WARNING: resource `{0}` is gone. Creating a fresh one'.format( data['resource_uri']) )
+                obj = None
+                del data['resource_uri']
+
+        if obj is None:
             obj = self._meta.object_class()
 
         bundle = Bundle( obj=obj, data=data, request=request )
@@ -884,22 +891,22 @@ class DocumentResource( Resource ):
 
         # Don't touch stuff that will get/got updated by the resource.
         updated_by_resource = bundle.index['created'] | bundle.index['updated'] 
-        updated_by_relationalmixin = bundle.index['to_save'] | bundle.index['to_delete'] | bundle.index['saved'] | bundle.index['deleted'] 
+        #updated_by_relationalmixin = bundle.index['to_save'] | bundle.index['to_delete'] | bundle.index['saved']  
         to_save = setdiff( to_save, updated_by_resource )
-        to_save = setdiff( to_save, updated_by_relationalmixin )
+        #to_save = setdiff( to_save, updated_by_relationalmixin )
         to_delete = setdiff( to_delete, updated_by_resource )
-        to_delete = setdiff( to_delete, updated_by_relationalmixin )
+        #to_delete = setdiff( to_delete, updated_by_relationalmixin )
 
         if to_save:
             bundle.index['to_save'] |= to_save
             for o in to_save:
-                print('    ~~~~~ TO SAVE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
+                print('    ~~ TO SAVE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
                     type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
 
         if to_delete:
             bundle.index['to_delete'] |= to_delete
             for o in to_delete:
-                print('    ~~~~~ TO DELETE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
+                print('    ~~ TO DELETE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
                     type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
 
         return bundle
@@ -933,7 +940,6 @@ class DocumentResource( Resource ):
         ''' 
         Updates any relational changes stored in the bundle.
         '''
-
         while bundle.index['to_save']:
             obj = bundle.index['to_save'].pop()
 
@@ -945,24 +951,24 @@ class DocumentResource( Resource ):
             print('    ~~~~~ SAVED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
 
+        # FIXME: don't do this at all? Not here and not like this anyway.
         while bundle.index['to_delete']:
             obj = bundle.index['to_delete'].pop()
-
+            '''
             # Tell related objects that we're going to be deleted.
             # The object to be deleted may induce further away updates.
             # FIXME: I don't think we need this anymore since we now added
             # proper delete rules.
             obj.clear_relations()
             self._mark_relational_changes_for( bundle, obj )
+            '''
 
-            bundle.index['deleted'].add(obj)
-
-            obj.delete( request=bundle.request )
-            print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+            #obj.delete( request=bundle.request )
+            print('    ~~~~~ /not/ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
         if bundle.index['to_save'] or bundle.index['to_delete']:
             # Call ourself again to fix even further away relations.
-            print('    !!!!! RECURSING `update_relations`!')
+            print('  WARNING: recursing `update_relations`')
             bundle = self._update_relations( bundle )
 
         return bundle
@@ -1476,10 +1482,11 @@ class DocumentResource( Resource ):
             bundle.index['updated'].add( bundle.obj )
             print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
         except Exception, e:
+            import ipdb; ipdb.set_trace()
             bundle.errors[ Exception ].append( e )
 
         if bundle.errors:
-            # Try to minimize database updates, but properly pass back errors.
+            # Try to minimize database updates and properly pass back errors.
             return bundle
 
         # Continue updating any nested related bundles.
@@ -1578,7 +1585,7 @@ class DocumentResource( Resource ):
         objects = self.obj_get_list(request, **kwargs)
         for object in objects:
             obj.delete( request=request )
-            print('    ~~~~~ DELETED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
+            print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
     def obj_delete_single( self, request=None, **kwargs ):
         """
@@ -1593,5 +1600,5 @@ class DocumentResource( Resource ):
             raise NotFound("A model instance matching the provided arguments could not be found.")
 
         obj.delete( request=request )
-        print('    ~~~~~ DELETED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
+        print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
