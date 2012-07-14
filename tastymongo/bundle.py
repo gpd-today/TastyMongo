@@ -14,9 +14,7 @@ class Bundle( object ):
         self.uri_only = True
         self.request = request
         self.errors = defaultdict(list)
-
-        self.updated = set()
-        self.created = set()
+        self.index = defaultdict(set)
 
     def __repr__( self ):
         return "<Bundle for obj='%s' with data='%s'>" % ( self.obj, self.data )

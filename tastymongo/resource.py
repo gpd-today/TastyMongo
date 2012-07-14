@@ -410,15 +410,11 @@ class Resource( object ):
         for field_name, fld in self.fields.items():
             # You may provide a custom method on the resource that will replace
             # the default hydration behaviour for the field.
-            method = getattr(self, "hydrate_{0}".format(field_name), None)
-
-            if method is None:
-                method = fld.hydrate
-
-            try:
+            callback = getattr(self, "hydrate_{0}".format(field_name), None)
+            if not callback is None:
+                data = callback( bundle )
+            else:
                 data = fld.hydrate( bundle )
-            except Exception, e:
-                bundle.errors['HydrationErrors'].append(e)
 
             if getattr(fld, 'is_related', False): 
                 if getattr(fld, 'is_tomany', False):
@@ -874,10 +870,8 @@ class DocumentResource( Resource ):
     def _log_relational_changes( self, bundle ):
         # Track and store any changes to our relations
         to_save, to_delete = bundle.obj.get_related_documents_to_update()
-        bundle.to_save = getattr( bundle, 'to_save', set() ) | to_save 
-        bundle.to_delete = getattr( bundle, 'to_delete', set() ) | to_delete 
-
-        bundle.to_save -= bundle.to_delete | bundle.created | bundle.updated
+        bundle.index['to_save'] |= to_save
+        bundle.index['to_delete'] |= to_delete
 
         return bundle
 
@@ -910,14 +904,32 @@ class DocumentResource( Resource ):
         ''' 
         Updates any relational changes stored in the bundle.
         '''
-        while bundle.to_save:
-            obj = bundle.to_save.pop()
+        # Remove any objects already updated or created from 'to_save'.
+        bundle.index['to_save'] -= (bundle.index['updated'] | bundle.index['created'])
+        while bundle.index['to_save']:
+            obj = bundle.index['to_save'].pop()
+
+            '''
+            to_save, to_delete = obj.get_related_documents_to_update()
+            bundle.index['to_delete'] |= to_delete
+            bundle.index['to_save'] |= to_save
+            '''
+
             obj.save( request=bundle.request, cascade=False )
-            bundle.updated.add(obj)
             print('    ~~~~~ SAVED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
 
-        while bundle.to_delete:
-            obj = bundle.to_delete.pop()
+        while bundle.index['to_delete']:
+            obj = bundle.index['to_delete'].pop()
+
+            # Deleting an object may cause additional relational updates.
+            obj.clear_relations()
+            to_save, to_delete = obj.get_related_documents_to_update()
+            bundle.index['to_delete'] |= to_delete
+            bundle.index['to_save'] |= to_save
+
+            bundle.index['to_save'].discard(obj)
+            bundle.index['to_delete'].discard(obj)
+
             obj.delete( request=bundle.request )
             print('    ~~~~~ DELETED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
 
@@ -1191,20 +1203,20 @@ class DocumentResource( Resource ):
 
         bundle = self.save_new( bundle )
         if bundle.errors:
-            # Try to roll back what we created so far.
+            # FIXME: Try to roll back what we created so far.
             raise ValidationError( 'Errors occured during new object creation:\n{0}'.format(e) )
-        bundle = self._update_relations( bundle )
 
         bundle = self.validate( bundle )
         if bundle.errors:
+            # FIXME: Try to roll back what we created so far.
             raise ValidationError( 'Errors occured during document validation:\n{0}'.format(e) )
 
         bundle = self.update( bundle )
         if bundle.errors:
+            # FIXME: Try to roll back what we created so far.
             raise ValidationError( 'Errors occured during document updates:\n{0}'.format(e) )
-        bundle = self._update_relations( bundle )
 
-        return bundle
+        bundle = self._update_relations( bundle )
 
 
         return bundle
@@ -1299,14 +1311,13 @@ class DocumentResource( Resource ):
               way we're out of luck.
 
         '''
-        bundle = self._log_relational_changes( bundle )
-
         # PHASE 1: If we're brand spankin' new try to get us an id.
         if not bundle.obj.pk:
+            bundle = self._log_relational_changes( bundle )
             bundle = self._stash_invalid_relations( bundle )
             try:
                 bundle.obj.save( request=bundle.request, cascade=False ) 
-                bundle.created.add( bundle.obj )
+                bundle.index['created'].add( bundle.obj )
                 print('    ~~~~~ CREATED (phase 1) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
                 # We'll have to wait for phase 3.
@@ -1333,9 +1344,8 @@ class DocumentResource( Resource ):
                     related_bundle = related_resource.save_new( related_bundle )
 
                     # Copy some fields over
-                    bundle.created |= related_bundle.created
-                    bundle.to_save |= related_bundle.to_save
-                    bundle.to_delete |= related_bundle.to_delete
+                    for k in ( 'created', 'to_save', 'to_delete' ):
+                        bundle.index[k] |= related_bundle.index[k]
 
                     if related_bundle.errors:
                         bundle.errors[ field_name ].append( related_bundle.errors )
@@ -1344,10 +1354,9 @@ class DocumentResource( Resource ):
                     bundle.data[ field_name ] = related_data[0]
 
 
-        bundle = self._log_relational_changes( bundle )
-
         # PHASE 3: If we don't have an id yet we should be able to get one now.
         if not bundle.obj.pk:
+            bundle = self._log_relational_changes( bundle )
             bundle = self._stash_invalid_relations( bundle )
 
             if bundle.stashed:
@@ -1369,7 +1378,7 @@ class DocumentResource( Resource ):
             
             try:
                 bundle.obj.save( request=bundle.request, cascade=False, ) 
-                bundle.created.add( bundle.obj )
+                bundle.index['created'].add( bundle.obj )
                 print('    ~~~~~ CREATED (phase 3) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
                 # Failed to save. 
@@ -1432,7 +1441,7 @@ class DocumentResource( Resource ):
 
         try:
             bundle.obj.save( request=bundle.request, cascade=False, validate=False )
-            bundle.updated.add( bundle.obj )
+            bundle.index['updated'].add( bundle.obj )
             print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
         except Exception, e:
             bundle.errors[ Exception ].append( e )
@@ -1460,9 +1469,8 @@ class DocumentResource( Resource ):
                         related_bundle = related_resource.update( related_bundle )
 
                         # Copy some fields over
-                        bundle.updated |= related_bundle.updated
-                        bundle.to_save |= related_bundle.to_save
-                        bundle.to_delete |= related_bundle.to_delete
+                        for i in ['updated', 'to_save', 'to_delete']:
+                            bundle.index[i] |= related_bundle.index[i]
 
                         if related_bundle.errors:
                             bundle.errors[ field_name ] = related_bundle.errors
