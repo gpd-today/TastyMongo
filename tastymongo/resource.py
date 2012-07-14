@@ -867,11 +867,40 @@ class DocumentResource( Resource ):
     '''
     __metaclass__ = DocumentDeclarativeMetaclass
 
-    def _log_relational_changes( self, bundle ):
-        # Track and store any changes to our relations
-        to_save, to_delete = bundle.obj.get_related_documents_to_update()
-        bundle.index['to_save'] |= to_save
-        bundle.index['to_delete'] |= to_delete
+    def _mark_relational_changes_for( self, bundle, obj=None ):
+        # Track and store any changes to relations of `obj` on the bundle.
+        if obj is None:
+            obj = bundle.obj
+
+        try:
+            # FIXME: expose this internal function through some utils lib.
+            setdiff = obj._set_difference
+        except:
+            # FIXME: for debugging while not exposed as util. Shouldn't happen.
+            raise ValidationError( '`{0}` does not have the _set_difference() function. Is it a RelationalDocument?' )
+
+        # Find out what the RelationManagerMixin considers changed.
+        to_save, to_delete = obj.get_related_documents_to_update()
+
+        # Don't touch stuff that will get/got updated by the resource.
+        updated_by_resource = bundle.index['created'] | bundle.index['updated'] 
+        updated_by_relationalmixin = bundle.index['to_save'] | bundle.index['to_delete'] | bundle.index['saved'] | bundle.index['deleted'] 
+        to_save = setdiff( to_save, updated_by_resource )
+        to_save = setdiff( to_save, updated_by_relationalmixin )
+        to_delete = setdiff( to_delete, updated_by_resource )
+        to_delete = setdiff( to_delete, updated_by_relationalmixin )
+
+        if to_save:
+            bundle.index['to_save'] |= to_save
+            for o in to_save:
+                print('    ~~~~~ TO SAVE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
+                    type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
+
+        if to_delete:
+            bundle.index['to_delete'] |= to_delete
+            for o in to_delete:
+                print('    ~~~~~ TO DELETE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
+                    type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
 
         return bundle
 
@@ -904,34 +933,37 @@ class DocumentResource( Resource ):
         ''' 
         Updates any relational changes stored in the bundle.
         '''
-        # Remove any objects already updated or created from 'to_save'.
-        bundle.index['to_save'] -= (bundle.index['updated'] | bundle.index['created'])
+
         while bundle.index['to_save']:
             obj = bundle.index['to_save'].pop()
 
-            '''
-            to_save, to_delete = obj.get_related_documents_to_update()
-            bundle.index['to_delete'] |= to_delete
-            bundle.index['to_save'] |= to_save
-            '''
+            # The object to be saved may induce further away updates.
+            self._mark_relational_changes_for( bundle, obj )
 
             obj.save( request=bundle.request, cascade=False )
-            print('    ~~~~~ SAVED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
+            bundle.index['saved'].add(obj) 
+            print('    ~~~~~ SAVED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+
 
         while bundle.index['to_delete']:
             obj = bundle.index['to_delete'].pop()
 
-            # Deleting an object may cause additional relational updates.
+            # Tell related objects that we're going to be deleted.
+            # The object to be deleted may induce further away updates.
+            # FIXME: I don't think we need this anymore since we now added
+            # proper delete rules.
             obj.clear_relations()
-            to_save, to_delete = obj.get_related_documents_to_update()
-            bundle.index['to_delete'] |= to_delete
-            bundle.index['to_save'] |= to_save
+            self._mark_relational_changes_for( bundle, obj )
 
-            bundle.index['to_save'].discard(obj)
-            bundle.index['to_delete'].discard(obj)
+            bundle.index['deleted'].add(obj)
 
             obj.delete( request=bundle.request )
-            print('    ~~~~~ DELETED `{2}`: `{0}` (id={1})'.format(obj, obj.pk, type(obj)._class_name))
+            print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+
+        if bundle.index['to_save'] or bundle.index['to_delete']:
+            # Call ourself again to fix even further away relations.
+            print('    !!!!! RECURSING `update_relations`!')
+            bundle = self._update_relations( bundle )
 
         return bundle
 
@@ -1313,12 +1345,12 @@ class DocumentResource( Resource ):
         '''
         # PHASE 1: If we're brand spankin' new try to get us an id.
         if not bundle.obj.pk:
-            bundle = self._log_relational_changes( bundle )
+            bundle = self._mark_relational_changes_for( bundle )
             bundle = self._stash_invalid_relations( bundle )
             try:
                 bundle.obj.save( request=bundle.request, cascade=False ) 
                 bundle.index['created'].add( bundle.obj )
-                print('    ~~~~~ CREATED (phase 1) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
+                print('    ~~~~~ CREATED (I) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
                 # We'll have to wait for phase 3.
                 pass
@@ -1356,7 +1388,7 @@ class DocumentResource( Resource ):
 
         # PHASE 3: If we don't have an id yet we should be able to get one now.
         if not bundle.obj.pk:
-            bundle = self._log_relational_changes( bundle )
+            bundle = self._mark_relational_changes_for( bundle )
             bundle = self._stash_invalid_relations( bundle )
 
             if bundle.stashed:
@@ -1379,7 +1411,7 @@ class DocumentResource( Resource ):
             try:
                 bundle.obj.save( request=bundle.request, cascade=False, ) 
                 bundle.index['created'].add( bundle.obj )
-                print('    ~~~~~ CREATED (phase 3) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
+                print('    ~~~~~ CREATED (II) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
                 # Failed to save. 
                 bundle.errors[ MongoEngineValidationError ].append( e )
@@ -1437,7 +1469,7 @@ class DocumentResource( Resource ):
         # PHASE 5: Woohooo! We got a completely validated nested bundle set!
         # Let's update what needs updating.
 
-        bundle = self._log_relational_changes( bundle )
+        bundle = self._mark_relational_changes_for( bundle )
 
         try:
             bundle.obj.save( request=bundle.request, cascade=False, validate=False )
