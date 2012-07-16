@@ -15,10 +15,12 @@ from .paginator import Paginator
 from pyramid.response import Response
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
 from mongoengine.base import ValidationError as MongoEngineValidationError
+from mongoengine_relational.relationalmixin import set_difference as setdiff
 import mongoengine.document 
 import mongoengine.fields as mf
 
 from copy import deepcopy
+
 
 class ResourceOptions( object ):
     """
@@ -879,23 +881,16 @@ class DocumentResource( Resource ):
         if obj is None:
             obj = bundle.obj
 
-        try:
-            # FIXME: expose this internal function through some utils lib.
-            setdiff = obj._set_difference
-        except:
-            # FIXME: for debugging while not exposed as util. Shouldn't happen.
-            raise ValidationError( '`{0}` does not have the _set_difference() function. Is it a RelationalDocument?' )
-
         # Find out what the RelationManagerMixin considers changed.
         to_save, to_delete = obj.get_related_documents_to_update()
 
         # Don't touch stuff that will get/got updated by the resource.
         updated_by_resource = bundle.index['created'] | bundle.index['updated'] 
-        #updated_by_relationalmixin = bundle.index['to_save'] | bundle.index['to_delete'] | bundle.index['saved']  
+        updated_by_relationalmixin = bundle.index['to_save'] | bundle.index['to_delete'] | bundle.index['saved']  
         to_save = setdiff( to_save, updated_by_resource )
-        #to_save = setdiff( to_save, updated_by_relationalmixin )
+        to_save = setdiff( to_save, updated_by_relationalmixin )
         to_delete = setdiff( to_delete, updated_by_resource )
-        #to_delete = setdiff( to_delete, updated_by_relationalmixin )
+        to_delete = setdiff( to_delete, updated_by_relationalmixin )
 
         if to_save:
             bundle.index['to_save'] |= to_save
@@ -951,24 +946,20 @@ class DocumentResource( Resource ):
             print('    ~~~~~ SAVED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
 
-        # FIXME: don't do this at all? Not here and not like this anyway.
         while bundle.index['to_delete']:
             obj = bundle.index['to_delete'].pop()
-            '''
             # Tell related objects that we're going to be deleted.
             # The object to be deleted may induce further away updates.
-            # FIXME: I don't think we need this anymore since we now added
-            # proper delete rules.
             obj.clear_relations()
             self._mark_relational_changes_for( bundle, obj )
-            '''
 
-            #obj.delete( request=bundle.request )
-            print('    ~~~~~ /not/ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+            obj.delete( request=bundle.request )
+            print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
-        if bundle.index['to_save'] or bundle.index['to_delete']:
+        if bundle.index['to_save']: 
+            # Deletion may have triggered documents that need to be updated.
             # Call ourself again to fix even further away relations.
-            print('  WARNING: recursing `update_relations`')
+            print('    RECURSING `update_relations`')
             bundle = self._update_relations( bundle )
 
         return bundle
@@ -1482,7 +1473,6 @@ class DocumentResource( Resource ):
             bundle.index['updated'].add( bundle.obj )
             print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
         except Exception, e:
-            import ipdb; ipdb.set_trace()
             bundle.errors[ Exception ].append( e )
 
         if bundle.errors:
