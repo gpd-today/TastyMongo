@@ -884,13 +884,11 @@ class DocumentResource( Resource ):
         # Find out what the RelationManagerMixin considers changed.
         to_save, to_delete = obj.get_related_documents_to_update()
 
-        # Don't touch stuff that will get/got updated by the resource.
+        # Don't retouch stuff that will get or got updated.
         updated_by_resource = bundle.index['created'] | bundle.index['updated'] 
-        updated_by_relationalmixin = bundle.index['to_save'] | bundle.index['to_delete'] | bundle.index['saved']  
-        to_save = setdiff( to_save, updated_by_resource )
-        to_save = setdiff( to_save, updated_by_relationalmixin )
-        to_delete = setdiff( to_delete, updated_by_resource )
-        to_delete = setdiff( to_delete, updated_by_relationalmixin )
+        updated_by_relationalmixin = bundle.index['to_save'] | bundle.index['to_delete'] | bundle.index['saved'] | bundle.index['deleted']
+        to_save = setdiff( to_save, updated_by_resource | updated_by_relationalmixin )
+        to_delete = setdiff( to_delete, updated_by_resource | updated_by_relationalmixin )
 
         if to_save:
             bundle.index['to_save'] |= to_save
@@ -952,6 +950,9 @@ class DocumentResource( Resource ):
             # The object to be deleted may induce further away updates.
             obj.clear_relations()
             self._mark_relational_changes_for( bundle, obj )
+
+            # Store the ObjectId of the object before it is destroyed.
+            bundle.index['deleted'].add(getattr(obj, 'pk', obj.id))
 
             obj.delete( request=bundle.request )
             print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
