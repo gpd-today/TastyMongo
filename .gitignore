@@ -15,6 +15,7 @@
 *.swp
 
 # OS or Editor folders
+*.egg-info
 __pycache__
 .idea
 .DS_Store
