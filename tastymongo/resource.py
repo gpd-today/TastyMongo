@@ -1574,9 +1574,10 @@ class DocumentResource( Resource ):
         Returns `HTTPNoContent` if successful, or `HTTPNotFound`.
         """
         objects = self.obj_get_list(request, **kwargs)
-        for object in objects:
-            obj.delete( request=request )
-            print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+        bundles = [self.build_bundle( obj=object, request=request ) for object in objects]
+        for bundle in bundles:
+            bundle.index['to_delete'].add( bundle.obj )
+            self._update_relations( bundle )
 
     def obj_delete_single( self, request=None, **kwargs ):
         """
@@ -1586,10 +1587,11 @@ class DocumentResource( Resource ):
         Returns `HTTPNoContent` if successful, or `HTTPNotFound`.
         """
         try:
-            obj = self.obj_get_single(request, **kwargs)
+            object = self.obj_get_single(request, **kwargs)
         except DoesNotExist:
             raise NotFound("A model instance matching the provided arguments could not be found.")
 
-        obj.delete( request=request )
-        print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+        bundle = self.build_bundle( obj=object, request=request )
+        bundle.index['to_delete'].add( bundle.obj )
+        self._update_relations( bundle )
 
