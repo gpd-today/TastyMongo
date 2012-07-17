@@ -959,8 +959,7 @@ class DocumentResource( Resource ):
 
         if bundle.index['to_save']: 
             # Deletion may have triggered documents that need to be updated.
-            # Call ourself again to fix even further away relations.
-            print('    RECURSING `update_relations`')
+            # Recurse to fix relations further away incurred by the delete.
             bundle = self._update_relations( bundle )
 
         return bundle
@@ -1229,22 +1228,23 @@ class DocumentResource( Resource ):
         and finally save all updated documents.
         """
         if bundle.errors:
-            raise ValidationError( 'Errors occured during hydration:\n{0}'.format(e) )
+            raise ValidationError( 'Errors occured during hydration:\n{0}'.format( bundle.errors ) )
 
         bundle = self.save_new( bundle )
         if bundle.errors:
             # FIXME: Try to roll back what we created so far.
-            raise ValidationError( 'Errors occured during new object creation:\n{0}'.format(e) )
+            raise ValidationError( 'Errors occured during new object creation:\n{0}'.format( bundle.errors ) )
 
         bundle = self.validate( bundle )
         if bundle.errors:
             # FIXME: Try to roll back what we created so far.
-            raise ValidationError( 'Errors occured during document validation:\n{0}'.format(e) )
+            raise ValidationError( 'Errors occured during document validation:\n{0}'.format( bundle.errors ) )
 
         bundle = self.update( bundle )
         if bundle.errors:
-            # FIXME: Try to roll back what we created so far.
-            raise ValidationError( 'Errors occured during document updates:\n{0}'.format(e) )
+            # FIXME: Try to roll back what we created so far. Ehm, maybe not
+            # since we've already updated stuff. Tough luck.
+            raise ValidationError( 'Errors occured during document updates:\n{0}'.format( bundle.errors ) )
 
         bundle = self._update_relations( bundle )
 
