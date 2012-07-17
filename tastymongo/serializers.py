@@ -157,7 +157,7 @@ class Serializer(object):
         elif data is None:
             return None
         else:
-            return str(data)
+            return unicode(data)
 
     def to_json(self, data, options=None):
         """
@@ -202,6 +202,7 @@ class Serializer(object):
         implemented.
         """
         pass
+
 
 def get_type_string(data):
     """
