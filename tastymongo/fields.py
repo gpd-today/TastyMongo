@@ -314,6 +314,9 @@ class DateField( ApiField ):
             else:
                 raise ApiFieldError( "Date `{0}` provided to the `{1}` field doesn't appear to be a valid date string: ".format( value, self.field_name) )
 
+        if isinstance( value, datetime.datetime ):
+            return datetime.date( value.year, value.month, value.day )
+
         return value
 
     def hydrate( self, bundle ):
