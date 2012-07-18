@@ -905,7 +905,18 @@ class DocumentResource( Resource ):
         return bundle
 
     def _stash_invalid_relations( self, bundle ):
+        '''
+        Validates the object in the bundle. If validation fails, stashes all
+        relational fields that are not required and cause a validationerror.
+        This may be sufficient to create the object, after which these stashed
+        relations can be popped back on. 
+        '''
         bundle.stashed = {}
+
+        caller = getattr( bundle, 'caller', None )
+        if caller:
+            field_name, caller_bundle = caller.items()[0]
+            setattr( bundle.obj, field_name, caller_bundle.obj )
 
         try:
             bundle.obj.validate( request=bundle.request )
@@ -913,19 +924,27 @@ class DocumentResource( Resource ):
             for k in e.errors.keys():  # ! Document, not Resource, fields 
                 fld = self.related_fields_map.get( k ) 
                 if fld and not fld.required:
-                    bundle.stashed[ k ] = getattr( bundle.obj, k )
                     if getattr( fld, 'is_tomany', False ):
+                        bundle.stashed[ k ] = getattr( bundle.obj, k )[:]
                         setattr( bundle.obj, k, [] )
-                    else:  # ToOne
+                    else:  
+                        bundle.stashed[ k ] = getattr( bundle.obj, k ).copy()
                         setattr( bundle.obj, k, None )
+                    print( 'STASHED: {0}'.format( bundle.stashed) )
+                else:
+                    # We can't make (required) fields with invalid data valid.
+                    bundle.errors[k].append(e)
 
         return bundle
 
-    def _pop_invalid_relations( self, bundle ):
-        for k, v in bundle.stashed.items():
-            setattr( bundle.obj, k, v )
+    def _pop_stashed_relations( self, bundle ):
+        '''
+        Pops any previously stashed invalid relations back on the object.
+        '''
+        for field_name, data in bundle.stashed.items():
+            setattr( bundle.obj, field_name, data )
 
-        bundle.stashed = {}
+        bundle.stashed.clear()
 
         return bundle
 
@@ -1343,16 +1362,16 @@ class DocumentResource( Resource ):
         '''
         # PHASE 1: If we're brand spankin' new try to get us an id.
         if not bundle.obj.pk:
-            bundle = self._mark_relational_changes_for( bundle )
             bundle = self._stash_invalid_relations( bundle )
             try:
+                bundle = self._mark_relational_changes_for( bundle )
                 bundle.obj.save( request=bundle.request, cascade=False ) 
                 bundle.index['created'].add( bundle.obj )
                 print('    ~~~~~ CREATED (I) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
                 # We'll have to wait for phase 3.
                 pass
-            bundle = self._pop_invalid_relations( bundle )
+            bundle = self._pop_stashed_relations( bundle )
 
 
         # PHASE 2: Recurse for any nested related resources.
@@ -1370,7 +1389,8 @@ class DocumentResource( Resource ):
                     related_data = [ related_data, ] 
 
                 for related_bundle in related_data:
-                    related_bundle.parent = bundle
+                    related_bundle.caller = { fld.attribute: bundle }
+                    related_bundle.index['created'].add( bundle.obj )  # prevents duplicate save
                     related_bundle = related_resource.save_new( related_bundle )
 
                     # Copy some fields over
@@ -1386,28 +1406,10 @@ class DocumentResource( Resource ):
 
         # PHASE 3: If we don't have an id yet we should be able to get one now.
         if not bundle.obj.pk:
-            bundle = self._mark_relational_changes_for( bundle )
-            bundle = self._stash_invalid_relations( bundle )
-
-            if bundle.stashed:
-                if not len( bundle.stashed ) == 1 or not getattr( bundle, 'parent', None ):
-                    bundle.errors[ ValidationError ].append( ValidationError( 'Could not auto-create new resources from provided data.' ) )
-
-                # There should only be 1 invalid relation in the stash, which
-                # should correspond to our `parent`, since all other relations
-                # should exist or have been created by now.
-                k = bundle.stashed.keys()[0]  # ! Mongo field name
-                #try:
-                    # Maybe not needed since MongoEngine will check this?
-                #    assert type( bundle.parent.obj ) == type( getattr( bundle.obj, k ).document_type)
-                #except AssertionError, e:
-                #    bundle.errors[ AssertionError ].append( e )
-                #else:
-                #    setattr( bundle.obj, k, bundle.parent.obj )
-                setattr( bundle.obj, k, bundle.parent.obj )
-            
+            import ipdb; ipdb.set_trace()
             try:
-                bundle.obj.save( request=bundle.request, cascade=False, ) 
+                bundle = self._mark_relational_changes_for( bundle )
+                bundle.obj.save( request=bundle.request, cascade=False ) 
                 bundle.index['created'].add( bundle.obj )
                 print('    ~~~~~ CREATED (II) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
