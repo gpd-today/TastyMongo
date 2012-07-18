@@ -17,7 +17,7 @@ from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
 from mongoengine.base import ValidationError as MongoEngineValidationError
 from mongoengine_relational.relationalmixin import set_difference as setdiff
 import mongoengine.document 
-import mongoengine.fields as mf
+import mongoengine.fields as mongofields
 
 from copy import deepcopy
 
@@ -78,7 +78,6 @@ class DeclarativeMetaclass( type ):
     def __new__( cls, name, bases, attrs ):
         attrs['base_fields'] = {}
         declared_fields = {}
-        related_fields_map = {}
 
         # Inherit any fields from parent clas( ses ).
         try:
@@ -95,18 +94,14 @@ class DeclarativeMetaclass( type ):
             pass
 
         # Find fields explicitly set on the Resource
-        for field_name, obj in attrs.items():
+        for attr, obj in attrs.items():
             if isinstance( obj, fields.ApiField ):
-                field = attrs.pop( field_name )
-                declared_fields[field_name] = field
-                if getattr( field, 'is_related', False ):
-                    # A reverse lookup from Document to Resource fields
-                    related_fields_map[ field.attribute ] = field
+                field = attrs.pop( attr )
+                declared_fields[ attr ] = field
 
         # Add the explicitly defined fields to our base_fields
         attrs['base_fields'].update( declared_fields )
         attrs['declared_fields'] = declared_fields
-        attrs['related_fields_map'] = related_fields_map
 
         # Create the class
         new_class = super( DeclarativeMetaclass, cls ).__new__( cls, name, bases, attrs )
@@ -906,34 +901,28 @@ class DocumentResource( Resource ):
 
     def _stash_invalid_relations( self, bundle ):
         '''
-        Validates the object in the bundle. If validation fails, stashes all
-        relational fields that are not required and cause a validationerror.
-        This may be sufficient to create the object, after which these stashed
-        relations can be popped back on. 
+        Validates the object in the bundle. If validation fails, stashes
+        invalid relational fields that are not required.
         '''
-        bundle.stashed = {}
-
-        caller = getattr( bundle, 'caller', None )
-        if caller:
-            field_name, caller_bundle = caller.items()[0]
-            setattr( bundle.obj, field_name, caller_bundle.obj )
+        bundle.stashed_relations = {}
 
         try:
             bundle.obj.validate( request=bundle.request )
         except MongoEngineValidationError, e:
             for k in e.errors.keys():  # ! Document, not Resource, fields 
-                fld = self.related_fields_map.get( k ) 
-                if fld and not fld.required:
-                    if getattr( fld, 'is_tomany', False ):
-                        bundle.stashed[ k ] = getattr( bundle.obj, k )[:]
-                        setattr( bundle.obj, k, [] )
-                    else:  
-                        bundle.stashed[ k ] = getattr( bundle.obj, k ).copy()
+                fld = bundle.obj._fields[k]
+                if isinstance( fld, mongofields.ReferenceField ):
+                    if not fld.required:
+                        bundle.stashed_relations[ k ] = getattr( bundle.obj, k ).copy()
                         setattr( bundle.obj, k, None )
-                    print( 'STASHED: {0}'.format( bundle.stashed) )
+                elif isinstance( fld, mongofields.ListField ) and hasattr(fld, 'field'):
+                    if not fld.required:
+                        bundle.stashed_relations[ k ] = getattr( bundle.obj, k )[:]
+                        setattr( bundle.obj, k, [] )
                 else:
-                    # We can't make (required) fields with invalid data valid.
-                    bundle.errors[k].append(e)
+                    bundle.errors[k].append( e )
+
+        # NOTE: non-relational fields will be processed by `validate` later on
 
         return bundle
 
@@ -941,10 +930,11 @@ class DocumentResource( Resource ):
         '''
         Pops any previously stashed invalid relations back on the object.
         '''
-        for field_name, data in bundle.stashed.items():
+
+        for field_name, data in bundle.stashed_relations.items():
             setattr( bundle.obj, field_name, data )
 
-        bundle.stashed.clear()
+        bundle.stashed_relations = {}
 
         return bundle
 
@@ -983,6 +973,43 @@ class DocumentResource( Resource ):
 
         return bundle
 
+    def _related_fields_callback( self, bundle, callback_func ):
+        for field_name, fld in self.fields.items():
+            if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
+                related_data = bundle.data[ field_name ]
+                if not related_data: 
+                    # This can happen if the field is not required and no data
+                    # was given, so related_data can be None or []
+                    continue
+                
+                related_resource = fld.get_related_resource()
+                
+                if not getattr( fld, 'is_tomany', False ):
+                    related_data = [ related_data, ] 
+
+                for related_bundle in related_data:
+
+                    # Pass accounting index down...
+                    for k in bundle.index.keys():
+                        related_bundle.index[k] |= bundle.index[k]
+
+                    # Execute the callback function on the related resource
+                    callback = getattr( related_resource, callback_func )
+                    related_bundle = callback( related_bundle )
+
+                    # Propagate accounting index back up
+                    for k in bundle.index.keys():
+                        bundle.index[k] |= related_bundle.index[k]
+                    if related_bundle.errors:
+                        bundle.errors[ field_name ].append( related_bundle.errors )
+
+                if not getattr( fld, 'is_tomany', False ):
+                    bundle.data[ field_name ] = related_data[0]
+
+        return bundle
+
+
+    # PHASE 3: If we don't have an id yet we should be able to get one now.
 
     @classmethod
     def should_skip_field( cls, field ):
@@ -992,10 +1019,10 @@ class DocumentResource( Resource ):
         """
         # Ignore reference fields for now, because objects know nothing about 
         # any API through which they're exposed. 
-        if isinstance( field, mf.ListField ) and hasattr( field, 'field' ):
+        if isinstance( field, mongofields.ListField ) and hasattr( field, 'field' ):
             field = field.field
 
-        if isinstance( field, ( mf.ReferenceField ) ):
+        if isinstance( field, mongofields.ReferenceField ):
             return True
 
         return False
@@ -1010,25 +1037,25 @@ class DocumentResource( Resource ):
         result = default  # instantiated only once by specifying it as kwarg
 
         # Specify only those field types that differ from default StringField
-        if isinstance( f, mf.BooleanField ):
+        if isinstance( f, mongofields.BooleanField ):
             result = fields.BooleanField
-        elif isinstance( f, mf.FloatField ):
+        elif isinstance( f, mongofields.FloatField ):
             result = fields.FloatField
-        elif isinstance( f, mf.DecimalField ):
+        elif isinstance( f, mongofields.DecimalField ):
             result = fields.DecimalField
-        elif isinstance( f, ( mf.IntField, mf.SequenceField ) ):
+        elif isinstance( f, ( mongofields.IntField, mongofields.SequenceField ) ):
             result = fields.IntegerField
-        elif isinstance( f, ( mf.FileField, mf.ImageField, mf.BinaryField ) ):
+        elif isinstance( f, ( mongofields.FileField, mongofields.ImageField, mongofields.BinaryField ) ):
             result = fields.FileField
-        elif isinstance( f, ( mf.DictField, mf.MapField ) ):
+        elif isinstance( f, ( mongofields.DictField, mongofields.MapField ) ):
             result = fields.DictField
-        elif isinstance( f, ( mf.DateTimeField, mf.ComplexDateTimeField ) ):
+        elif isinstance( f, ( mongofields.DateTimeField, mongofields.ComplexDateTimeField ) ):
             result = fields.DateTimeField
-        elif isinstance( f, ( mf.ListField, mf.SortedListField, mf.GeoPointField ) ):
+        elif isinstance( f, ( mongofields.ListField, mongofields.SortedListField, mongofields.GeoPointField ) ):
             # This will be lists of simple objects, since references have been
             # discarded already by should_skip_fields. 
             result = fields.ListField
-        elif isinstance( f, mf.ObjectIdField, ):
+        elif isinstance( f, mongofields.ObjectIdField, ):
             result = fields.ObjectIdField
 
         return result
@@ -1252,7 +1279,7 @@ class DocumentResource( Resource ):
         bundle = self.save_new( bundle )
         if bundle.errors:
             # FIXME: Try to roll back what we created so far.
-            raise ValidationError( 'Errors occured during new object creation:\n{0}'.format( bundle.errors ) )
+            raise ValidationError( 'Errors occured during document creation:\n{0}'.format( bundle.errors ) )
 
         bundle = self.validate( bundle )
         if bundle.errors:
@@ -1369,51 +1396,21 @@ class DocumentResource( Resource ):
                 bundle.index['created'].add( bundle.obj )
                 print('    ~~~~~ CREATED (I) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
-                # We'll have to wait for phase 3.
+                # We'll have to wait for related objects to be created first.            
                 pass
             bundle = self._pop_stashed_relations( bundle )
 
-
         # PHASE 2: Recurse for any nested related resources.
-        for field_name, fld in self.fields.items():
-            if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
-                related_data = bundle.data[ field_name ]
-                if not related_data: 
-                    # This can happen if the field is not required and no data
-                    # was given, so related_data can be None or []
-                    continue
-                
-                related_resource = fld.get_related_resource()
-                
-                if not getattr( fld, 'is_tomany', False ):
-                    related_data = [ related_data, ] 
+        bundle = self._related_fields_callback( bundle, 'save_new' )
 
-                for related_bundle in related_data:
-                    related_bundle.caller = { fld.attribute: bundle }
-                    related_bundle.index['created'].add( bundle.obj )  # prevents duplicate save
-                    related_bundle = related_resource.save_new( related_bundle )
-
-                    # Copy some fields over
-                    for k in ( 'created', 'to_save', 'to_delete' ):
-                        bundle.index[k] |= related_bundle.index[k]
-
-                    if related_bundle.errors:
-                        bundle.errors[ field_name ].append( related_bundle.errors )
-
-                if not getattr( fld, 'is_tomany', False ):
-                    bundle.data[ field_name ] = related_data[0]
-
-
-        # PHASE 3: If we don't have an id yet we should be able to get one now.
+        # PHASE 3: Second attempt to create the object now its relations exist.
         if not bundle.obj.pk:
-            import ipdb; ipdb.set_trace()
             try:
                 bundle = self._mark_relational_changes_for( bundle )
                 bundle.obj.save( request=bundle.request, cascade=False ) 
                 bundle.index['created'].add( bundle.obj )
                 print('    ~~~~~ CREATED (II) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
-                # Failed to save. 
                 bundle.errors[ MongoEngineValidationError ].append( e )
 
         return bundle
@@ -1434,83 +1431,27 @@ class DocumentResource( Resource ):
         except Exception, e:
             bundle.errors[ Exception ].append( e )
 
-        # Continue despite possible errors. An Exception will be raised but we
-        # want it to be as informative as possible, collecting more errors.
-        for field_name, fld in self.fields.items():
-            if getattr( fld, 'is_related', False ) and field_name in bundle.data:
-                related_data = bundle.data[ field_name ]
-                if not related_data:
-                    # This can happen if the field is not required and no data
-                    # was given, so bundle.data[ field_name ] can be None or []
-                    continue
-
-                related_resource = fld.get_related_resource()
-
-                if not getattr( fld, 'is_tomany', False ):
-                    related_data = [ related_data, ]
-
-                for related_bundle in related_data:
-                    related_bundle = related_resource.validate( related_bundle ) 
-
-                    if related_bundle.errors: 
-                        bundle.errors[ field_name ].append( related_bundle.errors ) 
-
-                if not getattr( fld, 'is_tomany', False ):
-                    bundle.data[ field_name ] = related_data[0]
-
-        return bundle
+        return self._related_fields_callback( bundle, 'validate' )
 
     def update( self, bundle ):
         '''
         Recursively updates the (embedded) object(s) in the validated bundle.
         NOTE: doesn't do any validation since that should've been done already.
         '''
-
-        # PHASE 5: Woohooo! We got a completely validated nested bundle set!
-        # Let's update what needs updating.
-
-        bundle = self._mark_relational_changes_for( bundle )
+        if bundle.uri_only:
+            # Don't update here. May get updated through _update_relations.
+            return bundle
 
         try:
+            bundle = self._mark_relational_changes_for( bundle )
             bundle.obj.save( request=bundle.request, cascade=False, validate=False )
             bundle.index['updated'].add( bundle.obj )
             print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
         except Exception, e:
             bundle.errors[ Exception ].append( e )
-
-        if bundle.errors:
-            # Try to minimize database updates and properly pass back errors.
             return bundle
 
-        # Continue updating any nested related bundles.
-        for field_name, fld in self.fields.items():
-            if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
-                related_data = bundle.data[ field_name ]
-                if not related_data:
-                    # This can happen if the field is not required and no data
-                    # was given, so bundle.data[ field_name ] can be None or []
-                    continue
-
-                related_resource = fld.get_related_resource()
-
-                if not getattr( fld, 'is_tomany', False ):
-                    related_data = [ related_data, ]
-
-                for related_bundle in related_data:
-                    if not related_bundle.uri_only: 
-                        related_bundle = related_resource.update( related_bundle )
-
-                        # Copy some fields over
-                        for i in ['updated', 'to_save', 'to_delete']:
-                            bundle.index[i] |= related_bundle.index[i]
-
-                        if related_bundle.errors:
-                            bundle.errors[ field_name ] = related_bundle.errors
-
-                if not getattr( fld, 'is_tomany', False ):
-                    bundle.data[ field_name ] = related_data[0]
-
-        return bundle
+        return self._related_fields_callback( bundle, 'update' )
 
 
     def obj_get_list( self, request=None, **kwargs ):
