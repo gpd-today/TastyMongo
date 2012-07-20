@@ -164,19 +164,25 @@ class ApiField( object ):
                         except ObjectDoesNotExist:
                             pass
 
-                if isinstance( cur, Document ) and cur not in bundle.request.api['document_cache']:
-                    bundle.request.api['document_cache'][str(cur.id)] = cur
+                if isinstance( cur, Document ):
+                    if cur.may( 'read', bundle.request ) and cur not in bundle.request.api['document_cache']:
+                        bundle.request.api['document_cache'][str(cur.id)] = cur
+                        continue
+                    else:
+                        cur = None
 
                 if isinstance( cur, list ) and hasattr( prev._fields[ attr ], 'field' ):
                     # This is a list of References
                     if all( str(obj.id) in bundle.request.api['document_cache'] for obj in cur ):
-                        # Return all documents from our document cache.
-                        cur = [bundle.request.api['document_cache'][str(obj.id)] for obj in cur]
+                        # Return all documents from our document cache
+                        cur = [bundle.request.api['document_cache'][str(obj.id)] for obj in cur if obj.may( 'read', bundle.request ) ]
+                        continue
                     else:
                         # Fetch the whole list from the database and cache it.
                         cur = getattr( prev, attr, None )
                         if cur:
-                            bundle.request.api['document_cache'].update( (str(obj.id), obj ) for obj in cur )
+                            bundle.request.api['document_cache'].update( (str(obj.id), obj ) for obj in cur if obj.may( 'read', bundle.request ) )
+                            continue
 
                 if cur is None:
                     # We should fall out of the loop here since we cannot 
