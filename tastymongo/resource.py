@@ -1472,7 +1472,7 @@ class DocumentResource( Resource ):
 
         try:
             documents = self.get_queryset( request ).filter( **applicable_filters )
-            request.api['document_cache'].update( (d.pk, d) for d in documents)
+            request.api['document_cache'].update( (str(d.pk), d) for d in documents)
             return documents
         except ValueError:
             raise BadRequest( "Invalid resource lookup data provided ( mismatched type )." )
@@ -1485,6 +1485,7 @@ class DocumentResource( Resource ):
         only one instance matched by the request and the provided `kwargs`.
         """
         uri = kwargs.pop('uri', None)
+        object = None
         if uri:
             # Grab the pk from the uri and create a filter from it.
             # FIXME: Assumption! Should use an API function to get the resource.
