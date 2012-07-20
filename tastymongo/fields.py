@@ -153,28 +153,30 @@ class ApiField( object ):
 
             prev = bundle.obj
             for attr in attr_chain:
-                cur = None
+                cur = prev._data.get( attr, None )
 
-                if isinstance( prev, Document ):
-                    # FIXME: quick and dirty query prevention, update for lists
-                    rel = prev._data.get( attr, None )
-                    if isinstance( rel, DBRef ):
-                        # See if we already cached this object
-                        cur = bundle.request.api['document_cache'].get(str(rel.id), None)
+                if isinstance( cur, DBRef ):
+                    # Fetch the document from our cache or from the database.
+                    cur = bundle.request.api['document_cache'].get(str(cur.id), None )
+                    if not cur:
+                        try:
+                            cur = getattr( prev, attr, None )
+                        except ObjectDoesNotExist:
+                            pass
 
-                if not cur:
-                    # Look it up in the database
-                    try:
+                if isinstance( cur, Document ) and cur not in bundle.request.api['document_cache']:
+                    bundle.request.api['document_cache'][str(cur.id)] = cur
+
+                if isinstance( cur, list ) and hasattr( prev._fields[ attr ], 'field' ):
+                    # This is a list of References
+                    if all( str(obj.id) in bundle.request.api['document_cache'] for obj in cur ):
+                        # Return all documents from our document cache.
+                        cur = [bundle.request.api['document_cache'][str(obj.id)] for obj in cur]
+                    else:
+                        # Fetch the whole list from the database and cache it.
                         cur = getattr( prev, attr, None )
-                    except ObjectDoesNotExist:
-                        pass
-                    '''
-                    if cur:
-                        if isinstance( cur, list ):
-                            bundle.request.api['document_cache'].update((str(o.pk), o) for o in cur)
-                        else:
-                            bundle.request.api['document_cache'].update((str(cur.pk), cur))
-                    '''
+                        if cur:
+                            bundle.request.api['document_cache'].update( (str(obj.id), obj ) for obj in cur )
 
                 if cur is None:
                     # We should fall out of the loop here since we cannot 
