@@ -5,10 +5,12 @@ import datetime
 import importlib
 from dateutil.parser import parse
 from decimal import Decimal
+from bson import DBRef
 import re
 
 from .exceptions import ApiFieldError
 from .utils import *
+from mongoengine import Document
 
 
 class NOT_PROVIDED:
@@ -149,29 +151,47 @@ class ApiField( object ):
             # Check for `__` in the field for looking through any relation.
             attr_chain = self.attribute.split( '__' )
 
-            previous_object = bundle.obj
+            prev = bundle.obj
             for attr in attr_chain:
-                try:
-                    current_object = getattr( previous_object, attr, None )
-                except ObjectDoesNotExist:
-                    current_object = None
+                cur = None
 
-                if current_object is None:
+                if isinstance( prev, Document ):
+                    # FIXME: quick and dirty query prevention, update for lists
+                    rel = prev._data.get( attr, None )
+                    if isinstance( rel, DBRef ):
+                        # See if we already cached this object
+                        cur = bundle.request.api['document_cache'].get(str(rel.id), None)
+
+                if not cur:
+                    # Look it up in the database
+                    try:
+                        cur = getattr( prev, attr, None )
+                    except ObjectDoesNotExist:
+                        pass
+                    '''
+                    if cur:
+                        if isinstance( cur, list ):
+                            bundle.request.api['document_cache'].update((str(o.pk), o) for o in cur)
+                        else:
+                            bundle.request.api['document_cache'].update((str(cur.pk), cur))
+                    '''
+
+                if cur is None:
                     # We should fall out of the loop here since we cannot 
                     # access any attributes further down the chain.
                     if self.has_default:
-                        current_object = self.default
+                        cur = self.default
                         break
                     elif not self.required:
-                        current_object = None
+                        cur = None
                         break
                     else:
-                        raise ApiFieldError( "The object `{0}` is required but has an empty attribute `{1}` and doesn't have a default value.".format( previous_object, attr ) )
+                        raise ApiFieldError( "The object `{0}` is required but has an empty attribute `{1}` and doesn't have a default value.".format( prev, attr ) )
 
-            if callable( current_object ):
-                current_object = current_object()
+            if callable( cur ):
+                cur = cur()
 
-            return self.convert( current_object )
+            return self.convert( cur )
 
         elif callable( self.attribute ):
             # `attribute` is a method on the Resource that provides data.
