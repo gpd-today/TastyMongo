@@ -20,6 +20,7 @@ import mongoengine.document
 import mongoengine.fields as mongofields
 
 from copy import deepcopy
+from collections import defaultdict
 
 
 class ResourceOptions( object ):
@@ -880,19 +881,19 @@ class DocumentResource( Resource ):
         to_save, to_delete = obj.get_related_documents_to_update()
 
         # Don't retouch stuff that will get or got updated.
-        updated_by_resource = bundle.index['created'] | bundle.index['updated'] 
-        updated_by_relationalmixin = bundle.index['to_save'] | bundle.index['to_delete'] | bundle.index['saved'] | bundle.index['deleted']
+        updated_by_resource = bundle.request.api['created'] | bundle.request.api['updated'] 
+        updated_by_relationalmixin = bundle.request.api['to_save'] | bundle.request.api['to_delete'] | bundle.request.api['saved'] | bundle.request.api['deleted']
         to_save = setdiff( to_save, updated_by_resource | updated_by_relationalmixin )
         to_delete = setdiff( to_delete, updated_by_resource | updated_by_relationalmixin )
 
         if to_save:
-            bundle.index['to_save'] |= to_save
+            bundle.request.api['to_save'] |= to_save
             for o in to_save:
                 print('    ~~ TO SAVE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
                     type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
 
         if to_delete:
-            bundle.index['to_delete'] |= to_delete
+            bundle.request.api['to_delete'] |= to_delete
             for o in to_delete:
                 print('    ~~ TO DELETE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
                     type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
@@ -920,7 +921,7 @@ class DocumentResource( Resource ):
                         bundle.stashed_relations[ k ] = getattr( bundle.obj, k )[:]
                         setattr( bundle.obj, k, [] )
                 else:
-                    bundle.errors[k].append( e )
+                    bundle.request.api['errors'][k].append( e )
 
         # NOTE: non-relational fields will be processed by `validate` later on
 
@@ -942,31 +943,31 @@ class DocumentResource( Resource ):
         ''' 
         Updates any relational changes stored in the bundle.
         '''
-        while bundle.index['to_save']:
-            obj = bundle.index['to_save'].pop()
+        while bundle.request.api['to_save']:
+            obj = bundle.request.api['to_save'].pop()
 
             # The object to be saved may induce further away updates.
             self._mark_relational_changes_for( bundle, obj )
 
             obj.save( request=bundle.request, cascade=False )
-            bundle.index['saved'].add(obj) 
+            bundle.request.api['saved'].add(obj) 
             print('    ~~~~~ SAVED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
 
-        while bundle.index['to_delete']:
-            obj = bundle.index['to_delete'].pop()
+        while bundle.request.api['to_delete']:
+            obj = bundle.request.api['to_delete'].pop()
             # Tell related objects that we're going to be deleted.
             # The object to be deleted may induce further away updates.
             obj.clear_relations()
             self._mark_relational_changes_for( bundle, obj )
 
             # Store the ObjectId of the object before it is destroyed.
-            bundle.index['deleted'].add(getattr(obj, 'pk', obj.id))
+            bundle.request.api['deleted'].add(getattr(obj, 'pk', obj.id))
 
             obj.delete( request=bundle.request )
             print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
-        if bundle.index['to_save']: 
+        if bundle.request.api['to_save']: 
             # Deletion may have triggered documents that need to be updated.
             # Recurse to fix relations further away incurred by the delete.
             bundle = self._update_relations( bundle )
@@ -988,28 +989,31 @@ class DocumentResource( Resource ):
                     related_data = [ related_data, ] 
 
                 for related_bundle in related_data:
-
-                    # Pass accounting index down...
-                    for k in bundle.index.keys():
-                        related_bundle.index[k] |= bundle.index[k]
-
+                    
                     # Execute the callback function on the related resource
                     callback = getattr( related_resource, callback_func )
                     related_bundle = callback( related_bundle )
-
-                    # Propagate accounting index back up
-                    for k in bundle.index.keys():
-                        bundle.index[k] |= related_bundle.index[k]
-                    if related_bundle.errors:
-                        bundle.errors[ field_name ].append( related_bundle.errors )
 
                 if not getattr( fld, 'is_tomany', False ):
                     bundle.data[ field_name ] = related_data[0]
 
         return bundle
 
+    def dispatch( self, request_type, request, **kwargs ):
+        
+        request.api = {
+                'errors': defaultdict(list),
+                'document_cache': {},
+                'updated': set(),
+                'saved': set(),
+                'created': set(),
+                'to_save': set(),
+                'to_delete': set(),
+                'deleted': set(),
+                }
 
-    # PHASE 3: If we don't have an id yet we should be able to get one now.
+        return super( DocumentResource, self ).dispatch( request_type, request, **kwargs )
+
 
     @classmethod
     def should_skip_field( cls, field ):
@@ -1273,27 +1277,26 @@ class DocumentResource( Resource ):
         that all related resources exist. Then validate the resource tree, 
         and finally save all updated documents.
         """
-        if bundle.errors:
-            raise ValidationError( 'Errors occured during hydration:\n{0}'.format( bundle.errors ) )
+        if bundle.request.api['errors']:
+            raise ValidationError( 'Errors occured during hydration:\n{0}'.format( bundle.request.api['errors'] ) )
 
         bundle = self.save_new( bundle )
-        if bundle.errors:
+        if bundle.request.api['errors']:
             # FIXME: Try to roll back what we created so far.
-            raise ValidationError( 'Errors occured during document creation:\n{0}'.format( bundle.errors ) )
+            raise ValidationError( 'Errors occured during document creation:\n{0}'.format( bundle.request.api['errors'] ) )
 
         bundle = self.validate( bundle )
-        if bundle.errors:
+        if bundle.request.api['errors']:
             # FIXME: Try to roll back what we created so far.
-            raise ValidationError( 'Errors occured during document validation:\n{0}'.format( bundle.errors ) )
+            raise ValidationError( 'Errors occured during document validation:\n{0}'.format( bundle.request.api['errors'] ) )
 
         bundle = self.update( bundle )
-        if bundle.errors:
+        if bundle.request.api['errors']:
             # FIXME: Try to roll back what we created so far. Ehm, maybe not
             # since we've already updated stuff. Tough luck.
-            raise ValidationError( 'Errors occured during document updates:\n{0}'.format( bundle.errors ) )
+            raise ValidationError( 'Errors occured during document updates:\n{0}'.format( bundle.request.api['errors'] ) )
 
         bundle = self._update_relations( bundle )
-
 
         return bundle
 
@@ -1393,7 +1396,7 @@ class DocumentResource( Resource ):
             try:
                 bundle = self._mark_relational_changes_for( bundle )
                 bundle.obj.save( request=bundle.request, cascade=False ) 
-                bundle.index['created'].add( bundle.obj )
+                bundle.request.api['created'].add( bundle.obj )
                 print('    ~~~~~ CREATED (I) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
                 # We'll have to wait for related objects to be created first.            
@@ -1408,10 +1411,10 @@ class DocumentResource( Resource ):
             try:
                 bundle = self._mark_relational_changes_for( bundle )
                 bundle.obj.save( request=bundle.request, cascade=False ) 
-                bundle.index['created'].add( bundle.obj )
+                bundle.request.api['created'].add( bundle.obj )
                 print('    ~~~~~ CREATED (II) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
-                bundle.errors[ MongoEngineValidationError ].append( e )
+                bundle.request.api['errors'][ MongoEngineValidationError ].append( e )
 
         return bundle
 
@@ -1429,7 +1432,7 @@ class DocumentResource( Resource ):
         try:
             bundle.obj.validate( request=bundle.request )
         except Exception, e:
-            bundle.errors[ Exception ].append( e )
+            bundle.request.api['errors'][ Exception ].append( e )
 
         return self._related_fields_callback( bundle, 'validate' )
 
@@ -1445,14 +1448,13 @@ class DocumentResource( Resource ):
         try:
             bundle = self._mark_relational_changes_for( bundle )
             bundle.obj.save( request=bundle.request, cascade=False, validate=False )
-            bundle.index['updated'].add( bundle.obj )
+            bundle.request.api['updated'].add( bundle.obj )
             print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
         except Exception, e:
-            bundle.errors[ Exception ].append( e )
+            bundle.request.api['errors'][ Exception ].append( e )
             return bundle
 
         return self._related_fields_callback( bundle, 'update' )
-
 
     def obj_get_list( self, request=None, **kwargs ):
         """
@@ -1469,7 +1471,9 @@ class DocumentResource( Resource ):
         applicable_filters = self.build_filters( filters=filters )
 
         try:
-            return self.get_queryset( request ).filter( **applicable_filters )
+            documents = self.get_queryset( request ).filter( **applicable_filters )
+            request.api['document_cache'].update( (d.pk, d) for d in documents)
+            return documents
         except ValueError:
             raise BadRequest( "Invalid resource lookup data provided ( mismatched type )." )
 
@@ -1484,27 +1488,33 @@ class DocumentResource( Resource ):
         if uri:
             # Grab the pk from the uri and create a filter from it.
             # FIXME: Assumption! Should use an API function to get the resource.
-            kwargs['pk'] = uri.split('/')[-2]
+            pk = uri.split('/')[-2]
+            if pk in request.api['document_cache']:
+                object = request.api['document_cache'][pk] 
+            else:
+                kwargs['pk'] = pk
 
-        obj_list = self.obj_get_list( request ).filter( **kwargs )
-        # `get_queryset` should return only 1 object with the provided
-        # kwargs. However if the kwargs are off, it could return none, or
-        # multiple objects. Find out if we matched only 1 and be smart 
-        # about queries: every len() causes one.
-        object = None
-        for obj in obj_list:
-            if object:
-                # We've already set object the first run, so we shouldn't 
-                # get here unless there's more than one object at 
-                # this (possibly filtered) URI
+        if not object:
+            obj_list = self.obj_get_list( request ).filter( **kwargs )
+
+            # `get_queryset` should return only 1 object with the provided
+            # kwargs. However if the kwargs are off, it could return none, or
+            # multiple objects. Find out if we matched only 1 and be smart 
+            # about queries: every len() causes one.
+            object = None
+            for obj in obj_list:
+                if object:
+                    # We've already set object the first run, so we shouldn't 
+                    # get here unless there's more than one object at 
+                    # this (possibly filtered) URI
+                    stringified_kwargs = ', '.join( ["{0}={1}".format( k, v ) for k, v in kwargs.items()] )
+                    raise self._meta.object_class.MultipleObjectsReturned( "More than one `{0}` matched `{1}`.".format( self._meta.object_class.__name__, stringified_kwargs ) )
+                object = obj
+
+            if object is None:
+                # If we didn't find an object the filter parameters were off
                 stringified_kwargs = ', '.join( ["{0}={1}".format( k, v ) for k, v in kwargs.items()] )
-                raise self._meta.object_class.MultipleObjectsReturned( "More than one `{0}` matched `{1}`.".format( self._meta.object_class.__name__, stringified_kwargs ) )
-            object = obj
-
-        if object is None:
-            # If we didn't find an object the filter parameters were off
-            stringified_kwargs = ', '.join( ["{0}={1}".format( k, v ) for k, v in kwargs.items()] )
-            raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_kwargs ) )
+                raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_kwargs ) )
 
         # Okay, we're good to go without superfluous queries!
         return object
@@ -1519,7 +1529,7 @@ class DocumentResource( Resource ):
         objects = self.obj_get_list(request, **kwargs)
         bundles = [self.build_bundle( obj=object, request=request ) for object in objects]
         for bundle in bundles:
-            bundle.index['to_delete'].add( bundle.obj )
+            bundle.request.api['to_delete'].add( bundle.obj )
             self._update_relations( bundle )
 
     def obj_delete_single( self, request=None, **kwargs ):
@@ -1535,6 +1545,6 @@ class DocumentResource( Resource ):
             raise NotFound("A model instance matching the provided arguments could not be found.")
 
         bundle = self.build_bundle( obj=object, request=request )
-        bundle.index['to_delete'].add( bundle.obj )
+        bundle.request.api['to_delete'].add( bundle.obj )
         self._update_relations( bundle )
 

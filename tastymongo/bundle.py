@@ -1,6 +1,5 @@
 from __future__ import print_function
 from __future__ import unicode_literals
-from collections import defaultdict
 
 # In a separate file to avoid circular imports...
 class Bundle( object ):
@@ -13,8 +12,6 @@ class Bundle( object ):
         self.data = data or {}
         self.uri_only = True
         self.request = request
-        self.errors = defaultdict(list)
-        self.index = defaultdict(set)
 
     def __repr__( self ):
         return "<Bundle for obj='%s' with data='%s'>" % ( self.obj, self.data )
