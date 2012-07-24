@@ -18,6 +18,21 @@ class NOT_PROVIDED:
         return 'No default provided.'
 
 
+
+# Define a `may_read` method, which uses the `PrivilegeMixin` to test if read is allowed if found.
+# Alternatively, all documents returned by a resource may be read (since it has passed `authorization`).
+try:
+    from mongoengine_privileges.privilegemixin import PrivilegeMixin
+
+    def may_read( doc, request ):
+        # A document may be read if it doesn't implement privileges, or grants the request's user the `read` privilege
+        return not isinstance( doc, PrivilegeMixin ) or doc.may( 'read', request )
+
+except ImportError:
+    def may_read( doc, request ):
+        return True
+
+
 DATE_REGEX = re.compile( '^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2}).*?$' )
 DATETIME_REGEX = re.compile( '^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})( T|\s+)(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2}).*?$' )
 
@@ -165,24 +180,31 @@ class ApiField( object ):
                             pass
 
                 if isinstance( cur, Document ):
-                    if cur.may( 'read', bundle.request ) and cur not in bundle.request.api['document_cache']:
-                        bundle.request.api['document_cache'][str(cur.id)] = cur
+                    if cur not in bundle.request.api['document_cache']:
+                        bundle.request.api['document_cache'][ str(cur.id) ] = cur
+
+                    if may_read( cur, bundle.request ):
                         continue
                     else:
                         cur = None
 
+                    continue
+
                 if isinstance( cur, list ) and hasattr( prev._fields[ attr ], 'field' ):
                     # This is a list of References
                     if all( str(obj.id) in bundle.request.api['document_cache'] for obj in cur ):
-                        # Return all documents from our document cache
-                        cur = [bundle.request.api['document_cache'][str(obj.id)] for obj in cur if obj.may( 'read', bundle.request ) ]
-                        continue
+                        # Fetch documents from our document cache
+                        cur = [ bundle.request.api['document_cache'][ str(obj.id) ] for obj in cur ]
                     else:
                         # Fetch the whole list from the database and cache it.
                         cur = getattr( prev, attr, None )
                         if cur:
-                            bundle.request.api['document_cache'].update( (str(obj.id), obj ) for obj in cur if obj.may( 'read', bundle.request ) )
-                            continue
+                            bundle.request.api['document_cache'].update( ( str(obj.id), obj ) for obj in cur )
+
+                    # Check permissions for each document
+                    cur = [ obj for obj in cur if may_read( obj, bundle.request ) ]
+
+                    continue
 
                 if cur is None:
                     # We should fall out of the loop here since we cannot 
