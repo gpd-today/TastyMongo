@@ -1037,7 +1037,9 @@ class DocumentResource( Resource ):
         result = default  # instantiated only once by specifying it as kwarg
 
         # Specify only those field types that differ from default StringField
-        if isinstance( f, mongofields.BooleanField ):
+        if isinstance( f, mongofields.ObjectIdField, ):
+            result = fields.ObjectIdField
+        elif isinstance( f, mongofields.BooleanField ):
             result = fields.BooleanField
         elif isinstance( f, mongofields.FloatField ):
             result = fields.FloatField
@@ -1055,8 +1057,6 @@ class DocumentResource( Resource ):
             # This will be lists of simple objects, since references have been
             # discarded already by should_skip_fields. 
             result = fields.ListField
-        elif isinstance( f, mongofields.ObjectIdField, ):
-            result = fields.ObjectIdField
 
         return result
 
@@ -1479,40 +1479,45 @@ class DocumentResource( Resource ):
         Uses `obj_get_list` to get the initial list, which should contain
         only one instance matched by the request and the provided `kwargs`.
         """
-        uri = kwargs.pop('uri', None)
         object = None
-        if uri:
-            # Grab the pk from the uri and create a filter from it.
-            # FIXME: Assumption! Should use an API function to get the resource.
-            pk = uri.split('/')[-2]
-            if pk in request.cache:
-                object = request.cache[pk]
-            else:
-                kwargs['pk'] = pk
+        filters = {}
 
-        if not object:
-            obj_list = self.obj_get_list( request, **kwargs )
+        id = kwargs.get('pk') or kwargs.get('id')
+        if not id and 'uri' in kwargs:
+            # We have received a uri. Try to grab an id from it.
+            id = kwargs.pop('uri', '').split('/')[-2]
 
-            # `get_queryset` should return only 1 object with the provided
-            # kwargs. However if the kwargs are off, it could return none, or
-            # multiple objects. Find out if we matched only 1 and be smart 
-            # about queries: every len() causes one.
-            object = None
-            for obj in obj_list:
-                if object:
-                    # We've already set object the first run, so we shouldn't 
-                    # get here unless there's more than one object at 
-                    # this (possibly filtered) URI
-                    stringified_kwargs = ', '.join( ["{0}={1}".format( k, v ) for k, v in kwargs.items()] )
-                    raise self._meta.object_class.MultipleObjectsReturned( "More than one `{0}` matched `{1}`.".format( self._meta.object_class.__name__, stringified_kwargs ) )
-                object = obj
+        if id:
+            # Try to fetch the object from the document cache
+            if id in request.cache:
+                object = request.cache.get( id, None )
+                if object:  # We're done, return the object.
+                    return object
 
-            if object is None:
-                # If we didn't find an object the filter parameters were off
-                stringified_kwargs = ', '.join( ["{0}={1}".format( k, v ) for k, v in kwargs.items()] )
-                raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_kwargs ) )
+            filters['id'] = id
+        else:
+            filters = kwargs.copy()
 
-        # Okay, we're good to go without superfluous queries!
+        # Hit the database.
+        matched = self.obj_get_list( request, **filters )
+
+        # We use `obj_get_list` here to avoid duplicate code and additional hit
+        # to the database. Find out if we matched only 1 object and be smart
+        # about queries: every len() causes one.
+        for obj in matched:
+            if object:
+                # There should be only 1 object in the list, so we shouldn't
+                # get here unless the kwargs matched more than one object.
+                stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in filters.items()] )
+                raise self._meta.object_class.MultipleObjectsReturned( "More than one `{0}` matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
+            object = obj 
+
+        if object is None:
+            # We haven't found any object that matches the filters. 
+            stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in filters.items()] )
+            raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
+
+        # Okay, we're good to go without a superfluous len() query.
         request.cache.add( object )
         return object
 

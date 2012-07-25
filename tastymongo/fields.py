@@ -5,13 +5,11 @@ import datetime
 import importlib
 from dateutil.parser import parse
 from decimal import Decimal
-from bson import DBRef
 import re
 
 from .exceptions import ApiFieldError
 from .utils import *
 from mongoengine import Document
-from mongoengine.base import DoesNotExist
 
 
 class NOT_PROVIDED:
@@ -217,9 +215,10 @@ class ObjectIdField( ApiField ):
     
     help_text = "ObjectId field that corresponds to MongoDB's ObjectId"
     
-    def __init__( self, attribute='pk', default=NOT_PROVIDED, required=False, readonly=True, unique=True, help_text='A MongoEngine ObjectId' ):
-        super( ObjectIdField, self ).__init__( attribute=attribute,
-                default=default, required=required, readonly=readonly, unique=unique, help_text=help_text )
+    def __init__( self, attribute=None, default=NOT_PROVIDED, required=False, readonly=True, unique=True, help_text='A MongoEngine ObjectId' ):
+        super( ObjectIdField, self ).__init__( attribute='id',
+                default=NOT_PROVIDED, required=True, readonly=True,
+                unique=True, help_text='A MongoEngine ObjectId' )
         
 
 class StringField( ApiField ):
