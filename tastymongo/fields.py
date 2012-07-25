@@ -180,7 +180,6 @@ class ApiField( object ):
                 if isinstance( cur, list ) and hasattr( prev._fields[ attr ], 'field' ):
                     # Check permissions for each document
                     cur = [ obj for obj in cur if may_read( obj, bundle.request ) ]
-
                     continue
 
                 if cur is None:
@@ -193,7 +192,7 @@ class ApiField( object ):
                         cur = None
                         break
                     else:
-                        raise ApiFieldError( "The object `{0}` is required but has an empty attribute `{1}` and doesn't have a default value.".format( prev, attr ) )
+                        raise ApiFieldError( "Required attribute=`{}` on object=`{}` is empty, and does not have a default value.".format( attr, prev ) )
 
             if callable( cur ):
                 cur = cur()
