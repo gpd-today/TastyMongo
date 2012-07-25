@@ -1492,7 +1492,7 @@ class DocumentResource( Resource ):
                 kwargs['pk'] = pk
 
         if not object:
-            obj_list = self.obj_get_list( request ).filter( **kwargs )
+            obj_list = self.obj_get_list( request, **kwargs )
 
             # `get_queryset` should return only 1 object with the provided
             # kwargs. However if the kwargs are off, it could return none, or
@@ -1514,6 +1514,7 @@ class DocumentResource( Resource ):
                 raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_kwargs ) )
 
         # Okay, we're good to go without superfluous queries!
+        request.cache.add( object )
         return object
 
     def obj_delete_list( self, request=None, **kwargs ):
