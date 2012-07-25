@@ -1498,7 +1498,7 @@ class DocumentResource( Resource ):
         else:
             filters = kwargs.copy()
 
-        # Hit the database.
+        # Object not in cache, hit the database.
         matched = self.obj_get_list( request, **filters )
 
         # We use `obj_get_list` here to avoid duplicate code and additional hit

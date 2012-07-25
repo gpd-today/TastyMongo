@@ -217,8 +217,11 @@ class ObjectIdField( ApiField ):
     
     def __init__( self, attribute=None, default=NOT_PROVIDED, required=False, readonly=True, unique=True, help_text='A MongoEngine ObjectId' ):
         super( ObjectIdField, self ).__init__( attribute='id',
-                default=NOT_PROVIDED, required=True, readonly=True,
+                default=NOT_PROVIDED, required=required, readonly=True,
                 unique=True, help_text='A MongoEngine ObjectId' )
+
+    def dehydrate( self, bundle ):
+        return bundle.obj.id
         
 
 class StringField( ApiField ):
