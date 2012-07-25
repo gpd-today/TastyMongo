@@ -11,6 +11,7 @@ import re
 from .exceptions import ApiFieldError
 from .utils import *
 from mongoengine import Document
+from mongoengine.base import DoesNotExist
 
 
 class NOT_PROVIDED:
@@ -168,39 +169,15 @@ class ApiField( object ):
 
             prev = bundle.obj
             for attr in attr_chain:
-                cur = prev._data.get( attr, None )
-
-                if isinstance( cur, DBRef ):
-                    # Fetch the document from our cache or from the database.
-                    cur = bundle.request.api['document_cache'].get(str(cur.id), None )
-                    if not cur:
-                        try:
-                            cur = getattr( prev, attr, None )
-                        except ObjectDoesNotExist:
-                            pass
+                # Use the `get` function on RelationalMixin to take advantage of the DocumentCache
+                cur = prev.get( attr, bundle.request )
 
                 if isinstance( cur, Document ):
-                    if cur not in bundle.request.api['document_cache']:
-                        bundle.request.api['document_cache'][ str(cur.id) ] = cur
-
-                    if may_read( cur, bundle.request ):
-                        continue
-                    else:
+                    if not may_read( cur, bundle.request ):
                         cur = None
-
                     continue
 
                 if isinstance( cur, list ) and hasattr( prev._fields[ attr ], 'field' ):
-                    # This is a list of References
-                    if all( str(obj.id) in bundle.request.api['document_cache'] for obj in cur ):
-                        # Fetch documents from our document cache
-                        cur = [ bundle.request.api['document_cache'][ str(obj.id) ] for obj in cur ]
-                    else:
-                        # Fetch the whole list from the database and cache it.
-                        cur = getattr( prev, attr, None )
-                        if cur:
-                            bundle.request.api['document_cache'].update( ( str(obj.id), obj ) for obj in cur )
-
                     # Check permissions for each document
                     cur = [ obj for obj in cur if may_read( obj, bundle.request ) ]
 
