@@ -1215,8 +1215,7 @@ class DocumentResource( Resource ):
         definition.
 
         Valid values are either a list of MongoEngine filter types ( i.e.
-        `['startswith', 'exact', 'lte']` ), the `ALL` constant or the
-        `ALL_WITH_RELATIONS` constant.
+        `['startswith', 'exact', 'lte']` ) or the `ALL` constant.
 
         At the declarative level:
             filtering = {

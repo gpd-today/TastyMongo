@@ -217,9 +217,9 @@ class ObjectIdField( ApiField ):
     
     help_text = "ObjectId field that corresponds to MongoDB's ObjectId"
     
-    def __init__( self, attribute=None, default=NOT_PROVIDED, required=False, readonly=False, unique=False, help_text=None ):
-        super( ObjectIdField, self ).__init__(
-                readonly=True, unique=True, required=False, help_text=help_text )
+    def __init__( self, attribute='pk', default=NOT_PROVIDED, required=False, readonly=True, unique=True, help_text='A MongoEngine ObjectId' ):
+        super( ObjectIdField, self ).__init__( attribute=attribute,
+                default=default, required=required, readonly=readonly, unique=unique, help_text=help_text )
         
 
 class StringField( ApiField ):
