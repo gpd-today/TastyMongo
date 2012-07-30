@@ -168,7 +168,7 @@ class ApiField( object ):
             prev = bundle.obj
             for attr in attr_chain:
                 # Use the `get` function on RelationalMixin to take advantage of the DocumentCache
-                cur = prev.get( attr, bundle.request )
+                cur = prev.fetch( bundle.request, attr )
 
                 if isinstance( cur, Document ):
                     if not may_read( cur, bundle.request ):

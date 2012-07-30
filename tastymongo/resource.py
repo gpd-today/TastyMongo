@@ -1482,10 +1482,10 @@ class DocumentResource( Resource ):
         object = None
         filters = {}
 
-        id = kwargs.get('pk') or kwargs.get('id')
+        id = kwargs.get( 'pk' ) or kwargs.get( 'id' )
         if not id and 'uri' in kwargs:
             # We have received a uri. Try to grab an id from it.
-            id = kwargs.pop('uri', '').split('/')[-2]
+            id = kwargs.pop( 'uri', '' ).split( '/' )[-2]
 
         if id:
             # Try to fetch the object from the document cache
