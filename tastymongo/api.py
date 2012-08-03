@@ -149,6 +149,14 @@ class Api( object ):
         else:
             raise NotRegistered( "No resource was registered for resource_name='{}'.".format( resource_name ) )
 
+    def resource_for_document( self, document ):
+        # FIXME: this becomes non-deterministic if there's more than a single Resource for a certain Document type.
+        for resource in self._registry.values():
+            if isinstance( document, resource._meta.object_class ):
+                return resource
+
+        raise ValueError( 'Could not find matching resource for document={}'.format( document ) )
+
     def resource_from_uri( self, uri ):
         return self._registry[ uri.split( '/' )[ -3 ] ]
 

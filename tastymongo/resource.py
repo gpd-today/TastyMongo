@@ -458,7 +458,7 @@ class Resource( object ):
             bundle.data[field_name] = fld.dehydrate( bundle )
 
             # Check for an optional method to do further dehydration.
-            method = getattr( self, "dehydrate_{0}".format(field_name), None )
+            method = getattr( self, "dehydrate_{0}".format( field_name ), None )
             if method:
                 bundle.data[field_name] = method( bundle )
 

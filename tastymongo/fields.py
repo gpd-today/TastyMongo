@@ -543,17 +543,29 @@ class RelatedField( ApiField ):
 
         @param data: if this field references a `GenericReferenceField`, `data` is used to determine what type
             of resource is applicable.
+        @type data: Document or Bundle or dict
         """
         if self.to:
             related_resource = self.to_class()
         elif data:
-            if isinstance( data, dict ):
-                data = data[ self.field_name ]
+            related_resource = None
 
-            if isinstance( data, Bundle ):
-                data = data.data[ 'resource_uri' ]
+            if isinstance( data, Document ):
+                related_resource = self._resource._meta.api.resource_for_document( data )
+            elif isinstance( data, Bundle ):
+                if data.obj and isinstance( data.obj, Document ):
+                    related_resource = self._resource._meta.api.resource_for_document( data.obj )
+                else:
+                    data = data.data
 
-            related_resource = self._resource._meta.api.resource_from_uri( data )
+            if not related_resource:
+                if isinstance( data, dict ) and self.field_name in data:
+                    data = data[ self.field_name ]
+
+                if 'resource_uri' in  data:
+                    data = data[ 'resource_uri' ]
+
+                related_resource = self._resource._meta.api.resource_from_uri( data )
         else:
             raise ValueError( 'Unable to resolve a related_resource for field={}'.format( self ) )
 
@@ -603,7 +615,7 @@ class RelatedField( ApiField ):
             # the object may not be None, so we can safely return None.
             return None
 
-        related_resource = self.get_related_resource( bundle.data )
+        related_resource = self.get_related_resource( related_object )
         related_bundle = related_resource.build_bundle( obj=related_object, request=bundle.request )
 
         if not self.full:
@@ -671,7 +683,7 @@ class ToManyField( RelatedField ):
         if related_objects is None:
             related_objects = []
 
-        related_resource = self.get_related_resource( bundle.data )
+        related_resource = self.get_related_resource( bundle )
         related_bundles = []
         for related_object in related_objects:
             related_bundle = related_resource.build_bundle( obj=related_object, request=bundle.request )
