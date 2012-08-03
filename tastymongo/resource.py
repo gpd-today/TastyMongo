@@ -1433,7 +1433,7 @@ class DocumentResource( Resource ):
 
         try:
             bundle = self._mark_relational_changes_for( bundle )
-            bundle.obj.save( request=bundle.request, cascade=False, )
+            bundle.obj.save( request=bundle.request, cascade=False, validate=False )
             bundle.request.api['updated'].add( bundle.obj )
             print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, bundle.obj._class_name))
         except Exception, e:
