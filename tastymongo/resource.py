@@ -906,6 +906,9 @@ class DocumentResource( Resource ):
                         bundle.stashed_relations[ k ] = getattr( bundle.obj, k )[:]
                         setattr( bundle.obj, k, [] )
                 else:
+                    if getattr( bundle.request.registry.settings, 'debug_api', False ):
+                        raise
+
                     bundle.request.api['errors'][k].append( e )
 
         # NOTE: non-relational fields will be processed by `validate` later on
@@ -1257,9 +1260,6 @@ class DocumentResource( Resource ):
         that all related resources exist. Then validate the resource tree, 
         and finally save all updated documents.
         """
-        if bundle.request.api['errors']:
-            raise ValidationError( 'Errors occured during hydration:\n{0}'.format( bundle.request.api['errors'] ) )
-
         bundle = self.save_new( bundle )
         if bundle.request.api['errors']:
             # FIXME: Try to roll back what we created so far.
@@ -1394,6 +1394,9 @@ class DocumentResource( Resource ):
                 bundle.request.api['created'].add( bundle.obj )
                 print('    ~~~~~ CREATED (II) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
+                if getattr( bundle.request.registry.settings, 'debug_api', False ):
+                    raise
+
                 bundle.request.api['errors'][ MongoEngineValidationError ].append( e )
 
         return bundle
@@ -1412,6 +1415,9 @@ class DocumentResource( Resource ):
         try:
             bundle.obj.validate( request=bundle.request )
         except Exception, e:
+            if getattr( bundle.request.registry.settings, 'debug_api', False ):
+                raise
+
             bundle.request.api['errors'][ Exception ].append( e )
 
         return self._related_fields_callback( bundle, 'validate' )
@@ -1427,10 +1433,13 @@ class DocumentResource( Resource ):
 
         try:
             bundle = self._mark_relational_changes_for( bundle )
-            bundle.obj.save( request=bundle.request, cascade=False, validate=False )
+            bundle.obj.save( request=bundle.request, cascade=False, )
             bundle.request.api['updated'].add( bundle.obj )
-            print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name))
+            print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, bundle.obj._class_name))
         except Exception, e:
+            if getattr( bundle.request.registry.settings, 'debug_api', False ):
+                raise
+
             bundle.request.api['errors'][ Exception ].append( e )
             return bundle
 

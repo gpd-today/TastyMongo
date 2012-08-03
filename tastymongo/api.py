@@ -77,7 +77,7 @@ class Api( object ):
     @staticmethod
     def _handle_server_error( resource, request, exception ):
         settings = request.registry.settings
-        if 'debug_api' in settings and settings[ 'debug_api' ] == True:
+        if getattr( settings, 'debug_api', False ):
             import sys, traceback
             the_trace = '\n'.join( traceback.format_exception( *( sys.exc_info() ) ) )
 
