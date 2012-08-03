@@ -11,6 +11,8 @@ from .exceptions import ApiFieldError
 from .utils import *
 from mongoengine import Document
 
+from .bundle import Bundle
+
 
 class NOT_PROVIDED:
     def __str__( self ):
@@ -449,7 +451,7 @@ class RelatedField( ApiField ):
     self_referential = False
     help_text = 'A related resource. Can be either a URI or set of nested resource data.'
 
-    def __init__( self, to, attribute, default=NOT_PROVIDED, required=False, readonly=False, full=False, unique=False, help_text=None ):
+    def __init__( self, attribute, to=None, default=NOT_PROVIDED, required=False, readonly=False, full=False, unique=False, help_text=None ):
         """
         Builds the field and prepares it to access the related data.
 
@@ -480,7 +482,11 @@ class RelatedField( ApiField ):
         super( RelatedField, self ).__init__( attribute=attribute, default=default, required=required, readonly=readonly, unique=unique, help_text=help_text ) 
 
         # Set some properties specific to RelatedFields
-        self.to = to
+        if to:
+            self.to = to
+        else:
+            self.to = None
+
         self._to_class = None
         self.full = full
 
@@ -531,11 +537,25 @@ class RelatedField( ApiField ):
 
         return self._to_class
 
-    def get_related_resource( self ):
+    def get_related_resource( self, data=None ):
         """
         Instantiates the related resource.
+
+        @param data: if this field references a `GenericReferenceField`, `data` is used to determine what type
+            of resource is applicable.
         """
-        related_resource = self.to_class()
+        if self.to:
+            related_resource = self.to_class()
+        elif data:
+            if isinstance( data, dict ):
+                data = data[ self.field_name ]
+
+            if isinstance( data, Bundle ):
+                data = data.data[ 'resource_uri' ]
+
+            related_resource = self._resource._meta.api.resource_from_uri( data )
+        else:
+            raise ValueError( 'Unable to resolve a related_resource for field={}'.format( self ) )
 
         # Fix the ``api`` if it's not present.
         if related_resource._meta.api is None:
@@ -544,12 +564,12 @@ class RelatedField( ApiField ):
 
         return related_resource
 
-    def get_related_bundle( self, data, request=None ):
+    def get_related_bundle( self, data, request ):
         """
         Returns a bundle built and hydrated by the related resource. 
         Accepts either a URI or a dictionary-like structure.
         """
-        related_resource = self.get_related_resource()
+        related_resource = self.get_related_resource( data )
 
         if isinstance( data, basestring ):
             # We got a resource URI. Try to create a bundle with the resource.
@@ -583,7 +603,7 @@ class RelatedField( ApiField ):
             # the object may not be None, so we can safely return None.
             return None
 
-        related_resource = self.get_related_resource()
+        related_resource = self.get_related_resource( bundle.data )
         related_bundle = related_resource.build_bundle( obj=related_object, request=bundle.request )
 
         if not self.full:
@@ -651,7 +671,7 @@ class ToManyField( RelatedField ):
         if related_objects is None:
             related_objects = []
 
-        related_resource = self.get_related_resource()
+        related_resource = self.get_related_resource( bundle.data )
         related_bundles = []
         for related_object in related_objects:
             related_bundle = related_resource.build_bundle( obj=related_object, request=bundle.request )

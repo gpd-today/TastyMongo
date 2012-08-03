@@ -137,14 +137,13 @@ class Resource( object ):
     def __init__( self, api=None ):
         self.fields = deepcopy( self.base_fields )
 
-        if not api is None:
+        if api:
             self._meta.api = api
 
     def __getattr__( self, name ):
         if name in self.fields:
             return self.fields[name]
         raise AttributeError( name )
-
 
     def get_resource_uri( self, request, bundle_or_object = None, absolute=None ):
         """
@@ -194,8 +193,6 @@ class Resource( object ):
                 'unique': fld.unique,
             }
         return data
-    
-
 
     def determine_format( self, request ):
         """
@@ -278,6 +275,8 @@ class Resource( object ):
 
         if not auth_result is True:
             raise ImmediateHTTPResponse( response=http.HTTPUnauthorized() )
+
+
 
     def check_throttle( self, request ):
         """
@@ -745,20 +744,6 @@ class Resource( object ):
         if self.fields[field_name].attribute is None:
             raise InvalidFilterError( "The `{0}` field has no 'attribute' to apply a filter on.".format(field_name) )
 
-        # Check to see if it's a relational lookup and if that's allowed.
-        if len( filter_bits ):
-            if not getattr( self.fields[field_name], 'is_related', False ):
-                raise InvalidFilterError( "The `{0}` field does not support relations.".format(field_name) )
-
-            if not self._meta.filtering[field_name] == ALL_WITH_RELATIONS:
-                raise InvalidFilterError( "Lookups are not allowed more than one level deep on the `{0}` field.".format(field_name) )
-
-            # Recursively descend through the remaining lookups in the filter,
-            # if any. We should ensure that all along the way, we're allowed
-            # to filter on that field by the related resource.
-            related_resource = self.fields[field_name].get_related_resource()
-            return [self.fields[field_name].attribute] + related_resource.check_filtering( filter_bits[0], filter_type, filter_bits[1:] )
-
         return [self.fields[field_name].attribute]
 
     def filter_value_to_python( self, value, field_name, filters, filter_expr, filter_type ):
@@ -787,7 +772,7 @@ class Resource( object ):
 
 
 
-    def obj_get_single( self, request=None, **kwargs ):
+    def obj_get_single( self, request, **kwargs ):
         """
         Fetches a single object at a given resource_uri.
 
@@ -797,7 +782,7 @@ class Resource( object ):
         """
         raise NotImplementedError()
 
-    def obj_get_list( self, request=None, **kwargs ):
+    def obj_get_list( self, request, **kwargs ):
         """
         Fetches a list of objects at a given resource_uri.
 
@@ -806,7 +791,7 @@ class Resource( object ):
         """
         raise NotImplementedError()
 
-    def obj_delete_single(self, request=None, **kwargs):
+    def obj_delete_single(self, request, **kwargs):
         """
         Deletes a single object.
 
@@ -817,7 +802,7 @@ class Resource( object ):
         """
         raise NotImplementedError()
 
-    def obj_delete_list(self, request=None, **kwargs):
+    def obj_delete_list(self, request, **kwargs):
         """
         Deletes an entire list of objects.
 
@@ -980,7 +965,7 @@ class DocumentResource( Resource ):
                     # was given, so related_data can be None or []
                     continue
                 
-                related_resource = fld.get_related_resource()
+                related_resource = fld.get_related_resource( related_data )
                 
                 if not getattr( fld, 'is_tomany', False ):
                     related_data = [ related_data, ] 
@@ -1208,7 +1193,7 @@ class DocumentResource( Resource ):
         #FIXME: the mongo-specific part!
         return obj_list.sort_by( *sort_by_args )
 
-    def build_filters( self, filters=None ):
+    def build_filters( self, filters, request ):
         """
         Given a dictionary of filters, create the corresponding DRM filters,
         checking whether filtering on the field is allowed in the Resource
@@ -1451,7 +1436,7 @@ class DocumentResource( Resource ):
 
         return self._related_fields_callback( bundle, 'update' )
 
-    def obj_get_list( self, request=None, **kwargs ):
+    def obj_get_list( self, request, **kwargs ):
         """
         A Pyramid/MongoEngine implementation of `obj_get_list`.
         """
@@ -1463,7 +1448,7 @@ class DocumentResource( Resource ):
 
         # Update with the provided kwargs.
         filters.update( kwargs )
-        applicable_filters = self.build_filters( filters=filters )
+        applicable_filters = self.build_filters( filters, request )
 
         try:
             documents = self.get_queryset( request ).filter( **applicable_filters )
@@ -1472,7 +1457,7 @@ class DocumentResource( Resource ):
         except ValueError:
             raise BadRequest( "Invalid resource lookup data provided ( mismatched type )." )
 
-    def obj_get_single( self, request=None, **kwargs ):
+    def obj_get_single( self, request, **kwargs ):
         """
         A Pyramid/MongoEngine specific implementation of `obj_get_single`.
 
@@ -1521,7 +1506,7 @@ class DocumentResource( Resource ):
         request.cache.add( object )
         return object
 
-    def obj_delete_list( self, request=None, **kwargs ):
+    def obj_delete_list( self, request, **kwargs ):
         """
         Tries to retrieve a set of resources per the given `request` and 
         `kwargs` and deletes them if all are found. 
@@ -1534,7 +1519,7 @@ class DocumentResource( Resource ):
             bundle.request.api['to_delete'].add( bundle.obj )
             self._update_relations( bundle )
 
-    def obj_delete_single( self, request=None, **kwargs ):
+    def obj_delete_single( self, request, **kwargs ):
         """
         Tries to retrieve a resource per the given `request` and `kwargs` and
         deletes it if found. 

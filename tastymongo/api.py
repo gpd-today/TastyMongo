@@ -123,7 +123,7 @@ class Api( object ):
         if resource_name is None:
             raise ConfigurationError( "Resource='{}' must define a 'resource_name'.".format( resource ) )
 
-        self._registry[resource_name] = resource
+        self._registry[ resource_name ] = resource
 
         # add 'schema' action
         schema_name = self.build_route_name( resource_name, 'schema' )
@@ -148,6 +148,12 @@ class Api( object ):
             del(self._registry[resource_name])
         else:
             raise NotRegistered( "No resource was registered for resource_name='{}'.".format( resource_name ) )
+
+    def resource_from_uri( self, uri ):
+        return self._registry[ uri.split( '/' )[ -3 ] ]
+
+    def id_from_uri( self, uri ):
+        return self._registry[ uri.split( '/' )[ -2 ] ]
 
     def build_route_name(self, resource_name, operation):
         if resource_name is not None:
