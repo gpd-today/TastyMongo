@@ -152,7 +152,7 @@ class Api( object ):
     def resource_for_document( self, document ):
         # FIXME: this becomes non-deterministic if there's more than a single Resource for a certain Document type.
         for resource in self._registry.values():
-            if isinstance( document, resource._meta.object_class ):
+            if resource._meta.object_class and isinstance( document, resource._meta.object_class ):
                 return resource
 
         raise ValueError( 'Could not find matching resource for document={}'.format( document ) )
