@@ -13,13 +13,14 @@ from .throttle import BaseThrottle
 from .paginator import Paginator
 
 from pyramid.response import Response
-from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned
+from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned, Q
 from mongoengine.base import ValidationError as MongoEngineValidationError
 from mongoengine_relational.relationalmixin import set_difference as setdiff
 import mongoengine.document 
 import mongoengine.fields as mongofields
 
 from copy import deepcopy
+from operator import or_
 from collections import defaultdict
 
 
@@ -1212,12 +1213,13 @@ class DocumentResource( Resource ):
 
     def build_filters( self, filters, request ):
         """
-        Given a dictionary of filters, create the corresponding DRM filters,
+        Given a dictionary of filters, creates the corresponding DRM filters,
         checking whether filtering on the field is allowed in the Resource
         definition.
 
         Valid values are either a list of MongoEngine filter types ( i.e.
-        `['startswith', 'exact', 'lte']` ) or the `ALL` constant.
+        `['startswith', 'exact', 'lte', 'icontains']` ) the `ALL` or 
+        'ALL_WITH_RELATIONS' constants.
 
         At the declarative level:
             filtering = {
@@ -1228,21 +1230,32 @@ class DocumentResource( Resource ):
                 ...
             }
 
-        Accepts the filters as a dict. None by default, meaning no filters.
-        Creates cross relational lookups by using the results of intermediary
+        Accepts the filters as a dict. 
+
+        Creates cross-relational lookups by using the results of intermediary
         filters on related resources.
+
+        You can prepend field names with `OR__` to create an or filter. 
+        Functionality is limited since all OR's are combined and OR'ed with all
+        non-OR conditions, there's no support for nested ORs and ANDs.
+
+        Returns a QCombination object that can be used in <queryset>.filter().
         """
-        if filters is None:
+        if not filters:
             filters = {}
 
-        qs_filters = {}
+        or_filters = { 0: {}, 1: {}, }
 
         for filter_expr, value in filters.items():
             filter_bits = filter_expr.split( LOOKUP_SEP )
-            field_name = filter_bits.pop( 0 )
             filter_type = 'exact'
+            field_name = filter_bits.pop( 0 )
 
-            if not field_name in self.fields:
+            is_or_filter = field_name == 'OR'
+            if is_or_filter:
+                field_name = filter_bits.pop( 0 )
+
+            if field_name not in self.fields:
                 # Not a field the Resource knows about, so ignore it.
                 continue
 
@@ -1270,9 +1283,13 @@ class DocumentResource( Resource ):
 
             # Return the queryset filter
             qs_filter = "{0}{1}{2}".format( resource_filters[0][1].attribute, LOOKUP_SEP, filter_type )
-            qs_filters[ qs_filter ] = value
+            or_filters[is_or_filter][qs_filter] = value
 
-        return qs_filters
+        final_filters = Q(**or_filters[0]) if or_filters[0] else Q()
+        if or_filters[1]:
+            final_filters |= reduce(or_, (Q(**{k:v}) for k,v in or_filters[1].items()) )
+
+        return final_filters
 
     def get_queryset( self, request ):
         if hasattr( self._meta, "queryset" ):
@@ -1492,7 +1509,7 @@ class DocumentResource( Resource ):
         applicable_filters = self.build_filters( filters, request )
 
         try:
-            documents = self.get_queryset( request ).filter( **applicable_filters )
+            documents = self.get_queryset( request ).filter( applicable_filters )
             request.cache.add( documents )
             return documents
         except ValueError:
