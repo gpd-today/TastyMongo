@@ -744,6 +744,20 @@ class Resource( object ):
         if self.fields[field_name].attribute is None:
             raise InvalidFilterError( "The `{0}` field has no 'attribute' to apply a filter on.".format(field_name) )
 
+        # Check to see if it's a relational lookup and if that's allowed.
+        if len( filter_bits ):
+            if not getattr(self.fields[ field_name ], 'is_related', False):
+                raise InvalidFilterError("The '%s' field does not support relations." % field_name)
+
+            if not self._meta.filtering[ field_name ] == ALL_WITH_RELATIONS:
+                raise InvalidFilterError("Lookups are not allowed more than one level deep on the '%s' field." % field_name)
+
+            # Recursively descend through the remaining lookups in the filter,
+            # if any. We should ensure that all along the way, we're allowed
+            # to filter on that field by the related resource.
+            related_resource = self.fields[field_name].get_related_resource( None )
+            return [self.fields[field_name].attribute] + related_resource.check_filtering(filter_bits[0], filter_type, filter_bits[1:])
+
         return [self.fields[field_name].attribute]
 
     def filter_value_to_python( self, value, field_name, filters, filter_expr, filter_type ):
@@ -1238,7 +1252,7 @@ class DocumentResource( Resource ):
 
             db_field_name = LOOKUP_SEP.join( lookup_bits )
             qs_filter = "{0}{1}{2}".format( db_field_name, LOOKUP_SEP, filter_type )
-            qs_filters[qs_filter] = value
+            qs_filters[ qs_filter ] = value
 
         return qs_filters
 
