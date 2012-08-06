@@ -726,8 +726,8 @@ class Resource( object ):
         If a filter does not meet the needed conditions, it should raise an
         `InvalidFilterError`.
 
-        If the filter meets the conditions, a list of attribute names ( not
-        field names ) will be returned.
+        If the filter meets the conditions, a list of tupes of the form
+        [ ( Resource, Field ), ... ]  is returned.
         """
         if filter_bits is None:
             filter_bits = []
@@ -756,9 +756,9 @@ class Resource( object ):
             # if any. We should ensure that all along the way, we're allowed
             # to filter on that field by the related resource.
             related_resource = self.fields[field_name].get_related_resource( None )
-            return [self.fields[field_name].attribute] + related_resource.check_filtering(filter_bits[0], filter_type, filter_bits[1:])
+            return [ ( self, self.fields[field_name] ) ] + related_resource.check_filtering( filter_bits[0], filter_type, filter_bits[1:] )
 
-        return [self.fields[field_name].attribute]
+        return [ ( self, self.fields[field_name] ) ]
 
     def filter_value_to_python( self, value, field_name, filters, filter_expr, filter_type ):
         """
@@ -1229,6 +1229,8 @@ class DocumentResource( Resource ):
             }
 
         Accepts the filters as a dict. None by default, meaning no filters.
+        Creates cross relational lookups by using the results of intermediary
+        filters on related resources.
         """
         if filters is None:
             filters = {}
@@ -1247,11 +1249,27 @@ class DocumentResource( Resource ):
             if len( filter_bits ) and filter_bits[-1] in QUERY_TERMS:
                 filter_type = filter_bits.pop()
 
-            lookup_bits = self.check_filtering( field_name, filter_type, filter_bits )
+            # Example:
+            # Books.filter( author__name__icontains='Fred' ) receives:
+            # [ (BookResource, 'author'), (AuthorResource, 'name') ], from 
+            # `check_filtering`, for which we return the filter:
+            #   { 'author__id__in': author_ids }
+            # where `author_ids` is the result set from
+            #   AuthorResource.filter( name__icontains='Fred' ).scalar('id')
+            resource_filters = self.check_filtering( field_name, filter_type, filter_bits )
             value = self.filter_value_to_python( value, field_name, filters, filter_expr, filter_type )
 
-            db_field_name = LOOKUP_SEP.join( lookup_bits )
-            qs_filter = "{0}{1}{2}".format( db_field_name, LOOKUP_SEP, filter_type )
+            if len( resource_filters ) > 1:
+                # Traverse related fields backwards, creating lists of ids as
+                # intermediate results to limit nearer Documents to.
+                for ( resource, field ) in reversed( resource_filters[1:] ):
+                    resource_filter = { "{0}{1}{2}".format( field.field_name, LOOKUP_SEP, filter_type ): value }
+                    # Use the results for this resource for the next query.
+                    filter_type = 'in'
+                    value = list(resource.obj_get_list( request, **resource_filter ).scalar('id'))
+
+            # Return the queryset filter
+            qs_filter = "{0}{1}{2}".format( resource_filters[0][1].attribute, LOOKUP_SEP, filter_type )
             qs_filters[ qs_filter ] = value
 
         return qs_filters
