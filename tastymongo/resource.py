@@ -1289,11 +1289,11 @@ class DocumentResource( Resource ):
             qs_filter = "{0}{1}{2}".format( resource_filters[0][1].attribute, LOOKUP_SEP, filter_type )
             or_filters[is_or_filter][qs_filter] = value
 
-        final_filters = Q(**or_filters[0]) if or_filters[0] else Q()
+        Q_filter = Q(**or_filters[0]) if or_filters[0] else Q()
         if or_filters[1]:
-            final_filters &= reduce(or_, (Q(**{k:v}) for k,v in or_filters[1].items()) )
+            Q_filter &= reduce(or_, (Q(**{k:v}) for k,v in or_filters[1].items()) )
 
-        return final_filters
+        return Q_filter, or_filters
 
     def get_queryset( self, request ):
         if hasattr( self._meta, "queryset" ):
@@ -1510,10 +1510,11 @@ class DocumentResource( Resource ):
 
         # Update with the provided kwargs.
         filters.update( kwargs )
-        applicable_filters = self.build_filters( filters, request )
+        Q_filter, readable_filters = self.build_filters( filters, request )
+        import ipdb; ipdb.set_trace()
 
         try:
-            documents = self.get_queryset( request ).filter( applicable_filters )
+            documents = self.get_queryset( request ).filter( Q_filter )
             request.cache.add( documents )
             return documents
         except ValueError:
