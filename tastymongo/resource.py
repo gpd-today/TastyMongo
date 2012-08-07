@@ -1511,7 +1511,6 @@ class DocumentResource( Resource ):
         # Update with the provided kwargs.
         filters.update( kwargs )
         Q_filter, readable_filters = self.build_filters( filters, request )
-        import ipdb; ipdb.set_trace()
 
         try:
             documents = self.get_queryset( request ).filter( Q_filter )

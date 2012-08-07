@@ -27,7 +27,7 @@ try:
 
     def may_read( doc, request ):
         # A document may be read if it doesn't implement privileges, or grants the request's user the `read` privilege
-        return not isinstance( doc, PrivilegeMixin ) or doc.may( 'read', request )
+        return not isinstance( doc, PrivilegeMixin ) or doc.may( request, 'read' )
 
 except ImportError:
     def may_read( doc, request ):
