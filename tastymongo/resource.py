@@ -765,6 +765,7 @@ class Resource( object ):
         """
         Turn the string `value` into a python object.
         """
+        # FIXME: make getting the id from resource_uri less hard-coded
         # Simple values
         if value in ['true', 'True', True]:
             value = True
@@ -773,19 +774,15 @@ class Resource( object ):
         elif value in ( 'nil', 'none', 'None', None ):
             value = None
 
-        # Split on ',' if not empty string and either an in or range filter.
-        if filter_type in ( 'in', 'range' ) and len( value ):
-            if hasattr( filters, 'getlist' ):
-                value = []
-
-                for part in filters.getlist( filter_expr ):
-                    value.extend( part.split( ',' ))
+        if isinstance( value, basestring ) and len(value):
+            if filter_type in ('range', 'in'):
+                # '/api/v1/<resource_name>/<objectid/,/api/v1/<resource_name>/<object2id>/'
+                value = value.split(',')
+                for i, v in enumerate(value):
+                    value[i] = v.split( '/' )[-2] if '/' in v else v
             else:
-                value = value.split( ',' )
-
-        # FIXME: make generic. Strip resource uris to bare ids
-        if '/' in value:
-            value = value.split( '/' )[-2]
+                # '/api/v1/<resource_name>/<objectid/' or some other string
+                value = value.split( '/' )[-2] if '/' in value else value
 
         return value
 
@@ -1502,14 +1499,13 @@ class DocumentResource( Resource ):
         """
         A Pyramid/MongoEngine implementation of `obj_get_list`.
         """
-        filters = {}
-        if request and hasattr( request, 'GET' ):
+        if kwargs:
+            filters = kwargs.copy()
+        elif request and hasattr( request, 'GET' ):
             # Pyramid's Request object uses a Multidict for its representation.
             # Transform this into an 'ordinary' dict for further processing.
             filters = request.GET.mixed()
 
-        # Update with the provided kwargs.
-        filters.update( kwargs )
         Q_filter, readable_filters = self.build_filters( filters, request )
 
         try:
