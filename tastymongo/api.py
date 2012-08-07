@@ -160,9 +160,6 @@ class Api( object ):
     def resource_from_uri( self, uri ):
         return self._registry[ uri.split( '/' )[ -3 ] ]
 
-    def id_from_uri( self, uri ):
-        return self._registry[ uri.split( '/' )[ -2 ] ]
-
     def build_route_name(self, resource_name, operation):
         if resource_name is not None:
             route_name = '{}/{}/{}/'.format(self.route, resource_name, operation)

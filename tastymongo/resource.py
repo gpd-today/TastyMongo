@@ -761,7 +761,7 @@ class Resource( object ):
 
         return [ ( self, self.fields[field_name] ) ]
 
-    def filter_value_to_python( self, value, field_name, filters, filter_expr, filter_type ):
+    def parse_filter_value( self, value, field_name, filters, filter_expr, filter_type ):
         """
         Turn the string `value` into a python object.
         """
@@ -782,6 +782,10 @@ class Resource( object ):
                     value.extend( part.split( ',' ))
             else:
                 value = value.split( ',' )
+
+        # FIXME: make generic. Strip resource uris to bare ids
+        if '/' in value:
+            value = value.split( '/' )[-2]
 
         return value
 
@@ -1270,7 +1274,7 @@ class DocumentResource( Resource ):
             # where `author_ids` is the result set from
             #   AuthorResource.filter( name__icontains='Fred' ).scalar('id')
             resource_filters = self.check_filtering( field_name, filter_type, filter_bits )
-            value = self.filter_value_to_python( value, field_name, filters, filter_expr, filter_type )
+            value = self.parse_filter_value( value, field_name, filters, filter_expr, filter_type )
 
             if len( resource_filters ) > 1:
                 # Traverse related fields backwards, creating lists of ids as
@@ -1287,7 +1291,7 @@ class DocumentResource( Resource ):
 
         final_filters = Q(**or_filters[0]) if or_filters[0] else Q()
         if or_filters[1]:
-            final_filters |= reduce(or_, (Q(**{k:v}) for k,v in or_filters[1].items()) )
+            final_filters &= reduce(or_, (Q(**{k:v}) for k,v in or_filters[1].items()) )
 
         return final_filters
 
