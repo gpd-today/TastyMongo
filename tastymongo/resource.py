@@ -959,16 +959,21 @@ class DocumentResource( Resource ):
             bundle.request.api['saved'].add(obj) 
             print('    ~~~~~ SAVED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
-
         while bundle.request.api['to_delete']:
             obj = bundle.request.api['to_delete'].pop()
 
             # Store the ObjectId of the object before it is destroyed.
-            bundle.request.api['deleted'].add(getattr(obj, 'pk', obj.id))
+            bundle.request.api['closed'].add(getattr(obj, 'pk', obj.id))
 
-            obj.delete( request=bundle.request )
-            self._mark_relational_changes_for( bundle, obj )
-            print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+            if hasattr( obj, 'closed' ):
+                # Don't truly delete the object, just set it to `closed`.
+                obj.closed=True
+                obj.update( request, set__closed=True )
+                print('    ~~~~~ CLOSED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+            else:
+                obj.delete( request=bundle.request )
+                self._mark_relational_changes_for( bundle, obj )
+                print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
         if bundle.request.api['to_save']: 
             # Deletion may have triggered documents that need to be updated.
@@ -1012,6 +1017,7 @@ class DocumentResource( Resource ):
             'to_save': set(),
             'to_delete': set(),
             'deleted': set(),
+            'closed': set(),
         }
 
         return super( DocumentResource, self ).dispatch( request_type, request, **kwargs )
