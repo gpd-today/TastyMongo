@@ -585,17 +585,17 @@ class RelatedField( ApiField ):
 
         if isinstance( data, basestring ):
             # We got a resource URI. Try to create a bundle with the resource.
-            return related_resource.build_bundle( data=data, request=request )
+            return related_resource.build_bundle( request=request, data=data )
         elif hasattr( data, 'items' ):
             # We've got a data dictionary. 
             if self.readonly:
                 if 'resource_uri' in data:
                     # Ignore any other posted data and just return a URI.
-                    return related_resource.build_bundle( data=data['resource_uri'], request=request )
+                    return related_resource.build_bundle( request=request, data=data['resource_uri'] )
                 else:
                     raise ApiFieldError("The `{0}` field was given data but is readonly: `{1}`.".format( self.field_name, data ) )
             else:
-                related_bundle = related_resource.build_bundle( data=data, request=request ) 
+                related_bundle = related_resource.build_bundle( request=request, data=data )
                 return related_resource.hydrate( related_bundle )
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
@@ -616,7 +616,7 @@ class RelatedField( ApiField ):
             return None
 
         related_resource = self.get_related_resource( related_object )
-        related_bundle = related_resource.build_bundle( obj=related_object, request=bundle.request )
+        related_bundle = related_resource.build_bundle( request=bundle.request, obj=related_object )
 
         if not self.full:
             return related_resource.get_resource_uri( bundle.request, related_bundle )
@@ -686,7 +686,7 @@ class ToManyField( RelatedField ):
         related_resource = self.get_related_resource( bundle )
         related_bundles = []
         for related_object in related_objects:
-            related_bundle = related_resource.build_bundle( obj=related_object, request=bundle.request )
+            related_bundle = related_resource.build_bundle( request=bundle.request, obj=related_object )
             if not self.full:
                 related_bundles.append( related_resource.get_resource_uri( bundle.request, related_bundle ))
             else:

@@ -348,7 +348,7 @@ class Resource( object ):
         """
         return data
 
-    def build_bundle( self, obj=None, data=None, request=None ):
+    def build_bundle( self, request, obj=None, data=None ):
         """
         Given either an object, a data dictionary or both, builds a `Bundle`
         for use throughout the `dehydrate/hydrate` cycle.
@@ -382,6 +382,8 @@ class Resource( object ):
 
         if obj is None:
             obj = self._meta.object_class()
+
+        request.cache.add( obj )
 
         bundle = Bundle( obj=obj, data=data, request=request )
         if len(bundle.data) > 1:
@@ -582,7 +584,7 @@ class Resource( object ):
         data = paginator.page()
 
         # Create a bundle for every object and dehydrate those bundles individually
-        bundles = [self.build_bundle( obj=object, request=request ) for object in data['objects']]
+        bundles = [self.build_bundle( request=request, obj=object ) for object in data['objects']]
         bundles = [self.dehydrate( bundle ) for bundle in bundles]
         data['objects'] = self.pre_serialize_list( bundles, request )
         return self.create_response( data, request )
@@ -603,7 +605,7 @@ class Resource( object ):
         except MultipleObjectsReturned, e:
             return http.HTTPMultipleChoices( "More than one resource is found at this URI." )
 
-        bundle = self.build_bundle( obj=object, request=request )
+        bundle = self.build_bundle( request=request, obj=object )
         bundle = self.dehydrate( bundle )
         data = self.pre_serialize_single( bundle, request )
         return self.create_response( data, request )
@@ -618,7 +620,7 @@ class Resource( object ):
         data = self.deserialize( request, request.body, format=request.content_type )
         data = self.post_deserialize_single( data, request )
 
-        bundle = self.build_bundle( data=data, request=request )
+        bundle = self.build_bundle( request=request, data=data )
         bundle = self.hydrate( bundle )
 
         bundle = self.save( bundle )
@@ -653,7 +655,7 @@ class Resource( object ):
 
         bundles = []
         for item in data:
-            bundle = self.build_bundle( data=item, request=request )
+            bundle = self.build_bundle( request=request, data=item )
             bundle = self.hydrate( bundle )
             bundle = self.save( bundle )
 
@@ -678,7 +680,7 @@ class Resource( object ):
         data = self.deserialize( request, request.body, format=request.content_type )
         data = self.post_deserialize_single( data, request )
 
-        bundle = self.build_bundle( data=data, request=request )
+        bundle = self.build_bundle( request=request, data=data )
         bundle = self.hydrate( bundle )
         bundle = self.save( bundle )
 
@@ -1509,9 +1511,7 @@ class DocumentResource( Resource ):
         Q_filter, readable_filters = self.build_filters( filters, request )
 
         try:
-            documents = self.get_queryset( request ).filter( Q_filter )
-            request.cache.add( documents )
-            return documents
+            return self.get_queryset( request ).filter( Q_filter )
         except ValueError:
             raise BadRequest( "Invalid resource lookup data provided ( mismatched type )." )
 
@@ -1560,8 +1560,9 @@ class DocumentResource( Resource ):
             stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in filters.items()] )
             raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
 
-        # Okay, we're good to go without a superfluous len() query.
+        # Okay, we're good to go
         request.cache.add( object )
+
         return object
 
     def obj_delete_list( self, request, **kwargs ):
@@ -1572,7 +1573,7 @@ class DocumentResource( Resource ):
         Returns `HTTPNoContent` if successful, or `HTTPNotFound`.
         """
         objects = self.obj_get_list(request, **kwargs)
-        bundles = [self.build_bundle( obj=object, request=request ) for object in objects]
+        bundles = [self.build_bundle( request=request, obj=object ) for object in objects]
         for bundle in bundles:
             bundle.request.api['to_delete'].add( bundle.obj )
             self._update_relations( bundle )
@@ -1589,7 +1590,7 @@ class DocumentResource( Resource ):
         except DoesNotExist:
             raise NotFound("A model instance matching the provided arguments could not be found.")
 
-        bundle = self.build_bundle( obj=object, request=request )
+        bundle = self.build_bundle( request=request, obj=object )
         bundle.request.api['to_delete'].add( bundle.obj )
         self._update_relations( bundle )
 
