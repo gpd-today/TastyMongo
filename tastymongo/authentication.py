@@ -1,3 +1,6 @@
+from __future__ import print_function
+from __future__ import unicode_literals
+
 class Authentication(object):
     """
     A simple base class to establish the protocol for auth.
