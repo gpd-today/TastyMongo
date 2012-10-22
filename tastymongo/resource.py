@@ -577,10 +577,11 @@ class Resource( object ):
         Should return an HTTPResponse ( 200 OK ).
         """
         objects = self.obj_get_list( request=request, **request.matchdict )
+        ordered_objects = self.apply_ordering(objects, options=request.GET.mixed())
 
         paginator = self._meta.paginator_class(
                 request.GET, 
-                objects, 
+                ordered_objects, 
                 resource_uri=self.get_resource_uri( request ), 
                 limit=self._meta.limit, 
                 max_limit=self._meta.max_limit, 
@@ -1172,41 +1173,35 @@ class DocumentResource( Resource ):
 
         return self._meta.api.build_uri( request, **kwargs )
 
-    def apply_sorting( self, obj_list, options=None ):
+    def apply_ordering( self, obj_list, options=None ):
         """
-        Given a dictionary of options, apply some ODM-level sorting to the
+        Given a dictionary of options, apply some ODM-level ordering to the
         provided `QuerySet`.
 
-        Looks for the `sort_by` key and handles either ascending ( just the
+        Looks for the `order_by` key and handles either ascending ( just the
         field name ) or descending ( the field name with a `-` in front ).
         """
         if options is None:
             options = {}
 
-        parameter_name = 'sort_by'
-
-        if not 'sort_by' in options:
-            # Nothing to alter the sorting. Return what we've got.
+        if not 'order_by' in options:
+            # Nothing to alter the ordering. Return what we've got.
             return obj_list
 
-        sort_by_args = []
+        order_by_args = []
 
-        if hasattr( options, 'getlist' ):
-            sort_bits = options.getlist( parameter_name )
-        else:
-            sort_bits = options.get( parameter_name )
+        order_bits = options['order_by']
+        if not isinstance( order_bits, ( list, tuple )):
+            order_bits = [order_bits]
 
-            if not isinstance( sort_bits, ( list, tuple )):
-                sort_bits = [sort_bits]
+        for order_bit in order_bits:
+            order_by_bits = order_bit.split( LOOKUP_SEP )
 
-        for sort_by in sort_bits:
-            sort_by_bits = sort_by.split( LOOKUP_SEP )
-
-            field_name = sort_by_bits[0]
+            field_name = order_by_bits[0]
             order = ''
 
-            if sort_by_bits[0].startswith( '-' ):
-                field_name = sort_by_bits[0][1:]
+            if order_by_bits[0].startswith( '-' ):
+                field_name = order_by_bits[0][1:]
                 order = '-'
 
             if not field_name in self.fields:
@@ -1219,10 +1214,9 @@ class DocumentResource( Resource ):
             if self.fields[field_name].attribute is None:
                 raise InvalidSortError( "The `{0}` field has no 'attribute' for ordering with.".format(field_name) )
 
-            sort_by_args.append( "{0}{1}".format( order, LOOKUP_SEP.join( [self.fields[field_name].attribute] + sort_by_bits[1:] ) ) )
+            order_by_args.append( "{0}{1}".format( order, LOOKUP_SEP.join( [self.fields[field_name].attribute] + order_by_bits[1:] ) ) )
 
-        #FIXME: the mongo-specific part!
-        return obj_list.sort_by( *sort_by_args )
+        return obj_list.order_by( *order_by_args )
 
     def build_filters( self, filters, request ):
         """
