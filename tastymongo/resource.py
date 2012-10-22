@@ -374,11 +374,8 @@ class Resource( object ):
             # Try to retrieve the object and put it in fresh bundle.
             try:
                 obj = self.obj_get_single( request=request, uri=data['resource_uri'] )
-            except:
-                # Object is gone. Create a fresh object.
-                print('  WARNING: resource `{0}` is gone. Creating a fresh one'.format( data['resource_uri']) )
-                obj = None
-                del data['resource_uri']
+            except (self._meta.object_class.DoesNotExist, self._meta.object_class.MultipleObjectsReturned), e:
+                raise 
 
         if obj is None:
             obj = self._meta.object_class()
@@ -1526,44 +1523,37 @@ class DocumentResource( Resource ):
         filters = {}
 
         id = kwargs.get( 'pk' ) or kwargs.get( 'id' )
-        if not id and 'uri' in kwargs:
-            # We have received a uri. Try to grab an id from it.
-            id = kwargs.pop( 'uri', '' ).split( '/' )[-2]
+        if not id:
+            if 'uri' in kwargs:
+                # We have received a uri. Try to grab an id from it.
+                id = kwargs.pop( 'uri', '' ).split( '/' )[-2]
 
         if id:
             # Try to fetch the object from the document cache
             if id in request.cache:
                 object = request.cache.get( id, None )
-                if object:  # We're done, return the object.
+                if object:  
+                    # We're done, return the object.
                     return object
-
-            filters['id'] = id
+            else:
+                # Object not found in cache, so add a filter for its id
+                filters['id'] = id
         else:
             filters = kwargs.copy()
 
-        # Object not in cache, hit the database.
+        # Object not in cache, alas, we have to hit the database.
         matched = self.obj_get_list( request, **filters )
+        if len(matched) == 1:
+            request.cache.add( matched[0] )
+            return matched[0]
 
-        # We use `obj_get_list` here to avoid duplicate code and additional hit
-        # to the database. Find out if we matched only 1 object and be smart
-        # about queries: every len() causes one.
-        for obj in matched:
-            if object:
-                # There should be only 1 object in the list, so we shouldn't
-                # get here unless the kwargs matched more than one object.
-                stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in filters.items()] )
-                raise self._meta.object_class.MultipleObjectsReturned( "More than one `{0}` matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
-            object = obj 
-
-        if object is None:
-            # We haven't found any object that matches the filters. 
-            stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in filters.items()] )
+        # Filters returned 0 or more than 1 match, raise an error.
+        stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in filters.items()] )
+        if len(matched) == 0:
             raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
+        else:
+            raise self._meta.object_class.MultipleObjectsReturned( "More than one `{0}` matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
 
-        # Okay, we're good to go
-        request.cache.add( object )
-
-        return object
 
     def obj_delete_list( self, request, **kwargs ):
         """
