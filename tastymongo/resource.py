@@ -23,10 +23,6 @@ from copy import deepcopy
 from operator import or_
 from collections import defaultdict
 
-from kitchen.text.converters import getwriter
-import sys
-UTF8Writer = getwriter('utf8')
-sys.stdout = UTF8Writer(sys.stdout)
 
 class ResourceOptions( object ):
     """
