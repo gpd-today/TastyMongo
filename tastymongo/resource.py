@@ -986,9 +986,9 @@ class DocumentResource( Resource ):
 
     def _related_fields_callback( self, bundle, callback_func ):
         for field_name, fld in self.fields.items():
-            if getattr( fld, 'is_related', False ) and field_name in bundle.data: 
+            if getattr( fld, 'is_related', False ) and field_name in bundle.data:
                 related_data = bundle.data[ field_name ]
-                if not related_data: 
+                if not related_data:
                     # This can happen if the field is not required and no data
                     # was given, so related_data can be None or []
                     continue
@@ -1425,14 +1425,14 @@ class DocumentResource( Resource ):
         '''
         # PHASE 1: If we're brand spankin' new try to get us an id.
         if not bundle.obj.pk:
+            bundle = self._mark_relational_changes_for( bundle )
             bundle = self._stash_invalid_relations( bundle )
             try:
-                bundle = self._mark_relational_changes_for( bundle )
                 bundle.obj.save( request=bundle.request, cascade=False ) 
                 bundle.request.api['created'].add( bundle.obj )
                 print('    ~~~~~ CREATED (I) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
-                # We'll have to wait for related objects to be created first.            
+                # We'll have to wait for related objects to be created first.
                 pass
             bundle = self._pop_stashed_relations( bundle )
 
