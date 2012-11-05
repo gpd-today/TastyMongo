@@ -240,8 +240,9 @@ class Serializer(object):
             writer = csv.DictWriter( raw_data, rows[0].keys(), extrasaction='ignore', quoting=csv.QUOTE_NONNUMERIC )
             writer.writeheader()
             writer.writerows( rows )
-        else:
-            raise Exception( data )
+        elif options:
+            writer = csv.DictWriter( raw_data, options.keys(), extrasaction='ignore', quoting=csv.QUOTE_NONNUMERIC )
+            writer.writeheader()
 
         return raw_data.getvalue()
 
