@@ -3,6 +3,8 @@ from __future__ import unicode_literals
 
 import datetime
 import json
+import csv
+import StringIO
 
 from .exceptions import *
 from .bundle import Bundle
@@ -26,10 +28,11 @@ class Serializer(object):
     various format methods (i.e. ``to_json``), by changing the
     ``formats/content_types`` options or by altering the other hook methods.
     """
-    formats = ['json', 'html' ]
+    formats = ['json', 'html', 'csv' ]
     content_types = {
         'json': 'application/json',
-        'html': 'text/html'
+        'html': 'text/html',
+        'csv': 'text/csv',
     }
 
     def __init__(self, formats=None, content_types=None, datetime_formatting=None):
@@ -202,6 +205,30 @@ class Serializer(object):
         implemented.
         """
         pass
+
+    def to_csv( self, data, options=None ):
+        options = options or {}
+        data = self.to_simple( data, options )
+        raw_data = StringIO.StringIO()
+
+        if 'objects' in data:
+            data = data[ 'objects' ]
+
+        if data and isinstance( data, list ) and len( data ):
+            writer = csv.DictWriter( raw_data, data[0].keys(), extrasaction='ignore' )
+            for item in data:
+                writer.writerow( item )
+        else:
+            raise Exception( data )
+
+        return raw_data.getvalue()
+
+    def from_csv( self, content ):
+        raw_data = StringIO.StringIO(content)
+        data = []
+        for item in csv.DictReader(raw_data):
+            data.append(item)
+        return data
 
 
 def get_type_string(data):

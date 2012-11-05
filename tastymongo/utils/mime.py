@@ -15,9 +15,8 @@ def determine_format(request, serializer, default_format='application/json'):
     to ``application/json`` if not provided).
     """
     # First, check if they forced the format.
-    if 'format' in request.GET:
-        if request.GET['format'] in serializer.formats:
-            return serializer.get_mime_for_format(request.GET['format'])
+    if 'format' in request.GET and request.GET['format'] in serializer.formats:
+        return serializer.get_mime_for_format(request.GET['format'])
     
     # If callback parameter is present, use JSONP.
     if 'callback' in request.GET:
