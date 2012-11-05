@@ -307,7 +307,7 @@ class Resource( object ):
         request_method = request.method.lower()
         self._meta.throttle.accessed( self._meta.authentication.get_identifier(request), url=request.path_url, request_method=request_method )
 
-    def create_response( self, data, request=None, response_class=Response, **response_kwargs ):
+    def create_response( self, data, request=None, response_class=Response, serializer_options=None, **kwargs ):
         """
         Extracts the common "which-format/serialize/return-response" cycle.
         """
@@ -316,8 +316,8 @@ class Resource( object ):
         else:
             desired_format = self._meta.default_format
 
-        serialized = self.serialize( request, data, desired_format )
-        return response_class( body=serialized, content_type=build_content_type( desired_format ), **response_kwargs )
+        serialized = self.serialize( request, data, desired_format, serializer_options )
+        return response_class( body=serialized, content_type=build_content_type( desired_format ), **kwargs )
 
 
 

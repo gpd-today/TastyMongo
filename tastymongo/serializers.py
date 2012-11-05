@@ -5,6 +5,7 @@ import datetime
 import json
 import csv
 import StringIO
+from collections import OrderedDict
 
 from .exceptions import *
 from .bundle import Bundle
@@ -93,7 +94,7 @@ class Serializer(object):
 
         return data.isoformat()
 
-    def serialize(self, bundle, format='application/json', options={}):
+    def serialize( self, bundle, format='application/json', options=None ):
         """
         Given some data and a format, calls the correct method to serialize
         the data and returns the result.
@@ -109,7 +110,7 @@ class Serializer(object):
         if desired_format is None:
             raise UnsupportedFormat("The format indicated '{}' had no available serialization method. Please check your ``formats`` and ``content_types`` on your Serializer.".format( format ) )
 
-        serialized = getattr(self, "to_{}".format( desired_format ) )(bundle, options)
+        serialized = getattr(self, "to_{}".format( desired_format ) )( bundle, options )
         return serialized
 
     def deserialize(self, content, format='application/json'):
@@ -133,7 +134,7 @@ class Serializer(object):
         deserialized = getattr(self, "from_%s" % desired_format)(content)
         return deserialized
 
-    def to_simple(self, data, options):
+    def to_simple( self, data ):
         """
         For a piece of data, attempts to recognize it and provide a simplified
         form of something complex.
@@ -141,62 +142,62 @@ class Serializer(object):
         This brings complex Python data structures down to native types of the
         serialization format(s).
         """
-        if isinstance(data, (list, tuple)):
-            return [self.to_simple(item, options) for item in data]
+        if isinstance( data, ( list, tuple ) ):
+            return [ self.to_simple( item ) for item in data ]
         if isinstance(data, dict):
-            return dict((key, self.to_simple(val, options)) for (key, val) in data.iteritems())
+            return dict( ( key, self.to_simple( val ) ) for ( key, val ) in data.iteritems() )
         elif isinstance(data, Bundle):
-            return dict((key, self.to_simple(val, options)) for (key, val) in data.data.iteritems())
-        elif isinstance(data, datetime.datetime):
-            return self.format_datetime(data)
-        elif isinstance(data, datetime.date):
-            return self.format_date(data)
-        elif isinstance(data, datetime.time):
-            return self.format_time(data)
-        elif isinstance(data, bool):
+            return dict( ( key, self.to_simple( val ) ) for ( key, val ) in data.data.iteritems() )
+        elif isinstance( data, datetime.datetime ):
+            return self.format_datetime( data )
+        elif isinstance( data, datetime.date ):
+            return self.format_date( data )
+        elif isinstance( data, datetime.time ):
+            return self.format_time( data )
+        elif isinstance( data, bool ):
             return data
-        elif type(data) in (long, int, float):
+        elif type( data ) in ( long, int, float ):
             return data
         elif data is None:
             return None
         else:
-            return unicode(data)
+            return unicode( data )
 
-    def to_json(self, data, options=None):
+    def to_json( self, data, options ):
         """
         Given some Python data, produces JSON output.
         """
         options = options or {}
-        data = self.to_simple(data, options)
-        return json.dumps(data, sort_keys=True)
+        data = self.to_simple( data )
+        return json.dumps( data, sort_keys=True )
 
-    def from_json(self, content):
+    def from_json( self, content ):
         """
         Given some JSON data, returns a Python dictionary of the decoded data.
         """
         return json.loads(content)
 
-    def to_jsonp(self, data, options=None):
+    def to_jsonp( self, data, options ):
         """
         Given some Python data, produces JSON output wrapped in the provided
         callback.
         """
         options = options or {}
-        return '%s(%s)' % (options['callback'], self.to_json(data, options))
+        return '{}({})'.format( options['callback'], self.to_json( data, options ) )
 
-    def to_html(self, data, options=None):
+    def to_html( self, data, options ):
         """
         Reserved for future usage.
 
         Provide HTML output of a resource, making an API available to a browser.
         """
         options = options or {}
-        data = self.to_simple( data, options )
+        data = self.to_simple( data )
         js = json.dumps( data, sort_keys=True, indent=4 )
         html = '<html><body><pre>{}</pre></body></html>'.format( js );
         return html
 
-    def from_html(self, content):
+    def from_html( self, content ):
         """
         Reserved for future usage.
 
@@ -206,18 +207,39 @@ class Serializer(object):
         """
         pass
 
-    def to_csv( self, data, options=None ):
-        options = options or {}
-        data = self.to_simple( data, options )
+    def to_csv( self, data, options ):
+        data = self.to_simple( data )
         raw_data = StringIO.StringIO()
+        rows = []
 
+        def getByDotNotation( obj, ref ):
+            val = obj
+            for key in ref.split( '.' ):
+                if val and key in val:
+                    val = val[ key ]
+                else:
+                    val = None
+                    break
+
+            return val
+
+        # Transform the data to the format specified in `options`. If `options` is not specified, just take the objects.
         if 'objects' in data:
-            data = data[ 'objects' ]
+            if isinstance( options, OrderedDict ):
+                for row in data[ 'objects' ]:
+                    item = OrderedDict()
 
-        if data and isinstance( data, list ) and len( data ):
-            writer = csv.DictWriter( raw_data, data[0].keys(), extrasaction='ignore' )
-            for item in data:
-                writer.writerow( item )
+                    for name, field in options.items():
+                        item[ name ] = getByDotNotation( row, field )
+
+                    rows.append( item )
+            else:
+                rows = data[ 'objects' ]
+
+        if rows and isinstance( rows, list ) and len( rows ):
+            writer = csv.DictWriter( raw_data, rows[0].keys(), extrasaction='ignore', quoting=csv.QUOTE_NONNUMERIC )
+            writer.writeheader()
+            writer.writerows( rows )
         else:
             raise Exception( data )
 
