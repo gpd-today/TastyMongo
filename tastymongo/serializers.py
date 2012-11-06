@@ -230,14 +230,17 @@ class Serializer(object):
                     item = OrderedDict()
 
                     for name, field in options.items():
-                        item[ name ] = getByDotNotation( row, field )
+                        value = getByDotNotation( row, field )
+                        if isinstance( value, basestring ):
+                            value = value.encode( 'utf-8' )
+                        item[ name ] = value
 
                     rows.append( item )
             else:
                 rows = data[ 'objects' ]
 
         if rows and isinstance( rows, list ) and len( rows ):
-            writer = csv.DictWriter( raw_data, rows[0].keys(), extrasaction='ignore', quoting=csv.QUOTE_NONNUMERIC )
+            writer = csv.DictWriter( raw_data, rows[0].keys(), dialect='excel', extrasaction='ignore' )
             writer.writeheader()
             writer.writerows( rows )
         elif options:
