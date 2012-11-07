@@ -1547,10 +1547,10 @@ class DocumentResource( Resource ):
 
         # Object not in cache, alas, we have to hit the database.
         matched = self.obj_get_list( request, **filters )
-        if len(matched) == 1:
-            document = matched[ 0 ]
-            request.cache.add( document )
-            return matched[ document ]
+        if len( matched ) == 1:
+            object = matched[ 0 ]
+            request.cache.add( object )
+            return object
 
         # Filters returned 0 or more than 1 match, raise an error.
         stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in filters.items()] )
