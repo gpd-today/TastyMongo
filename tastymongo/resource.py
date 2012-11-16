@@ -1064,6 +1064,8 @@ class DocumentResource( Resource ):
             result = fields.FileField
         elif isinstance( f, ( mongofields.DictField, mongofields.MapField ) ):
             result = fields.DictField
+        elif isinstance( f, ( mongofields.EmbeddedDocumentField ) ):
+            result = fields.EmbeddedDocumentField
         elif isinstance( f, ( mongofields.DateTimeField, mongofields.ComplexDateTimeField ) ):
             result = fields.DateTimeField
         elif isinstance( f, ( mongofields.ListField, mongofields.SortedListField, mongofields.GeoPointField ) ):

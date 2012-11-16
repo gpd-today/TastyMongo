@@ -315,13 +315,35 @@ class DictField( ApiField ):
     A dictionary field.
     """
     dehydrated_type = 'dict'
-    help_text = "A dictionary of data. Ex: {'price': 26.73, 'name': 'Daniel'}"
+    help_text = "A dictionary of data. Ex: {'type': 'dog', 'name': 'fido'}"
 
     def convert( self, value ):
         if value is None:
             return None
 
         return dict( value )
+
+
+class EmbeddedDocumentField( ApiField ):
+    """
+    An Embedded Document Field. 
+    """
+    dehydrated_type = 'dict'
+    help_text = "A dictionary with the underlying Document's field names as keys."
+
+    def convert( self, value ):
+        if not value:
+            return None
+
+        # Get the fields from the EmbeddedDocument and create a dictionary using
+        # their corresponding convert functions.
+        flds = self._resource._meta.object_class._fields[ self.field_name ].document_type._fields
+        items = {}
+        for name, f in flds.items():
+            api_field_class = self._resource.api_field_from_mongoengine_field( f )()
+            items[name] = api_field_class.convert( value[name] )
+
+        return items
 
 
 class DateField( ApiField ):
