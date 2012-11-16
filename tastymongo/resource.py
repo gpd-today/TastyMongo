@@ -383,8 +383,7 @@ class Resource( object ):
 
         if obj is None:
             obj = self._meta.object_class()
-
-        request.cache.add( obj )
+            request.cache.add( obj )
 
         bundle = Bundle( obj=obj, data=data, request=request )
         if len(bundle.data) > 1:
