@@ -968,8 +968,10 @@ class DocumentResource( Resource ):
 
             if hasattr( obj, 'closed' ):
                 # Don't truly delete the object, just set it to `closed`.
-                obj.closed=True
-                obj.update( bundle.request, set__closed=True )
+                obj.closed = True
+                if hasattr( obj, 'on_close' ) and  callable( obj.on_close ):
+                    obj.on_close( bundle.request )
+                obj.save( bundle.request )
                 print('    ~~~~~ CLOSED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
             else:
                 obj.delete( request=bundle.request )
