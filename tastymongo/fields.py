@@ -10,6 +10,7 @@ import re
 from .exceptions import ApiFieldError
 from .utils import *
 from mongoengine import Document
+from mongoengine.base import ValidationError as MongoEngineValidationError
 
 from .bundle import Bundle
 
@@ -335,15 +336,32 @@ class EmbeddedDocumentField( ApiField ):
         if not value:
             return None
 
-        # Get the fields from the EmbeddedDocument and create a dictionary using
-        # their corresponding convert functions.
-        flds = self._resource._meta.object_class._fields[ self.field_name ].document_type._fields
-        items = {}
-        for name, f in flds.items():
+        # Use the fields on the EmbeddedDocument to do type coercion.
+        doc = self._resource._meta.object_class._fields[ self.field_name ].document_type()
+        for k, f in doc._fields.items():
             api_field_class = self._resource.api_field_from_mongoengine_field( f )()
-            items[name] = api_field_class.convert( value[name] )
+            if k in value:
+                doc[k] = api_field_class.convert( value[k] )
 
-        return items
+        return doc
+
+    def dehydrate( self, bundle ):
+        # Represent the EmbeddedDocument's fields as a dict
+        doc = super( EmbeddedDocumentField, self).dehydrate( bundle )
+        if doc is None:
+            return None
+        else:
+            return dict((k, getattr(doc, k)) for k in doc._fields.keys())
+
+    def hydrate( self, bundle ):
+        # Turn the data into an Embedded Document. Validate the document and
+        # raise an HydrationError here if invalid data was found.
+        doc = super( EmbeddedDocumentField, self).hydrate( bundle )
+        try:
+            doc.validate()
+            return doc
+        except MongoEngineValidationError:
+            raise
 
 
 class DateField( ApiField ):
