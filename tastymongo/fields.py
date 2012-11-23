@@ -337,26 +337,27 @@ class EmbeddedDocumentField( ApiField ):
             return None
 
         # Use the fields on the EmbeddedDocument to do type coercion.
+        # Return a dict that only contains values actually in `value`: it will
+        # be validated and transformed into/from an EmbeddedDocument by the
+        # (de)hydrate methods.
         doc = self._resource._meta.object_class._fields[ self.field_name ].document_type()
+        dct = {}
         for k, f in doc._fields.items():
-            api_field_class = self._resource.api_field_from_mongoengine_field( f )()
             if k in value:
-                doc[k] = api_field_class.convert( value[k] )
+                api_field_class = self._resource.api_field_from_mongoengine_field( f )()
+                dct[k] = api_field_class.convert( value[k] )
 
-        return doc
-
-    def dehydrate( self, bundle ):
-        # Represent the EmbeddedDocument's fields as a dict
-        doc = super( EmbeddedDocumentField, self).dehydrate( bundle )
-        if doc is None:
-            return None
-        else:
-            return dict((k, getattr(doc, k)) for k in doc._fields.keys())
+        return dct
 
     def hydrate( self, bundle ):
-        # Turn the data into an Embedded Document. Validate the document and
-        # raise an HydrationError here if invalid data was found.
-        doc = super( EmbeddedDocumentField, self).hydrate( bundle )
+        # Get any existing EmbeddedDocument from the parent obj, update it with
+        # the fields given in the bundle and validate it afterwards.
+        dct = super( EmbeddedDocumentField, self).hydrate( bundle )
+        doc = getattr(bundle.obj, self.field_name)
+
+        for k, v in dct.items():
+            doc[k] = v
+
         try:
             doc.validate()
             return doc
