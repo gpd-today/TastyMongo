@@ -353,7 +353,11 @@ class EmbeddedDocumentField( ApiField ):
         # Get any existing EmbeddedDocument from the parent obj, update it with
         # the fields given in the bundle and validate it afterwards.
         dct = super( EmbeddedDocumentField, self).hydrate( bundle )
-        doc = getattr(bundle.obj, self.field_name)
+
+        if dct is None and not self.required:
+            return None
+
+        doc = getattr(bundle.obj, self.field_name) or self._resource._meta.object_class._fields[ self.field_name ].document_type()
 
         for k, v in dct.items():
             doc[k] = v
