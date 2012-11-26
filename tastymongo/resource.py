@@ -971,7 +971,7 @@ class DocumentResource( Resource ):
                 obj.closed = True
                 if hasattr( obj, 'on_close' ) and  callable( obj.on_close ):
                     obj.on_close( bundle.request )
-                obj.save( bundle.request )
+                obj.save( bundle.request, cascade=False )
                 print('    ~~~~~ CLOSED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
             else:
                 obj.delete( request=bundle.request )
