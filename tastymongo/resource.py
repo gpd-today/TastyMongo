@@ -21,7 +21,7 @@ import mongoengine.fields as mongofields
 
 from copy import deepcopy
 from operator import or_
-from collections import defaultdict
+import collections 
 
 from kitchen.text.converters import getwriter
 import sys
@@ -451,28 +451,37 @@ class Resource( object ):
     def save( self, bundle ):
         raise NotImplementedError()
 
-    def dehydrate( self, bundle ):
+    def dehydrate( self, bundles ):
         """
-        Given a bundle with an object instance, extract the information from 
-        it to populate the resource data.
+        Given a list of bundles with object instances, extract the information
+        from them to populate the resource data.
         """
-        # Dehydrate each field.
-        for field_name, fld in self.fields.items():
-            bundle.data[field_name] = fld.dehydrate( bundle )
+        single_bundle = False
+        if not isinstance( bundles, collections.Iterable ):
+            single_bundle = True
+            bundles = [ bundles, ]
 
-            # Check for an optional method to do further dehydration.
-            method = getattr( self, "dehydrate_{0}".format( field_name ), None )
-            if method:
-                bundle.data[field_name] = method( bundle )
+        for bundle in bundles:
+            # Dehydrate each field.
+            for field_name, fld in self.fields.items():
+                bundle.data[field_name] = fld.dehydrate( bundle )
 
-        return self.post_dehydrate( bundle )
+                # Check for an optional method to do further dehydration.
+                method = getattr( self, "dehydrate_{0}".format( field_name ), None )
+                if method:
+                    bundle.data[field_name] = method( bundle )
 
-    def post_dehydrate( self, bundle ):
+        if single_bundle:
+            bundles = bundles[0]
+
+        return self.post_dehydrate( bundles )
+
+    def post_dehydrate( self, bundles ):
         '''
         A hook for allowing some custom dehydration on the whole resource after 
         each field's dehydrate function has been called.
         '''
-        return bundle
+        return bundles
 
     def pre_serialize_list( self, bundles_list, request ):
         """
@@ -586,7 +595,7 @@ class Resource( object ):
 
         # Create a bundle for every object and dehydrate those bundles individually
         bundles = [self.build_bundle( request=request, obj=object ) for object in data['objects']]
-        bundles = [self.dehydrate( bundle ) for bundle in bundles]
+        bundles = self.dehydrate( bundles )
         data['objects'] = self.pre_serialize_list( bundles, request )
         return self.create_response( data, request )
 
@@ -629,7 +638,7 @@ class Resource( object ):
         location = self.get_resource_uri( request )
         if self._meta.return_data_on_post:
             # Re-populate the data from the objects.
-            bundle = self.dehydrate(bundle)
+            bundle = self.dehydrate( bundle )
             data = self.pre_serialize_single( bundle, request )
             return self.create_response( data, request, response_class=http.HTTPCreated, location=location )
         else:
@@ -664,7 +673,7 @@ class Resource( object ):
 
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
-            bundles = [self.dehydrate( bundle ) for bundle in bundles]
+            bundles = self.dehydrate( bundles ) 
             data = {'objects': self.pre_serialize_list( bundles, request )}
             return self.create_response( data, request, response_class=http.HTTPAccepted )
         else:
@@ -1013,7 +1022,7 @@ class DocumentResource( Resource ):
     def dispatch( self, request_type, request, **kwargs ):
         
         request.api = {
-            'errors': defaultdict(list),
+            'errors': collections.defaultdict(list),
             'updated': set(),
             'saved': set(),
             'created': set(),
@@ -1135,6 +1144,65 @@ class DocumentResource( Resource ):
         return final_fields
 
 
+
+    def dehydrate( self, bundles, prefetch_related=True ):
+        """
+        Given a list of one or more bundles with object instances, extract the
+        information from them to populate the resource data.
+
+        Pre-fetch documents for any related fields with full=True to minimize
+        atomic queries.  
+        """
+        single_bundle = False
+        if not isinstance( bundles, collections.Iterable ):
+            single_bundle = True
+            bundles = [ bundles, ]
+
+        if bundles and prefetch_related:
+            prefetch_fields = dict((fieldname, fld) for fieldname,fld 
+                    in self.fields.items() if getattr(fld, 'is_related', False) and fld.full)
+        
+            for fieldname, fld in prefetch_fields.items():
+                # Try to fetch all related document ids for all objects
+                ids = set()
+                for bundle in bundles:
+                    if getattr( fld, 'is_tomany', False):
+                        try:
+                            ids |= bundle.obj._memo_hasmany[ fieldname ]
+                        except KeyError:
+                            # FIXME: This is an unmanaged field. Cache all
+                            pass
+                    else:
+                        try:
+                            ids.add( bundle.obj._memo_hasone[ fieldname ] )
+                        except KeyError:
+                            # FIXME: see above
+                            pass
+
+                related_resource = fld.get_related_resource()
+                request = bundles[0].request
+                if ids:
+                    docs = related_resource.obj_get_list( request, **{'id__in':[id.id for id in ids]} )
+                else:
+                    docs = related_resource.get_queryset( request )
+
+                for doc in docs:
+                    request.cache.add( doc )
+
+        for bundle in bundles:
+            # Dehydrate each field.
+            for field_name, fld in self.fields.items():
+                bundle.data[field_name] = fld.dehydrate( bundle )
+
+                # Check for an optional method to do further dehydration.
+                method = getattr( self, "dehydrate_{0}".format( field_name ), None )
+                if method:
+                    bundle.data[field_name] = method( bundle )
+
+        if single_bundle:
+            bundles = bundles[0]
+
+        return self.post_dehydrate( bundles )
 
     def dehydrate_id( self, bundle ):
         '''
@@ -1286,6 +1354,7 @@ class DocumentResource( Resource ):
                     resource_filter = { "{0}{1}{2}".format( field.field_name, LOOKUP_SEP, filter_type ): value }
                     # Use the results for this resource for the next query.
                     filter_type = 'in'
+                    # FIXME: refactor to using straight pymongo since scalar still dereferences objects
                     value = list(resource.obj_get_list( request, **resource_filter ).scalar('id'))
 
             # Return the queryset filter
@@ -1505,6 +1574,7 @@ class DocumentResource( Resource ):
         """
         A Pyramid/MongoEngine implementation of `obj_get_list`.
         """
+        # FIXME: we may likely cache here already?
         if kwargs:
             filters = kwargs.copy()
         elif request and hasattr( request, 'GET' ):
