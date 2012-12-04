@@ -10,7 +10,7 @@ import re
 from .exceptions import ApiFieldError
 from .utils import *
 from mongoengine import Document
-from mongoengine.base import ValidationError as MongoEngineValidationError
+from mongoengine.errors import ValidationError as MongoEngineValidationError
 
 from .bundle import Bundle
 

@@ -14,7 +14,7 @@ from .paginator import Paginator
 
 from pyramid.response import Response
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned, Q
-from mongoengine.base import ValidationError as MongoEngineValidationError
+from mongoengine.errors import ValidationError as MongoEngineValidationError
 from mongoengine_relational.relationalmixin import set_difference as setdiff
 import mongoengine.document 
 import mongoengine.fields as mongofields
