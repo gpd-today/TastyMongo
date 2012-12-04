@@ -170,7 +170,7 @@ class ApiField( object ):
 
             prev = bundle.obj
             for attr in attr_chain:
-                # Use the `get` function on RelationalMixin to take advantage of the DocumentCache
+                # Use the `fetch` function on RelationalMixin to take advantage of the DocumentCache
                 cur = prev.fetch( bundle.request, attr )
 
                 if isinstance( cur, Document ):
@@ -645,6 +645,27 @@ class RelatedField( ApiField ):
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
 
+
+class ToOneField( RelatedField ):
+    """
+    Provides access to singular related data.
+    """
+    help_text = 'A single related resource. Can be either a URI or nested resource data.'
+
+    def hydrate( self, bundle ):
+        """
+        When there's data for the field, create a related bundle with the data 
+        and a new or existing related object in it. 
+       
+        It calls upon the related resource's hydrate method to instantiate the 
+        object. The related resource may in turn recurse for nested data.
+        """
+        related_data = super( ToOneField, self ).hydrate( bundle )
+        if related_data is None:
+            return None
+
+        return self.get_related_bundle( related_data, request=bundle.request )
+
     def dehydrate( self, bundle ):
         """
         Returns the URI only or the (nested) data for the related resource.
@@ -667,27 +688,6 @@ class RelatedField( ApiField ):
             return related_resource.get_resource_uri( bundle.request, related_bundle )
         else:
             return related_resource.dehydrate( related_bundle )
-
-
-class ToOneField( RelatedField ):
-    """
-    Provides access to singular related data.
-    """
-    help_text = 'A single related resource. Can be either a URI or nested resource data.'
-
-    def hydrate( self, bundle ):
-        """
-        When there's data for the field, create a related bundle with the data 
-        and a new or existing related object in it. 
-       
-        It calls upon the related resource's hydrate method to instantiate the 
-        object. The related resource may in turn recurse for nested data.
-        """
-        related_data = super( ToOneField, self ).hydrate( bundle )
-        if related_data is None:
-            return None
-
-        return self.get_related_bundle( related_data, request=bundle.request )
 
 
 class ToManyField( RelatedField ):
@@ -724,7 +724,7 @@ class ToManyField( RelatedField ):
         the related resource's dehydrate method to populate the data from
         the object. The related resources may in turn recurse for nested data.
         """
-        related_objects = super( RelatedField, self ).dehydrate( bundle )
+        related_objects = super( ToManyField, self ).dehydrate( bundle )
         if related_objects is None:
             related_objects = []
 
