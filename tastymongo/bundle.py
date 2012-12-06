@@ -14,5 +14,5 @@ class Bundle( object ):
         self.request = request
 
     def __repr__( self ):
-        return "<Bundle for obj='%s' with data='%s'>" % ( self.obj, self.data )
+        return '<Bundle for obj=`{}` with data=`{}`>'.format( self.obj, self.data )
 
