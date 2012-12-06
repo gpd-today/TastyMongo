@@ -1172,9 +1172,9 @@ class DocumentResource( Resource ):
 
                 # Find out if there are undereferenced documents. If so, fetch them for all bundles at once to save queries.
                 if getattr(fld, 'is_tomany', False):
-                    related_ids = set(getattr(o, 'id', o) for o in itertools.chain.from_iterable( bundle.obj._data[ field_name ] for bundle in bundles) if o )
+                    related_ids = set(getattr(o, 'id', o) for o in itertools.chain.from_iterable( bundle.obj._data[ field_name ] for bundle in bundles if field_name in bundle.obj._data ) if o )
                 else:
-                    related_ids = set(getattr(o, 'id', o) for o in itertools.chain( bundle.obj._data[ field_name ] for bundle in bundles ) if o )
+                    related_ids = set(getattr(o, 'id', o) for o in itertools.chain( bundle.obj._data[ field_name ] for bundle in bundles if field_name in bundle.obj._data ) if o )
 
                 uncached = [id for id in related_ids if id not in request.cache._documents]
                 if uncached:
