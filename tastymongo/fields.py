@@ -147,58 +147,30 @@ class ApiField( object ):
 
         ``attribute`` specifies which field on the object should
         be accessed to get data for this corresponding ApiField.
-
-        ``attribute`` can contain MongoEngine style double underscores ( `__` ) 
-        to specify relations ( of relations ).
-        
-
-        Example:
-        -------
-
-        A 'store' can contain 'books' that have an 'author'.
-        If the resource were to expose the names of authors whose books 
-        the store carries, we could say: 
-          
-        StoreResource( DocumentResource ):
-            authornames = ListField( attribute='books__author__name' )
-
         '''
         if isinstance( self.attribute, basestring ):
             # `attribute` points to an attribute or method on the object.
-            # Check for `__` in the field for looking through any relation.
-            attr_chain = self.attribute.split( '__' )
+            # Use the `fetch` function on RelationalMixin to take advantage of
+            # the DocumentCache where appropriate.
+            attr = bundle.obj.fetch( bundle.request, self.attribute )
 
-            prev = bundle.obj
-            for attr in attr_chain:
-                # Use the `fetch` function on RelationalMixin to take advantage of the DocumentCache
-                cur = prev.fetch( bundle.request, attr )
+            if isinstance( attr, Document ):
+                if not may_read( attr, bundle.request ):
+                    attr = None
 
-                if isinstance( cur, Document ):
-                    if not may_read( cur, bundle.request ):
-                        cur = None
-                    continue
+            if isinstance( attr, list ):
+                # Check permissions for each document
+                attr = [ obj for obj in attr if may_read( obj, bundle.request ) ]
 
-                if isinstance( cur, list ) and hasattr( prev._fields[ attr ], 'field' ):
-                    # Check permissions for each document
-                    cur = [ obj for obj in cur if may_read( obj, bundle.request ) ]
-                    continue
+            if attr is None:
+                if self.has_default:
+                    attr = self.default
+                elif not self.required:
+                    attr = None
+                else:
+                    raise ApiFieldError( "Required attribute=`{}` on object=`{}` is empty, and does not have a default value.".format( attr, prev ) )
 
-                if cur is None:
-                    # We should fall out of the loop here since we cannot 
-                    # access any attributes further down the chain.
-                    if self.has_default:
-                        cur = self.default
-                        break
-                    elif not self.required:
-                        cur = None
-                        break
-                    else:
-                        raise ApiFieldError( "Required attribute=`{}` on object=`{}` is empty, and does not have a default value.".format( attr, prev ) )
-
-            if callable( cur ):
-                cur = cur()
-
-            return self.convert( cur )
+            return self.convert( attr )
 
         elif callable( self.attribute ):
             # `attribute` is a method on the Resource that provides data.
@@ -612,7 +584,7 @@ class RelatedField( ApiField ):
 
                 related_resource = self._resource._meta.api.resource_from_uri( data )
         else:
-            raise ValueError( 'Unable to resolve a related_resource for field={}'.format( self ) )
+            raise ValueError( 'Unable to resolve a related_resource for `{}.{}`'.format( self._resource._meta.resource_name, self.field_name ) )
 
         # Fix the ``api`` if it's not present.
         if related_resource._meta.api is None:

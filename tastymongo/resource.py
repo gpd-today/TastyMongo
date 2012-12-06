@@ -21,6 +21,7 @@ import mongoengine.fields as mongofields
 
 from copy import deepcopy
 from operator import or_
+import itertools
 import collections 
 
 from kitchen.text.converters import getwriter
@@ -1159,35 +1160,25 @@ class DocumentResource( Resource ):
             bundles = [ bundles, ]
 
         if bundles and prefetch_related:
-            prefetch_fields = dict((fieldname, fld) for fieldname,fld 
-                    in self.fields.items() if getattr(fld, 'is_related', False) and fld.full)
+            request = bundles[0].request
+            related_fields = dict((field_name, fld) for field_name,fld in self.fields.items() if getattr(fld, 'is_related', False))
         
-            for fieldname, fld in prefetch_fields.items():
-                # Try to fetch all related document ids for all objects
-                ids = set()
-                for bundle in bundles:
-                    if getattr( fld, 'is_tomany', False):
-                        try:
-                            ids |= bundle.obj._memo_hasmany[ fieldname ]
-                        except KeyError:
-                            # FIXME: This is an unmanaged field. Cache all
-                            pass
-                    else:
-                        try:
-                            ids.add( bundle.obj._memo_hasone[ fieldname ] )
-                        except KeyError:
-                            # FIXME: see above
-                            pass
+            for field_name, fld in related_fields.items():
+                try:
+                    related_resource = fld.get_related_resource()
+                except ValueError:
+                    # For instance GenericReferenceFields
+                    continue
 
-                related_resource = fld.get_related_resource()
-                request = bundles[0].request
-                if ids:
-                    docs = related_resource.obj_get_list( request, **{'id__in':[id.id for id in ids]} )
+                # Find out if there are undereferenced documents. If so, fetch them for all bundles at once to save queries.
+                if getattr(fld, 'is_tomany', False):
+                    related_ids = set(getattr(o, 'id', o) for o in itertools.chain.from_iterable( bundle.obj._data[ field_name ] for bundle in bundles) if o )
                 else:
-                    docs = related_resource.get_queryset( request )
+                    related_ids = set(getattr(o, 'id', o) for o in itertools.chain( bundle.obj._data[ field_name ] for bundle in bundles ) if o )
 
-                for doc in docs:
-                    request.cache.add( doc )
+                uncached = [id for id in related_ids if id not in request.cache._documents]
+                if uncached:
+                    request.cache.add( related_resource._meta.object_class.objects.filter( id__in=uncached ) )
 
         for bundle in bundles:
             # Dehydrate each field.
@@ -1582,7 +1573,7 @@ class DocumentResource( Resource ):
             # Transform this into an 'ordinary' dict for further processing.
             filters = request.GET.mixed()
 
-        Q_filter, readable_filters = self.build_filters( filters, request )
+        Q_filter, legible_filters = self.build_filters( filters, request )
 
         try:
             return self.get_queryset( request ).filter( Q_filter )
