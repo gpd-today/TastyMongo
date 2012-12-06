@@ -1129,7 +1129,7 @@ class DocumentResource( Resource ):
 
             kwargs['unique'] = f.unique
 
-            if f.default:
+            if f.default is not None:
                 kwargs['default'] = f.default
 
             if getattr( f, 'auto_now', False ):
