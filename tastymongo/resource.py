@@ -1146,39 +1146,15 @@ class DocumentResource( Resource ):
 
 
 
-    def dehydrate( self, bundles, prefetch_related=True ):
+    def dehydrate( self, bundles ):
         """
         Given a list of one or more bundles with object instances, extract the
         information from them to populate the resource data.
-
-        Pre-fetch documents for any related fields with full=True to minimize
-        atomic queries.  
         """
         single_bundle = False
         if not isinstance( bundles, collections.Iterable ):
             single_bundle = True
             bundles = [ bundles, ]
-
-        if False and bundles and prefetch_related:
-            request = bundles[0].request
-            related_fields = dict((field_name, fld) for field_name,fld in self.fields.items() if getattr(fld, 'is_related', False) and fld.full)
-        
-            for field_name, fld in related_fields.items():
-                try:
-                    related_resource = fld.get_related_resource()
-                except ValueError:
-                    # For instance GenericReferenceFields
-                    continue
-
-                # Find out if there are undereferenced documents. If so, fetch them for all bundles at once to save queries.
-                if getattr(fld, 'is_tomany', False):
-                    related_ids = set(getattr(o, 'id', o) for o in itertools.chain.from_iterable( bundle.obj._data[ field_name ] for bundle in bundles if field_name in bundle.obj._data ) if o )
-                else:
-                    related_ids = set(getattr(o, 'id', o) for o in itertools.chain( bundle.obj._data[ field_name ] for bundle in bundles if field_name in bundle.obj._data ) if o )
-
-                uncached = [id for id in related_ids if id not in request.cache]
-                if uncached:
-                    request.cache.add( related_resource._meta.object_class.objects.filter( id__in=uncached ) )
 
         for bundle in bundles:
             # Dehydrate each field.
