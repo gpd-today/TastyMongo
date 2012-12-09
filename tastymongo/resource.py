@@ -21,7 +21,6 @@ import mongoengine.fields as mongofields
 
 from copy import deepcopy
 from operator import or_
-import itertools
 import collections 
 
 from kitchen.text.converters import getwriter

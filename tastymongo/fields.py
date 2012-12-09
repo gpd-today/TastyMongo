@@ -701,13 +701,11 @@ class ToManyField( RelatedField ):
             related_objects = []
 
         related_resource = self.get_related_resource( bundle )
-        related_bundles = []
-        for related_object in related_objects:
-            related_bundle = related_resource.build_bundle( request=bundle.request, obj=related_object )
-            if not self.full:
-                related_bundles.append( related_resource.get_resource_uri( bundle.request, related_bundle ))
-            else:
-                related_bundles.append( related_resource.dehydrate( related_bundle ))
+        related_bundles = [related_resource.build_bundle( request=bundle.request, obj=obj ) for obj in related_objects]
+        if not self.full:
+            related_bundles = [related_resource.get_resource_uri( bundle.request, b) for b in related_bundles]
+        else:
+            related_bundles = related_resource.dehydrate( related_bundles )
 
         return related_bundles
 
