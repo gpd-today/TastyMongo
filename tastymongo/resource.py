@@ -1280,7 +1280,8 @@ class DocumentResource( Resource ):
         Functionality is limited since all OR's are combined and OR'ed with all
         non-OR conditions, there's no support for nested ORs and ANDs.
 
-        Returns a QCombination object that can be used in <queryset>.filter().
+        Returns a QCombination object that can be used in <queryset>.filter(), 
+        and a `legible` version for human debugging.
         """
         if not filters:
             filters = {}
@@ -1289,7 +1290,7 @@ class DocumentResource( Resource ):
 
         for filter_expr, value in filters.items():
             filter_bits = filter_expr.split( LOOKUP_SEP )
-            filter_type = 'exact'
+            filter_type = 'exact'  # default
             field_name = filter_bits.pop( 0 )
 
             is_or_filter = field_name == 'OR'
@@ -1300,6 +1301,7 @@ class DocumentResource( Resource ):
                 # Not a field the Resource knows about, so ignore it.
                 continue
 
+            # Override filter_type if it is given.
             if len( filter_bits ) and filter_bits[-1] in QUERY_TERMS:
                 filter_type = filter_bits.pop()
 
@@ -1320,8 +1322,7 @@ class DocumentResource( Resource ):
                     resource_filter = { "{0}{1}{2}".format( field.field_name, LOOKUP_SEP, filter_type ): value }
                     # Use the results for this resource for the next query.
                     filter_type = 'in'
-                    # FIXME: refactor to using straight pymongo since scalar still dereferences objects
-                    value = list(resource.obj_get_list( request, **resource_filter ).scalar('id'))
+                    value = [d.id for d in resource.obj_get_list( request, **resource_filter ).scalar('id')]
 
             # Return the queryset filter
             qs_filter = "{0}{1}{2}".format( resource_filters[0][1].attribute, LOOKUP_SEP, filter_type )
