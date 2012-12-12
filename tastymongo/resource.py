@@ -1200,7 +1200,7 @@ class DocumentResource( Resource ):
                         # No way to make up a uri.
                         raise NotImplementedError(' Could not find a pk or id for {0}'.format(data))
             elif isinstance( data, ObjectId ):
-                kwargs['id'] = repr(data)
+                kwargs['id'] = str(data)
             else:
                 kwargs['id'] = data.pk
         else:
