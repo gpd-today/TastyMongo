@@ -18,6 +18,7 @@ from mongoengine.errors import ValidationError as MongoEngineValidationError
 from mongoengine_relational.relationalmixin import set_difference as setdiff
 import mongoengine.document 
 import mongoengine.fields as mongofields
+from bson import ObjectId
 
 from copy import deepcopy
 from operator import or_
@@ -1177,31 +1178,31 @@ class DocumentResource( Resource ):
         '''
         return bundle.obj.pk
 
-    def get_resource_uri( self, request, bundle_or_object=None, absolute=None ):
+    def get_resource_uri( self, request, data=None, absolute=None ):
         """
         Returns the resource's relative uri per the given API.
-
-        *elements, if given, is used by Pyramid to specify instances 
         """
         kwargs = {
             'resource_name': self._meta.resource_name,
             'absolute': not not absolute if absolute else self._meta.use_absolute_uris,
         }
 
-        if bundle_or_object:
+        if data:
             kwargs['operation'] = 'single'
-            if isinstance( bundle_or_object, Bundle ):
+            if isinstance( data, Bundle ):
                 try:
-                    kwargs['id'] = bundle_or_object.obj.pk
+                    kwargs['id'] = data.obj.pk
                 except AttributeError:
                     # We may have received a DBRef, that doesn't have 'pk' but does have 'id'
                     try:
-                        kwargs['id'] = bundle_or_object.obj.id
+                        kwargs['id'] = data.obj.id
                     except AttributeError:
                         # No way to make up a uri.
-                        raise NotImplementedError(' Could not find a pk or id for {0}'.format(bundle_or_object))
+                        raise NotImplementedError(' Could not find a pk or id for {0}'.format(data))
+            elif isinstance( data, ObjectId ):
+                kwargs['id'] = repr(data)
             else:
-                kwargs['id'] = bundle_or_object.pk
+                kwargs['id'] = data.pk
         else:
             kwargs['operation'] = 'list'
 
