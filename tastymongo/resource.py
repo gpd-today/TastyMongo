@@ -1323,7 +1323,7 @@ class DocumentResource( Resource ):
                     resource_filter = { "{0}{1}{2}".format( field.field_name, LOOKUP_SEP, filter_type ): value }
                     # Use the results for this resource for the next query.
                     filter_type = 'in'
-                    value = [d.id for d in resource.obj_get_list( request, **resource_filter ).scalar('id')]
+                    value = [d for d in resource.obj_get_list( request, **resource_filter ).scalar('id')]
 
             # Return the queryset filter
             qs_filter = "{0}{1}{2}".format( resource_filters[0][1].attribute, LOOKUP_SEP, filter_type )
