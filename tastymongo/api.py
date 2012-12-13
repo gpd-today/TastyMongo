@@ -77,20 +77,15 @@ class Api( object ):
     @staticmethod
     def _handle_server_error( resource, request, exception ):
         settings = request.registry.settings
+
+        data = {
+            'code': getattr( exception, 'code', 0 ),
+            'message': unicode( exception )
+        }
+
         if getattr( settings, 'debug_api', False ):
             import sys, traceback
-            the_trace = '\n'.join( traceback.format_exception( *( sys.exc_info() ) ) )
-
-            data = {
-                "error_code": getattr( exception, 'error_code', 0 ),
-                "error_message": unicode( exception ),
-                "traceback": the_trace
-            }
-        else:
-            data = {
-                "error_code": getattr( exception, 'error_code', 0 ),
-                "error_message": "Sorry, this request could not be processed. Please try again later."
-            }
+            data[ 'traceback' ] = '\n'.join( traceback.format_exception( *( sys.exc_info() ) ) )
 
         if isinstance( resource, Resource ):
             desired_format = resource.determine_format( request )
