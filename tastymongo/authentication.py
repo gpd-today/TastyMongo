@@ -25,6 +25,6 @@ class Authentication( object ):
         return "%s_%s" % ( request.remote_addr, request.host )
 
 
-class NoAutentication( Authentication ):
+class NoAuthentication( Authentication ):
     def is_authenticated( self, request, **kwargs ):
         return True
