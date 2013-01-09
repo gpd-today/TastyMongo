@@ -889,12 +889,12 @@ class DocumentResource( Resource ):
     __metaclass__ = DocumentDeclarativeMetaclass
 
     def _mark_relational_changes_for( self, bundle, obj=None ):
-        if not isinstance( obj, RelationManagerMixin ):
-            return bundle
-
         # Track and store any changes to relations of `obj` on the bundle.
         if obj is None:
             obj = bundle.obj
+
+        if not isinstance( obj, RelationManagerMixin ):
+            return bundle
 
         # Find out what the RelationManagerMixin considers changed.
         to_save, to_delete = obj.get_related_documents_to_update()
