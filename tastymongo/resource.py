@@ -1325,8 +1325,8 @@ class DocumentResource( Resource ):
                 continue
 
             # Override filter_type if it is given.
-            if len( filter_bits ) and filter_bits[-1] in QUERY_TERMS:
-                filter_type = filter_bits.pop()
+            if len( filter_bits ) and filter_bits[-1].replace('[]', '') in QUERY_TERMS:
+                filter_type = filter_bits.pop().replace('[]', '')
 
             # Example:
             # Books.filter( author__name__icontains='Fred' ) receives:
@@ -1580,7 +1580,6 @@ class DocumentResource( Resource ):
         """
         A Pyramid/MongoEngine implementation of `obj_get_list`.
         """
-        # FIXME: we may likely cache here already?
         if kwargs:
             filters = kwargs.copy()
         elif request and hasattr( request, 'GET' ):
