@@ -15,7 +15,8 @@ from .paginator import Paginator
 from pyramid.response import Response
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned, Q
 from mongoengine.errors import ValidationError as MongoEngineValidationError
-from mongoengine_relational.relationalmixin import set_difference as setdiff
+# TODO: check if these can be imported at all, to begin with
+from mongoengine_relational.relationalmixin import RelationManagerMixin, set_difference
 import mongoengine.document 
 import mongoengine.fields as mongofields
 from bson import ObjectId
@@ -384,7 +385,8 @@ class Resource( object ):
 
         if obj is None:
             obj = self._meta.object_class()
-            request.cache.add( obj )
+            if hasattr( request, 'cache' ):
+                request.cache.add( obj )
 
         bundle = Bundle( obj=obj, data=data, request=request )
         if len(bundle.data) > 1:
@@ -887,6 +889,9 @@ class DocumentResource( Resource ):
     __metaclass__ = DocumentDeclarativeMetaclass
 
     def _mark_relational_changes_for( self, bundle, obj=None ):
+        if not isinstance( obj, RelationManagerMixin ):
+            return bundle
+
         # Track and store any changes to relations of `obj` on the bundle.
         if obj is None:
             obj = bundle.obj
@@ -895,10 +900,10 @@ class DocumentResource( Resource ):
         to_save, to_delete = obj.get_related_documents_to_update()
 
         # Don't retouch stuff that will get or got updated.
-        updated_by_resource = bundle.request.api['created'] | bundle.request.api['updated'] 
+        updated_by_resource = bundle.request.api['created'] | bundle.request.api['updated']
         updated_by_relationalmixin = bundle.request.api['to_save'] | bundle.request.api['to_delete'] | bundle.request.api['saved'] | bundle.request.api['deleted']
-        to_save = setdiff( to_save, updated_by_resource | updated_by_relationalmixin )
-        to_delete = setdiff( to_delete, updated_by_resource | updated_by_relationalmixin )
+        to_save = set_difference( to_save, updated_by_resource | updated_by_relationalmixin )
+        to_delete = set_difference( to_delete, updated_by_resource | updated_by_relationalmixin )
 
         if to_save:
             bundle.request.api['to_save'] |= to_save
@@ -919,11 +924,14 @@ class DocumentResource( Resource ):
         Validates the object in the bundle. If validation fails, stashes
         invalid relational fields that are not required.
         '''
+        if not isinstance( bundle.obj, RelationManagerMixin ):
+            return bundle
+
         bundle.stashed_relations = {}
 
         try:
             bundle.obj.validate( request=bundle.request )
-        except MongoEngineValidationError, e:
+        except MongoEngineValidationError as e:
             for k in e.errors.keys():  # ! Document, not Resource, fields 
                 fld = bundle.obj._fields[k]
                 if isinstance( fld, mongofields.ReferenceField ):
@@ -948,6 +956,8 @@ class DocumentResource( Resource ):
         '''
         Pops any previously stashed invalid relations back on the object.
         '''
+        if not isinstance( bundle.obj, RelationManagerMixin ):
+            return bundle
 
         for field_name, data in bundle.stashed_relations.items():
             setattr( bundle.obj, field_name, data )
@@ -963,10 +973,13 @@ class DocumentResource( Resource ):
         while bundle.request.api['to_save']:
             obj = bundle.request.api['to_save'].pop()
 
-            # The object to be saved may induce further away updates.
-            self._mark_relational_changes_for( bundle, obj )
+            if isinstance( bundle.obj, RelationManagerMixin ):
+                # The object to be saved may induce further away updates.
+                self._mark_relational_changes_for( bundle, obj )
+                obj.save( request=bundle.request, cascade=False )
+            else:
+                obj.save( cascade=False )
 
-            obj.save( request=bundle.request, cascade=False )
             bundle.request.api['saved'].add(obj) 
             print('    ~~~~~ SAVED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
@@ -981,11 +994,20 @@ class DocumentResource( Resource ):
                 obj.closed = True
                 if hasattr( obj, 'on_close' ) and  callable( obj.on_close ):
                     obj.on_close( bundle.request )
-                obj.save( bundle.request, cascade=False )
+
+                if isinstance( bundle.obj, RelationManagerMixin ):
+                    obj.save( bundle.request, cascade=False )
+                else:
+                    obj.save( cascade=False )
+
                 print('    ~~~~~ CLOSED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
             else:
-                obj.delete( request=bundle.request )
-                self._mark_relational_changes_for( bundle, obj )
+                if isinstance( bundle.obj, RelationManagerMixin ):
+                    obj.delete( request=bundle.request )
+                    self._mark_relational_changes_for( bundle, obj )
+                else:
+                    obj.delete()
+
                 print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
         if bundle.request.api['to_save']: 
@@ -1467,8 +1489,13 @@ class DocumentResource( Resource ):
         if not bundle.obj.pk:
             bundle = self._mark_relational_changes_for( bundle )
             bundle = self._stash_invalid_relations( bundle )
+
             try:
-                bundle.obj.save( request=bundle.request, cascade=False ) 
+                if isinstance( bundle.obj, RelationManagerMixin ):
+                    bundle.obj.save( request=bundle.request, cascade=False )
+                else:
+                    bundle.obj.save( cascade=False )
+
                 bundle.request.api['created'].add( bundle.obj )
                 print('    ~~~~~ CREATED (I) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
@@ -1482,8 +1509,12 @@ class DocumentResource( Resource ):
         # PHASE 3: Second attempt to create the object now its relations exist.
         if not bundle.obj.pk:
             try:
-                bundle = self._mark_relational_changes_for( bundle )
-                bundle.obj.save( request=bundle.request, cascade=False ) 
+                if isinstance( bundle.obj, RelationManagerMixin ):
+                    bundle = self._mark_relational_changes_for( bundle )
+                    bundle.obj.save( request=bundle.request, cascade=False )
+                else:
+                    bundle.obj.save( cascade=False )
+
                 bundle.request.api['created'].add( bundle.obj )
                 print('    ~~~~~ CREATED (II) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
@@ -1506,7 +1537,10 @@ class DocumentResource( Resource ):
         # PHASE 4: All objects now exist and all relations are assigned, so
         # everything should validate. 
         try:
-            bundle.obj.validate( request=bundle.request )
+            if isinstance( bundle.obj, RelationManagerMixin ):
+                bundle.obj.validate( request=bundle.request )
+            else:
+                bundle.obj.validate()
         except Exception, e:
             if getattr( bundle.request.registry.settings, 'debug_api', False ):
                 raise
@@ -1525,8 +1559,12 @@ class DocumentResource( Resource ):
             return bundle
 
         try:
-            bundle = self._mark_relational_changes_for( bundle )
-            bundle.obj.save( request=bundle.request, cascade=False, validate=False )
+            if isinstance( bundle.obj, RelationManagerMixin ):
+                bundle = self._mark_relational_changes_for( bundle )
+                bundle.obj.save( request=bundle.request, cascade=False, validate=False )
+            else:
+                bundle.obj.save( cascade=False, validate=False )
+
             bundle.request.api['updated'].add( bundle.obj )
             print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, bundle.obj._class_name))
         except Exception, e:
@@ -1575,7 +1613,7 @@ class DocumentResource( Resource ):
 
         if id:
             # Try to fetch the object from the document cache
-            if id in request.cache:
+            if hasattr( request, 'cache' ) and id in request.cache:
                 object = request.cache.get( id, None )
                 if object:  
                     # We're done, return the object.
@@ -1590,7 +1628,8 @@ class DocumentResource( Resource ):
         matched = self.obj_get_list( request, **filters )
         if len( matched ) == 1:
             object = matched[ 0 ]
-            request.cache.add( object )
+            if hasattr( request, 'cache' ):
+                request.cache.add( object )
             return object
 
         # Filters returned 0 or more than 1 match, raise an error.

@@ -150,9 +150,7 @@ class ApiField( object ):
         '''
         if isinstance( self.attribute, basestring ):
             # `attribute` points to an attribute or method on the object.
-            # Use the `fetch` function on RelationalMixin to take advantage of
-            # the DocumentCache where appropriate.
-            attr = bundle.obj.fetch( bundle.request, self.attribute )
+            attr = bundle.obj[ self.attribute ]
 
             if isinstance( attr, Document ):
                 if not may_read( attr, bundle.request ):
