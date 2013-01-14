@@ -734,73 +734,6 @@ class Resource( object ):
         except NotFound:
             return http.HTTPNotFound()
 
-    def check_filtering( self, field_name, filter_type='exact', filter_bits=None ):
-        """
-        Given a field name, an optional filter type and an optional list of
-        additional relations, determine if a field can be filtered on.
-
-        If a filter does not meet the needed conditions, it should raise an
-        `InvalidFilterError`.
-
-        If the filter meets the conditions, a list of tupes of the form
-        [ ( Resource, Field ), ... ]  is returned.
-        """
-        if filter_bits is None:
-            filter_bits = []
-
-        if not field_name in self._meta.filtering:
-            raise InvalidFilterError( "The `{0}` field does not allow filtering.".format(field_name) )
-
-        # Check to see if it's an allowed lookup type.
-        if not self._meta.filtering[field_name] in ( ALL, ALL_WITH_RELATIONS ):
-            # Must be an explicit whitelist.
-            if not filter_type in self._meta.filtering[field_name]:
-                raise InvalidFilterError( "`{0}` is not an allowed filter on the `{1}` field.".format( filter_type, field_name ))
-
-        if self.fields[field_name].attribute is None:
-            raise InvalidFilterError( "The `{0}` field has no 'attribute' to apply a filter on.".format(field_name) )
-
-        # Check to see if it's a relational lookup and if that's allowed.
-        if len( filter_bits ):
-            if not getattr(self.fields[ field_name ], 'is_related', False):
-                raise InvalidFilterError("The '%s' field does not support relations." % field_name)
-
-            if not self._meta.filtering[ field_name ] == ALL_WITH_RELATIONS:
-                raise InvalidFilterError("Lookups are not allowed more than one level deep on the '%s' field." % field_name)
-
-            # Recursively descend through the remaining lookups in the filter,
-            # if any. We should ensure that all along the way, we're allowed
-            # to filter on that field by the related resource.
-            related_resource = self.fields[field_name].get_related_resource( None )
-            return [ ( self, self.fields[field_name] ) ] + related_resource.check_filtering( filter_bits[0], filter_type, filter_bits[1:] )
-
-        return [ ( self, self.fields[field_name] ) ]
-
-    def parse_filter_value( self, value, field_name, filters, filter_expr, filter_type ):
-        """
-        Turn the string `value` into a python object.
-        """
-        # FIXME: make getting the id from resource_uri less hard-coded
-        # Simple values
-        if value in ['true', 'True', True]:
-            value = True
-        elif value in ['false', 'False', False]:
-            value = False
-        elif value in ( 'nil', 'none', 'None', None ):
-            value = None
-
-        if isinstance( value, basestring ) and len(value):
-            if filter_type in ('range', 'in'):
-                # '/api/v1/<resource_name>/<objectid/,/api/v1/<resource_name>/<object2id>/'
-                value = value.split(',')
-                for i, v in enumerate(value):
-                    value[i] = v.split( '/' )[-2] if '/' in v else v
-            else:
-                # '/api/v1/<resource_name>/<objectid/' or some other string
-                value = value.split( '/' )[-2] if '/' in value else value
-
-        return value
-
 
 
     def obj_get_single( self, request, **kwargs ):
@@ -1274,6 +1207,72 @@ class DocumentResource( Resource ):
             order_by_args.append( "{0}{1}".format( order, LOOKUP_SEP.join( [self.fields[field_name].attribute] + order_by_bits[1:] ) ) )
 
         return obj_list.order_by( *order_by_args )
+
+    def check_filtering( self, field_name, filter_type='exact', filter_bits=None ):
+        """
+        Given a field name, an optional filter type and an optional list of
+        additional relations, determine if a field can be filtered on.
+
+        If a filter does not meet the needed conditions, it should raise an
+        `InvalidFilterError`.
+
+        If the filter meets the conditions, a list of tupes of the form
+        [ ( Resource, Field ), ... ]  is returned.
+        """
+        if filter_bits is None:
+            filter_bits = []
+
+        if not field_name in self._meta.filtering:
+            raise InvalidFilterError( "The `{0}` field does not allow filtering.".format(field_name) )
+
+        # Check to see if it's an allowed lookup type.
+        if not self._meta.filtering[field_name] in ( ALL, ALL_WITH_RELATIONS ):
+            # Must be an explicit whitelist.
+            if not filter_type in self._meta.filtering[field_name]:
+                raise InvalidFilterError( "`{0}` is not an allowed filter on the `{1}` field.".format( filter_type, field_name ))
+
+        if self.fields[field_name].attribute is None:
+            raise InvalidFilterError( "The `{0}` field has no 'attribute' to apply a filter on.".format(field_name) )
+
+        # Check to see if it's a relational lookup and if that's allowed.
+        if len( filter_bits ):
+            if not getattr(self.fields[ field_name ], 'is_related', False):
+                raise InvalidFilterError("The '%s' field does not support relations." % field_name)
+
+            if not self._meta.filtering[ field_name ] == ALL_WITH_RELATIONS:
+                raise InvalidFilterError("Lookups are not allowed more than one level deep on the '%s' field." % field_name)
+
+            # Recursively descend through the remaining lookups in the filter,
+            # if any. We should ensure that all along the way, we're allowed
+            # to filter on that field by the related resource.
+            related_resource = self.fields[field_name].get_related_resource( None )
+            return [ ( self, self.fields[field_name] ) ] + related_resource.check_filtering( filter_bits[0], filter_type, filter_bits[1:] )
+
+        return [ ( self, self.fields[field_name] ) ]
+
+    def parse_filter_value( self, value, field_name, filters, filter_expr, filter_type ):
+        """
+        Turn the string `value` into a python object.
+        """
+        # FIXME: make getting the id from resource_uri less hard-coded
+        # Simple values
+        if value in ['true', 'True', True]:
+            value = True
+        elif value in ['false', 'False', False]:
+            value = False
+        elif value in ( 'nil', 'none', 'None', None ):
+            value = None
+
+        if len( value ):
+            if filter_type in ('range', 'in'):
+                # ['/api/v1/<resource_name>/<objectid/','/api/v1/<resource_name>/<object2id>/']
+                for i, v in enumerate(value):
+                    value[i] = v.split( '/' )[-2] if '/' in v else v
+            elif isinstance( value, basestring ):
+                # '/api/v1/<resource_name>/<objectid/' or some other string
+                value = value.split( '/' )[-2] if '/' in value else value
+
+        return value
 
     def build_filters( self, filters, request ):
         """
