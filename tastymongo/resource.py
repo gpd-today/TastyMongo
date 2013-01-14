@@ -1254,7 +1254,7 @@ class DocumentResource( Resource ):
         """
         Turn the string `value` into a python object.
         """
-        # FIXME: make getting the id from resource_uri less hard-coded
+
         # Simple values
         if value in ['true', 'True', True]:
             value = True
@@ -1263,14 +1263,15 @@ class DocumentResource( Resource ):
         elif value in ( 'nil', 'none', 'None', None ):
             value = None
 
-        if len( value ):
-            if filter_type in ('range', 'in'):
-                # ['/api/v1/<resource_name>/<objectid/','/api/v1/<resource_name>/<object2id>/']
-                for i, v in enumerate(value):
-                    value[i] = v.split( '/' )[-2] if '/' in v else v
-            elif isinstance( value, basestring ):
-                # '/api/v1/<resource_name>/<objectid/' or some other string
-                value = value.split( '/' )[-2] if '/' in value else value
+        if isinstance( value, basestring ): 
+            # '/api/v1/<resource_name>/<objectid/' or some other string
+            value = value.split( '/' )[-2] if '/' in value else value
+            if filter_type in ('in', 'range'):
+                value = [value,]
+        elif isinstance( value, collections.Iterable ):
+            # ['/api/v1/<resource_name>/<objectid/','/api/v1/<resource_name>/<object2id>/']
+            for i, v in enumerate(value):
+                value[i] = v.split( '/' )[-2] if '/' in v else v
 
         return value
 
