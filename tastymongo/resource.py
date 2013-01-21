@@ -1121,10 +1121,12 @@ class DocumentResource( Resource ):
                 if method:
                     bundle.data[field_name] = method( bundle )
 
+        bundles = self.post_dehydrate( bundles )
+
         if single_bundle:
             bundles = bundles[0]
 
-        return self.post_dehydrate( bundles )
+        return bundles
 
     def dehydrate_id( self, bundle ):
         '''
