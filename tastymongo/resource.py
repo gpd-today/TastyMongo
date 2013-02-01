@@ -1254,13 +1254,13 @@ class DocumentResource( Resource ):
 
     def parse_filter_value( self, value, field_name, filters, filter_expr, filter_type ):
         """
-        Turn the string `value` into a python object.
+        Turn the string or list of strings `value` into a python object.
         """
 
         # Simple values
-        if value in ['true', 'True', True]:
+        if value in ( 'true', 'True', True ):
             value = True
-        elif value in ['false', 'False', False]:
+        elif value in ( 'false', 'False', False ):
             value = False
         elif value in ( 'nil', 'none', 'None', None ):
             value = None
@@ -1271,9 +1271,11 @@ class DocumentResource( Resource ):
             if filter_type in ('in', 'range'):
                 value = [value,]
         elif isinstance( value, collections.Iterable ):
-            # ['/api/v1/<resource_name>/<objectid/','/api/v1/<resource_name>/<object2id>/']
-            for i, v in enumerate(value):
-                value[i] = v.split( '/' )[-2] if '/' in v else v
+            # ['/api/v1/<resource_name>/<objectid/', '/api/v1/<resource_name>/<object2id>/', ...]
+            # or ['<objectid1>', '<objectid2>', ...]
+            for i, v in enumerate( value ):
+                if isinstance( value, basestring ):
+                    value[i] = v.split( '/' )[-2] if '/' in v else v
 
         return value
 
