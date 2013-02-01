@@ -1274,7 +1274,7 @@ class DocumentResource( Resource ):
             # ['/api/v1/<resource_name>/<objectid/', '/api/v1/<resource_name>/<object2id>/', ...]
             # or ['<objectid1>', '<objectid2>', ...]
             for i, v in enumerate( value ):
-                if isinstance( value, basestring ):
+                if isinstance( v, basestring ):
                     value[i] = v.split( '/' )[-2] if '/' in v else v
 
         return value
