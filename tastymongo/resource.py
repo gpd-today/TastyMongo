@@ -543,7 +543,7 @@ class Resource( object ):
         """
         allowed_methods = getattr( self._meta, '{0}_allowed_methods'.format(request_type), None )
         request_method = self.check_method( request, allowed=allowed_methods )
-        print( 'resource={0}; request={1}_{2}'.format( self._meta.resource_name, request_method, request_type ) )
+        #print( 'resource={0}; request={1}_{2}'.format( self._meta.resource_name, request_method, request_type ) )
 
         # Determine which callback we're going to use
         method = getattr( self, '{0}_{1}'.format( request_method, request_type ), None )
@@ -840,15 +840,19 @@ class DocumentResource( Resource ):
 
         if to_save:
             bundle.request.api['to_save'] |= to_save
+            '''
             for o in to_save:
                 print('    ~~ TO SAVE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
                     type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
+            '''
 
         if to_delete:
             bundle.request.api['to_delete'] |= to_delete
+            '''
             for o in to_delete:
                 print('    ~~ TO DELETE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
                     type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
+            '''
 
         return bundle
 
@@ -914,7 +918,7 @@ class DocumentResource( Resource ):
                 obj.save( cascade=False )
 
             bundle.request.api['saved'].add(obj) 
-            print('    ~~~~~ SAVED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+            #print('    ~~~~~ SAVED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
         while bundle.request.api['to_delete']:
             obj = bundle.request.api['to_delete'].pop()
@@ -933,7 +937,7 @@ class DocumentResource( Resource ):
                 else:
                     obj.save( cascade=False )
 
-                print('    ~~~~~ CLOSED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+                #print('    ~~~~~ CLOSED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
             else:
                 if isinstance( bundle.obj, RelationManagerMixin ):
                     obj.delete( request=bundle.request )
@@ -941,7 +945,7 @@ class DocumentResource( Resource ):
                 else:
                     obj.delete()
 
-                print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+                #print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
         if bundle.request.api['to_save']: 
             # Deletion may have triggered documents that need to be updated.
@@ -1505,7 +1509,7 @@ class DocumentResource( Resource ):
                     bundle.obj.save( cascade=False )
 
                 bundle.request.api['created'].add( bundle.obj )
-                print('    ~~~~~ CREATED (I) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
+                #print('    ~~~~~ CREATED (I) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
                 # We'll have to wait for related objects to be created first.
                 pass
@@ -1524,7 +1528,7 @@ class DocumentResource( Resource ):
                     bundle.obj.save( cascade=False )
 
                 bundle.request.api['created'].add( bundle.obj )
-                print('    ~~~~~ CREATED (II) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
+                #print('    ~~~~~ CREATED (II) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
             except MongoEngineValidationError, e:
                 if getattr( bundle.request.registry.settings, 'debug_api', False ):
                     raise
@@ -1574,7 +1578,7 @@ class DocumentResource( Resource ):
                 bundle.obj.save( cascade=False, validate=False )
 
             bundle.request.api['updated'].add( bundle.obj )
-            print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, bundle.obj._class_name))
+            #print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, bundle.obj._class_name))
         except Exception, e:
             if getattr( bundle.request.registry.settings, 'debug_api', False ):
                 raise
