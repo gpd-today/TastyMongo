@@ -1363,7 +1363,11 @@ class DocumentResource( Resource ):
 
     def get_queryset( self, request ):
         if hasattr( self._meta, "queryset" ):
-            return self._meta.queryset.clone()
+            qs = self._meta.queryset.clone()
+            # Ensure the queryset doesn't auto-dereference, since we'll do that
+            qs._auto_dereference = False
+            return qs
+
         else:
             raise NotImplementedError('Resource needs a `queryset` to return objects')
 
