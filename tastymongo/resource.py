@@ -929,9 +929,6 @@ class DocumentResource( Resource ):
             if hasattr( obj, 'closed' ):
                 # Don't truly delete the object, just set it to `closed`.
                 obj.closed = True
-                if hasattr( obj, 'on_close' ) and  callable( obj.on_close ):
-                    obj.on_close( bundle.request )
-
                 if isinstance( bundle.obj, RelationManagerMixin ):
                     obj.save( bundle.request, cascade=False )
                 else:
