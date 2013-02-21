@@ -30,6 +30,7 @@ import sys
 UTF8Writer = getwriter('utf8')
 sys.stdout = UTF8Writer(sys.stdout)
 
+
 class ResourceOptions( object ):
     """
     A configuration class for `Resource`.
@@ -923,26 +924,13 @@ class DocumentResource( Resource ):
         while bundle.request.api['to_delete']:
             obj = bundle.request.api['to_delete'].pop()
 
-            # Store the ObjectId of the object before it is destroyed.
-            bundle.request.api['closed'].add(getattr(obj, 'pk', obj.id))
-
-            if hasattr( obj, 'closed' ):
-                # Don't truly delete the object, just set it to `closed`.
-                obj.closed = True
-                if isinstance( bundle.obj, RelationManagerMixin ):
-                    obj.save( bundle.request, cascade=False )
-                else:
-                    obj.save( cascade=False )
-
-                #print('    ~~~~~ CLOSED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+            if isinstance( bundle.obj, RelationManagerMixin ):
+                obj.delete( request=bundle.request )
+                self._mark_relational_changes_for( bundle, obj )
             else:
-                if isinstance( bundle.obj, RelationManagerMixin ):
-                    obj.delete( request=bundle.request )
-                    self._mark_relational_changes_for( bundle, obj )
-                else:
-                    obj.delete()
+                obj.delete()
 
-                #print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
+            #print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
         if bundle.request.api['to_save']: 
             # Deletion may have triggered documents that need to be updated.
@@ -985,8 +973,7 @@ class DocumentResource( Resource ):
             'created': set(),
             'to_save': set(),
             'to_delete': set(),
-            'deleted': set(),
-            'closed': set(),
+            'deleted': set()
         }
 
         return super( DocumentResource, self ).dispatch( request_type, request, **kwargs )
