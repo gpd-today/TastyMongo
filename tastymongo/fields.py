@@ -654,7 +654,7 @@ class ToOneField( RelatedField ):
         related_resource = self.get_related_resource( related_object )
         related_bundle = related_resource.build_bundle( request=bundle.request, obj=related_object )
 
-        if not self.full:
+        if not self.full or getattr( bundle, 'full', False ):
             return related_resource.get_resource_uri( bundle.request, related_bundle )
         else:
             return related_resource.dehydrate( related_bundle )
@@ -700,7 +700,7 @@ class ToManyField( RelatedField ):
 
         related_resource = self.get_related_resource( bundle )
         related_bundles = [related_resource.build_bundle( request=bundle.request, obj=obj ) for obj in related_objects]
-        if not self.full:
+        if not self.full or getattr( bundle, 'full', False ):
             related_bundles = [related_resource.get_resource_uri( bundle.request, b) for b in related_bundles]
         else:
             related_bundles = related_resource.dehydrate( related_bundles )
