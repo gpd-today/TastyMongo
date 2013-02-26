@@ -386,8 +386,9 @@ class Resource( object ):
 
         if obj is None:
             obj = self._meta.object_class()
-            if hasattr( request, 'cache' ):
-                request.cache.add( obj )
+
+        if hasattr( request, 'cache' ):
+            obj = request.cache.add( obj )
 
         bundle = Bundle( obj=obj, data=data, request=request )
         if len(bundle.data) > 1:
@@ -1624,7 +1625,7 @@ class DocumentResource( Resource ):
         if len( matched ) == 1:
             object = matched[ 0 ]
             if hasattr( request, 'cache' ):
-                request.cache.add( object )
+                object = request.cache.add( object )
             return object
 
         # Filters returned 0 or more than 1 match, raise an error.
