@@ -389,8 +389,9 @@ class Resource( object ):
         elif isinstance( obj, DBRef ):
             # Getting DBRef here means the object is gone, which mongoengine
             # doesn't care about since it doesn't maintain relations.
-            # FIXME: Until we decide upon the desired behaviour ignore it here.
-            pass
+            # We do care about it though, but it's not our business to update
+            # invalid data here, so return None.
+            return None
 
         bundle = Bundle( obj=obj, data=data, request=request )
         if len(bundle.data) > 1:
@@ -602,7 +603,7 @@ class Resource( object ):
 
         # Create a bundle for every object and dehydrate those bundles individually
         bundles = [self.build_bundle( request=request, obj=object ) for object in data['objects']]
-        bundles = self.dehydrate( bundles )
+        bundles = self.dehydrate( [b for b in bundles if b] )
         data['objects'] = self.pre_serialize_list( bundles, request )
         return self.create_response( data, request )
 
@@ -623,7 +624,8 @@ class Resource( object ):
             return http.HTTPMultipleChoices( "More than one resource is found at this URI." )
 
         bundle = self.build_bundle( request=request, obj=object )
-        bundle = self.dehydrate( bundle )
+        if bundle:
+            bundle = self.dehydrate( bundle )
         data = self.pre_serialize_single( bundle, request )
         return self.create_response( data, request )
 
@@ -1646,8 +1648,9 @@ class DocumentResource( Resource ):
         objects = self.obj_get_list(request, **kwargs)
         bundles = [self.build_bundle( request=request, obj=object ) for object in objects]
         for bundle in bundles:
-            bundle.request.api['to_delete'].add( bundle.obj )
-            self._update_relations( bundle )
+            if bundle:
+                bundle.request.api['to_delete'].add( bundle.obj )
+                self._update_relations( bundle )
 
     def obj_delete_single( self, request, **kwargs ):
         """
@@ -1662,6 +1665,7 @@ class DocumentResource( Resource ):
             raise NotFound("A model instance matching the provided arguments could not be found.")
 
         bundle = self.build_bundle( request=request, obj=object )
-        bundle.request.api['to_delete'].add( bundle.obj )
-        self._update_relations( bundle )
+        if bundle:
+            bundle.request.api['to_delete'].add( bundle.obj )
+            self._update_relations( bundle )
 
