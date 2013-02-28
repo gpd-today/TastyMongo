@@ -19,7 +19,8 @@ from mongoengine.errors import ValidationError as MongoEngineValidationError
 from mongoengine_relational.relationalmixin import RelationManagerMixin, set_difference
 import mongoengine
 import mongoengine.fields as mongofields
-from bson import ObjectId
+from mongoengine.document import Document
+from bson import ObjectId, DBRef
 
 from copy import deepcopy
 from operator import or_
@@ -379,16 +380,17 @@ class Resource( object ):
 
         if data and 'resource_uri' in data:
             # Try to retrieve the object and put it in fresh bundle.
-            try:
-                obj = self.obj_get_single( request=request, uri=data['resource_uri'] )
-            except (self._meta.object_class.DoesNotExist, self._meta.object_class.MultipleObjectsReturned), e:
-                raise 
+            obj = self.obj_get_single( request=request, uri=data['resource_uri'] )
 
         if obj is None:
             obj = self._meta.object_class()
-
-        if hasattr( request, 'cache' ):
+        elif isinstance( obj, Document ) and hasattr( request, 'cache' ):
             obj = request.cache.add( obj )
+        elif isinstance( obj, DBRef ):
+            # Getting DBRef here means the object is gone, which mongoengine
+            # doesn't care about since it doesn't maintain relations.
+            # FIXME: Until we decide upon the desired behaviour ignore it here.
+            pass
 
         bundle = Bundle( obj=obj, data=data, request=request )
         if len(bundle.data) > 1:
