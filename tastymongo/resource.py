@@ -17,7 +17,7 @@ from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned, Q
 from mongoengine.errors import ValidationError as MongoEngineValidationError
 # TODO: check if these can be imported at all, to begin with
 from mongoengine_relational.relationalmixin import RelationManagerMixin, set_difference
-import mongoengine.document 
+import mongoengine
 import mongoengine.fields as mongofields
 from bson import ObjectId
 
@@ -1139,12 +1139,10 @@ class DocumentResource( Resource ):
                 try:
                     kwargs['id'] = data.obj.pk
                 except AttributeError:
-                    # We may have received a DBRef, that doesn't have 'pk' but does have 'id'
-                    try:
-                        kwargs['id'] = data.obj.id
-                    except AttributeError:
-                        # No way to make up a uri.
-                        raise NotImplementedError(' Could not find a pk or id for {0}'.format(data))
+                    # We may have received a DBRef. This can occur when related
+                    # items didn't get updated correctly and indicates that the
+                    # object referred to doesn't exist any longer. 
+                    kwargs['id'] = ''
             elif isinstance( data, ObjectId ):
                 kwargs['id'] = str(data)
             else:
