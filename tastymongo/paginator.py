@@ -114,7 +114,7 @@ class Paginator(object):
         """
         Returns a count of the total number of objects seen.
         """
-        return len(self.objects)
+        return self.objects.count()
 
     def get_previous(self, limit, offset):
         """
