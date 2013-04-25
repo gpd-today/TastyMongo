@@ -15,8 +15,17 @@ from .paginator import Paginator
 from pyramid.response import Response
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned, Q
 from mongoengine.errors import ValidationError as MongoEngineValidationError
-# TODO: check if these can be imported at all, to begin with
-from mongoengine_relational.relationalmixin import RelationManagerMixin, set_difference
+
+try:
+    from mongoengine_relational.relationalmixin import RelationManagerMixin, set_difference
+except ImportError, e:
+    RelationManagerMixin = None
+
+try:
+    from mongoengine_privileges.privilegemixin import PrivilegeMixin
+except ImportError, e:
+    PrivilegeMixin = None
+
 import mongoengine
 import mongoengine.fields as mongofields
 from mongoengine.document import Document
@@ -832,7 +841,7 @@ class DocumentResource( Resource ):
         if obj is None:
             obj = bundle.obj
 
-        if not isinstance( obj, RelationManagerMixin ):
+        if RelationManagerMixin and not isinstance( obj, RelationManagerMixin ):
             return bundle
 
         # Find out what the RelationManagerMixin considers changed.
@@ -867,13 +876,16 @@ class DocumentResource( Resource ):
         Validates the object in the bundle. If validation fails, stashes
         invalid relational fields that are not required.
         '''
-        if not isinstance( bundle.obj, RelationManagerMixin ):
+        if not RelationManagerMixin or not isinstance( bundle.obj, RelationManagerMixin ):
             return bundle
 
         bundle.stashed_relations = {}
 
         try:
-            bundle.obj.validate( request=bundle.request )
+            if not PrivilegeMixin or not isinstance( bundle.obj, PrivilegeMixin ):
+                bundle.obj.validate()
+            else:
+                bundle.obj.validate( request=bundle.request )
         except MongoEngineValidationError as e:
             for k in e.errors.keys():  # ! Document, not Resource, fields 
                 fld = bundle.obj._fields[k]
@@ -899,7 +911,7 @@ class DocumentResource( Resource ):
         '''
         Pops any previously stashed invalid relations back on the object.
         '''
-        if not isinstance( bundle.obj, RelationManagerMixin ):
+        if not RelationManagerMixin or not isinstance( bundle.obj, RelationManagerMixin ):
             return bundle
 
         for field_name, data in bundle.stashed_relations.items():
@@ -916,7 +928,7 @@ class DocumentResource( Resource ):
         while bundle.request.api['to_save']:
             obj = bundle.request.api['to_save'].pop()
 
-            if isinstance( bundle.obj, RelationManagerMixin ):
+            if not RelationManagerMixin or not isinstance( bundle.obj, RelationManagerMixin ):
                 # The object to be saved may induce further away updates.
                 self._mark_relational_changes_for( bundle, obj )
                 obj.save( request=bundle.request, cascade=False )
@@ -929,7 +941,7 @@ class DocumentResource( Resource ):
         while bundle.request.api['to_delete']:
             obj = bundle.request.api['to_delete'].pop()
 
-            if isinstance( bundle.obj, RelationManagerMixin ):
+            if not RelationManagerMixin or not isinstance( bundle.obj, RelationManagerMixin ):
                 obj.delete( request=bundle.request )
                 self._mark_relational_changes_for( bundle, obj )
             else:
@@ -1490,7 +1502,7 @@ class DocumentResource( Resource ):
             bundle = self._stash_invalid_relations( bundle )
 
             try:
-                if isinstance( bundle.obj, RelationManagerMixin ):
+                if not RelationManagerMixin or not isinstance( bundle.obj, RelationManagerMixin ):
                     bundle.obj.save( request=bundle.request, cascade=False )
                 else:
                     bundle.obj.save( cascade=False )
@@ -1508,7 +1520,7 @@ class DocumentResource( Resource ):
         # PHASE 3: Second attempt to create the object now its relations exist.
         if not bundle.obj.pk:
             try:
-                if isinstance( bundle.obj, RelationManagerMixin ):
+                if not RelationManagerMixin or not isinstance( bundle.obj, RelationManagerMixin ):
                     bundle = self._mark_relational_changes_for( bundle )
                     bundle.obj.save( request=bundle.request, cascade=False )
                 else:
@@ -1536,7 +1548,7 @@ class DocumentResource( Resource ):
         # PHASE 4: All objects now exist and all relations are assigned, so
         # everything should validate. 
         try:
-            if isinstance( bundle.obj, RelationManagerMixin ):
+            if not RelationManagerMixin or not isinstance( bundle.obj, RelationManagerMixin ):
                 bundle.obj.validate( request=bundle.request )
             else:
                 bundle.obj.validate()
@@ -1558,7 +1570,7 @@ class DocumentResource( Resource ):
             return bundle
 
         try:
-            if isinstance( bundle.obj, RelationManagerMixin ):
+            if not RelationManagerMixin or not isinstance( bundle.obj, RelationManagerMixin ):
                 bundle = self._mark_relational_changes_for( bundle )
                 bundle.obj.save( request=bundle.request, cascade=False, validate=False )
             else:
