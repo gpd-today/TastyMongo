@@ -1635,7 +1635,7 @@ class DocumentResource( Resource ):
             filters = kwargs.copy()
 
         # Object not in cache, alas, we have to hit the database.
-        matched = self.obj_get_list( request, **filters )
+        matched = [o for o in self.obj_get_list( request, **filters )]
         if len( matched ) == 1:
             object = matched[ 0 ]
             if hasattr( request, 'cache' ):
