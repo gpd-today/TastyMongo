@@ -114,7 +114,11 @@ class Paginator(object):
         """
         Returns a count of the total number of objects seen.
         """
-        return self.objects.count()
+        try:
+            return len( self.objects )
+        except TypeError:
+            # objects can be any iterable, but mongoengine removed `len()`
+            return self.objects.count()
 
     def get_previous(self, limit, offset):
         """
