@@ -155,8 +155,7 @@ class ApiField( object ):
             if isinstance( attr, Document ):
                 if not may_read( attr, bundle.request ):
                     attr = None
-
-            if isinstance( attr, list ):
+            elif isinstance( attr, list ):
                 # Check permissions for each document
                 attr = [ obj for obj in attr if may_read( obj, bundle.request ) ]
 
@@ -166,7 +165,7 @@ class ApiField( object ):
                 elif not self.required:
                     attr = None
                 else:
-                    raise ApiFieldError( "Required attribute=`{}` on object=`{}` is empty, and does not have a default value.".format( attr, prev ) )
+                    raise ApiFieldError( "Required attribute=`{}` on object=`{}` is empty, and does not have a default value.".format( self.attribute, bundle.obj ) )
 
             return self.convert( attr )
 
