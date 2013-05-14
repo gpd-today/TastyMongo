@@ -1106,33 +1106,6 @@ class DocumentResource( Resource ):
 
 
 
-    def dehydrate( self, bundles ):
-        """
-        Given a list of one or more bundles with object instances, extract the
-        information from them to populate the resource data.
-        """
-        single_bundle = False
-        if not isinstance( bundles, collections.Iterable ):
-            single_bundle = True
-            bundles = [ bundles, ]
-
-        for bundle in bundles:
-            # Dehydrate each field.
-            for field_name, fld in self.fields.items():
-                bundle.data[field_name] = fld.dehydrate( bundle )
-
-                # Check for an optional method to do further dehydration.
-                method = getattr( self, "dehydrate_{0}".format( field_name ), None )
-                if method:
-                    bundle.data[field_name] = method( bundle )
-
-        bundles = self.post_dehydrate( bundles )
-
-        if single_bundle:
-            bundles = bundles[0]
-
-        return bundles
-
     def dehydrate_id( self, bundle ):
         '''
         pk is present on objects, but not a MongoEngine field. Hence we need to
