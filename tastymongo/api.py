@@ -32,7 +32,7 @@ class Api( object ):
         self.route = '/{}/{}'.format(self.api_name, self.api_version)
 
         self.config.add_route(self.route, self.route + '/')
-        self.config.add_view(Api.wrap_view(self, self.top_level), route_name=self.route)
+        self.config.add_view( self.wrap_view(self, self.top_level), route_name=self.route)
 
     @staticmethod
     def wrap_view( resource, view ):
@@ -70,7 +70,7 @@ class Api( object ):
                     return e.response
 
                 # Return a serialized error message.
-                return Api._handle_server_error( resource, request, e )
+                return self._handle_server_error( resource, request, e )
 
         return wrapper
 
@@ -123,17 +123,17 @@ class Api( object ):
         # add 'schema' action
         schema_name = self.build_route_name( resource_name, 'schema' )
         self.config.add_route( schema_name, '{}/{}/schema/'.format( self.route, resource_name ) )
-        self.config.add_view( Api.wrap_view( resource, resource.get_schema ), route_name=schema_name )
+        self.config.add_view( self.wrap_view( resource, resource.get_schema ), route_name=schema_name )
 
         # add 'list' action
         list_name = self.build_route_name( resource_name, 'list' )
         self.config.add_route( list_name, '{}/{}/'.format( self.route, resource_name ) )
-        self.config.add_view( Api.wrap_view( resource, resource.dispatch_list ), route_name=list_name )
+        self.config.add_view( self.wrap_view( resource, resource.dispatch_list ), route_name=list_name )
 
         # add 'single' action
         single_name = self.build_route_name( resource_name, 'single' )
         self.config.add_route( single_name, '{}/{}/{{id}}/'.format( self.route, resource_name ) )
-        self.config.add_view( Api.wrap_view( resource, resource.dispatch_single ), route_name=single_name )
+        self.config.add_view( self.wrap_view( resource, resource.dispatch_single ), route_name=single_name )
 
     def unregister(self, resource_name):
         """
