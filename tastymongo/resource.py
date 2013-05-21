@@ -51,7 +51,7 @@ class ResourceOptions( object ):
     serializer = Serializer()
     authentication = Authentication()
     throttle = BaseThrottle()
-    allowed_methods = [ 'get', 'post', 'put', 'delete' ]
+    allowed_methods = [ 'get', 'post', 'put', 'delete', 'options' ]
     list_allowed_methods = None
     single_allowed_methods = None
     limit = 20
@@ -81,7 +81,7 @@ class ResourceOptions( object ):
                 if not override_name.startswith( '_' ):
                     overrides[override_name] = getattr( meta, override_name )
 
-        allowed_methods = overrides.get( 'allowed_methods', [ 'get', 'post', 'put', 'delete' ] )
+        allowed_methods = overrides.get( 'allowed_methods', ['get', 'post', 'put', 'delete', 'options'] )
 
         if overrides.get( 'list_allowed_methods', None ) is None:
             overrides['list_allowed_methods'] = allowed_methods
@@ -243,6 +243,12 @@ class Resource( object ):
             allowed = []
 
         request_method = request.method.lower()
+
+        if request_method == "options":
+            allows = str( ','.join( map( unicode.upper, allowed )) )
+            response = http.HTTPResponse( allows )
+            response.headers[b'Allow'] = allows
+            raise ImmediateHTTPResponse( response=response )
 
         if not request_method in allowed:
             allows = ','.join( map( unicode.upper, allowed ))
