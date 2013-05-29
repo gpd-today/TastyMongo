@@ -70,7 +70,7 @@ class Api( object ):
                     return e.response
 
                 # Return a serialized error message.
-                return self._handle_server_error( resource, request, e )
+                return Api._handle_server_error( resource, request, e )
 
         return wrapper
 
