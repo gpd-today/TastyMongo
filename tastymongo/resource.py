@@ -888,10 +888,7 @@ class DocumentResource( Resource ):
         bundle.stashed_relations = {}
 
         try:
-            if PrivilegeMixin and isinstance( bundle.obj, PrivilegeMixin ):
-                bundle.obj.validate( request=bundle.request )
-            else:
-                bundle.obj.validate()
+            bundle.obj.validate()
         except MongoEngineValidationError as e:
             for k in e.errors.keys():  # ! Document, not Resource, fields 
                 fld = bundle.obj._fields[k]
@@ -1527,10 +1524,7 @@ class DocumentResource( Resource ):
         # PHASE 4: All objects now exist and all relations are assigned, so
         # everything should validate. 
         try:
-            if PrivilegeMixin and isinstance( bundle.obj, PrivilegeMixin ):
-                bundle.obj.validate( request=bundle.request )
-            else:
-                bundle.obj.validate()
+            bundle.obj.validate()
         except Exception, e:
             if getattr( bundle.request.registry.settings, 'debug_api', False ):
                 raise
