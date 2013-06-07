@@ -937,9 +937,9 @@ class DocumentResource( Resource ):
             if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
                 # The object to be saved may induce further away updates.
                 self._mark_relational_changes_for( bundle, obj )
-                obj.save( request=bundle.request )
+                obj.save( request=bundle.request, cascade=False )
             else:
-                obj.save()
+                obj.save( cascade=False )
 
             bundle.request.api['saved'].add(obj) 
             #print('    ~~~~~ SAVED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
@@ -1482,9 +1482,9 @@ class DocumentResource( Resource ):
 
             try:
                 if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
-                    bundle.obj.save( request=bundle.request )
+                    bundle.obj.save( request=bundle.request, cascade=False )
                 else:
-                    bundle.obj.save()
+                    bundle.obj.save( cascade=False )
 
                 bundle.request.api['created'].add( bundle.obj )
                 #print('    ~~~~~ CREATED (I) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
@@ -1501,9 +1501,9 @@ class DocumentResource( Resource ):
             try:
                 if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
                     bundle = self._mark_relational_changes_for( bundle )
-                    bundle.obj.save( request=bundle.request )
+                    bundle.obj.save( request=bundle.request, cascade=False )
                 else:
-                    bundle.obj.save()
+                    bundle.obj.save( cascade=False )
 
                 bundle.request.api['created'].add( bundle.obj )
                 #print('    ~~~~~ CREATED (II) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
@@ -1551,9 +1551,9 @@ class DocumentResource( Resource ):
         try:
             if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
                 bundle = self._mark_relational_changes_for( bundle )
-                bundle.obj.save( request=bundle.request, validate=False )
+                bundle.obj.save( request=bundle.request, cascade=False, validate=False )
             else:
-                bundle.obj.save( validate=False )
+                bundle.obj.save( cascade=False, validate=False )
 
             bundle.request.api['updated'].add( bundle.obj )
             #print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, bundle.obj._class_name))
