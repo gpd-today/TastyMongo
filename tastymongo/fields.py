@@ -686,11 +686,10 @@ class ToManyField( RelatedField ):
         '''
 
         if self.ignore_closed:
-            import ipdb; ipdb.set_trace()
-            closed_relations = []
+            closed_relations = [r for r in getattr( bundle.obj, self.field_name, []) if getattr(r, 'closed', False )]
             bundle.data[ self.field_name ] = bundle.data.get(self.field_name, [])
             related_resource = self.get_related_resource()
-            resources_in_data = set(getattr(d, 'resource_uri', d) for d in bundle.data)
+            resources_in_data = set( getattr(d, 'resource_uri', d ) for d in bundle.data[ self.field_name ])
             for c in closed_relations:
                 resource_uri = related_resource.get_resource_uri( bundle.request, c )
                 if resource_uri not in resources_in_data:
