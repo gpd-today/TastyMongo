@@ -465,7 +465,7 @@ class RelatedField( ApiField ):
     self_referential = False
     help_text = 'A related resource. Can be either a URI or set of nested resource data.'
 
-    def __init__( self, attribute, to=None, default=NOT_PROVIDED, required=False, readonly=False, full=False, unique=False, help_text=None ):
+    def __init__( self, attribute, to=None, default=NOT_PROVIDED, required=False, readonly=False, full=False, unique=False, help_text=None, ignore_closed=False ):
         """
         Builds the field and prepares it to access the related data.
 
@@ -489,6 +489,9 @@ class RelatedField( ApiField ):
         Optionally accepts a ``unique``, which indicates if the field is a
         unique identifier for the object.
 
+        Optionally accepts an ``ignore_closed``, that indicates what to do 
+        with existing relations that have a field `closed` that is True.
+
         Optionally accepts ``help_text``, which lets you provide a
         human-readable description of the field exposed at the schema level.
         Defaults to the per-Field definition.
@@ -503,6 +506,7 @@ class RelatedField( ApiField ):
 
         self._to_class = None
         self.full = full
+        self.ignore_closed = ignore_closed
 
         if self.to == 'self':
             self.self_referential = True
@@ -680,11 +684,35 @@ class ToManyField( RelatedField ):
         
         Returns a list of bundles or an empty list.
         '''
-        related_data = super( ToManyField, self ).hydrate( bundle )
-        if related_data is None:
-            return []
 
-        return [self.get_related_bundle( related_item, request=bundle.request ) for related_item in related_data if related_item]
+        if self.ignore_closed:
+            import ipdb; ipdb.set_trace()
+            closed_relations = []
+            bundle.data[ self.field_name ] = bundle.data.get(self.field_name, [])
+            related_resource = self.get_related_resource()
+            resources_in_data = set(getattr(d, 'resource_uri', d) for d in bundle.data)
+            for c in closed_relations:
+                resource_uri = related_resource.get_resource_uri( bundle.request, c )
+                if resource_uri not in resources_in_data:
+                    bundle.data[ self.field_name ].append( resource_uri )
+
+        if self.field_name in bundle.data: 
+            # The bundle has data for this field. Return it.
+            data = self.convert( bundle.data[ self.field_name ] )
+
+        elif self.has_default:
+            # The bundle has no data, but there's a default value for the field.
+            data = self.default
+
+        elif not self.required:
+            # There's no default but the field is not required. 
+            data = []
+
+        else:
+            # We're seriously out of options here.
+            raise ApiFieldError( 'field `{0}` has no data in bundle `{1}` and no default.'.format( self.field_name, bundle ))
+
+        return [self.get_related_bundle( related_item, request=bundle.request ) for related_item in data if related_item]
 
     def dehydrate( self, bundle ):
         """
@@ -698,6 +726,9 @@ class ToManyField( RelatedField ):
         related_objects = super( ToManyField, self ).dehydrate( bundle )
         if related_objects is None:
             related_objects = []
+
+        if self.ignore_closed:
+            related_objects = [r for r in related_objects if not getattr(r, 'closed', False) ]
 
         related_resource = self.get_related_resource( bundle )
         related_bundles = [related_resource.build_bundle( request=bundle.request, obj=obj ) for obj in related_objects]
