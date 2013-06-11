@@ -688,8 +688,15 @@ class ToManyField( RelatedField ):
         if self.ignore_closed:
             closed_relations = [r for r in getattr( bundle.obj, self.field_name, []) if getattr(r, 'closed', False )]
             bundle.data[ self.field_name ] = bundle.data.get(self.field_name, [])
+
+            resources_in_data = set()
+            for d in bundle.data[ self.field_name ]:
+                if isinstance( d, dict ) and d.get('resource_uri', None):
+                    resources_in_data.add( d.get('resource_uri') )
+                elif isinstance( d, basestring ):
+                    resources_in_data.add( d )
+
             related_resource = self.get_related_resource()
-            resources_in_data = set( d.get('resource_uri', d ) for d in bundle.data[ self.field_name ])
             for c in closed_relations:
                 resource_uri = related_resource.get_resource_uri( bundle.request, c )
                 if resource_uri not in resources_in_data:
