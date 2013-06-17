@@ -901,13 +901,9 @@ class DocumentResource( Resource ):
                         bundle.stashed_relations[ k ] = getattr( bundle.obj, k )[:]
                         setattr( bundle.obj, k, [] )
                 else:
-                    if getattr( bundle.request.registry.settings, 'debug_api', False ):
-                        raise
-
-                    bundle.request.api['errors'][k].append( e )
+                    raise
 
         # NOTE: non-relational fields will be processed by `validate` later on
-
         return bundle
 
     def _pop_stashed_relations( self, bundle ):
@@ -1363,21 +1359,8 @@ class DocumentResource( Resource ):
         and finally save all updated documents.
         """
         bundle = self.save_new( bundle )
-        if bundle.request.api['errors']:
-            # FIXME: Try to roll back what we created so far.
-            raise ValidationError( 'Errors occured during document creation:\n{0}'.format( bundle.request.api['errors'] ) )
-
         bundle = self.validate( bundle )
-        if bundle.request.api['errors']:
-            # FIXME: Try to roll back what we created so far.
-            raise ValidationError( 'Errors occured during document validation:\n{0}'.format( bundle.request.api['errors'] ) )
-
         bundle = self.update( bundle )
-        if bundle.request.api['errors']:
-            # FIXME: Try to roll back what we created so far. Ehm, maybe not
-            # since we've already updated stuff. Tough luck.
-            raise ValidationError( 'Errors occured during document updates:\n{0}'.format( bundle.request.api['errors'] ) )
-
         bundle = self._update_relations( bundle )
 
         return bundle
@@ -1484,7 +1467,7 @@ class DocumentResource( Resource ):
                     bundle.obj.save()
 
                 bundle.request.api['created'].add( bundle.obj )
-                #print('    ~~~~~ CREATED (I) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
+
             except MongoEngineValidationError, e:
                 # We'll have to wait for related objects to be created first.
                 pass
@@ -1495,20 +1478,13 @@ class DocumentResource( Resource ):
 
         # PHASE 3: Second attempt to create the object now its relations exist.
         if not bundle.obj.pk:
-            try:
-                if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
-                    bundle = self._mark_relational_changes_for( bundle )
-                    bundle.obj.save( request=bundle.request )
-                else:
-                    bundle.obj.save()
+            if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
+                bundle = self._mark_relational_changes_for( bundle )
+                bundle.obj.save( request=bundle.request )
+            else:
+                bundle.obj.save()
 
-                bundle.request.api['created'].add( bundle.obj )
-                #print('    ~~~~~ CREATED (II) {2}: `{0}` (id={1})'.format( bundle.obj, bundle.obj.pk, type(bundle.obj)._class_name) )
-            except MongoEngineValidationError, e:
-                if getattr( bundle.request.registry.settings, 'debug_api', False ):
-                    raise
-
-                bundle.request.api['errors'][ MongoEngineValidationError ].append( e )
+            bundle.request.api['created'].add( bundle.obj )
 
         return bundle
 
@@ -1523,40 +1499,25 @@ class DocumentResource( Resource ):
 
         # PHASE 4: All objects now exist and all relations are assigned, so
         # everything should validate. 
-        try:
-            bundle.obj.validate()
-        except Exception, e:
-            if getattr( bundle.request.registry.settings, 'debug_api', False ):
-                raise
-
-            bundle.request.api['errors'][ Exception ].append( e )
+        bundle.obj.validate()
 
         return self._related_fields_callback( bundle, 'validate' )
 
     def update( self, bundle ):
         '''
         Recursively updates the (embedded) object(s) in the validated bundle.
-        NOTE: doesn't do any validation since that should've been done already.
         '''
         if bundle.uri_only:
             # Don't update here. May get updated through _update_relations.
             return bundle
 
-        try:
-            if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
-                bundle = self._mark_relational_changes_for( bundle )
-                bundle.obj.save( request=bundle.request, validate=False )
-            else:
-                bundle.obj.save( validate=False )
+        if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
+            bundle = self._mark_relational_changes_for( bundle )
+            bundle.obj.save( request=bundle.request, validate=False )
+        else:
+            bundle.obj.save( validate=False )
 
-            bundle.request.api['updated'].add( bundle.obj )
-            #print('    ~~~~~ UPDATED `{2}`: `{0}` (id={1})'.format(bundle.obj, bundle.obj.pk, bundle.obj._class_name))
-        except Exception, e:
-            if getattr( bundle.request.registry.settings, 'debug_api', False ):
-                raise
-
-            bundle.request.api['errors'][ Exception ].append( e )
-            return bundle
+        bundle.request.api['updated'].add( bundle.obj )
 
         return self._related_fields_callback( bundle, 'update' )
 
