@@ -438,6 +438,9 @@ class Resource( object ):
         bundle = self.pre_hydrate( bundle )
 
         for field_name, fld in self.fields.items():
+            if fld.readonly:
+                continue
+
             # You may provide a custom method on the resource that will replace
             # the default hydration behaviour for the field.
             callback = getattr(self, "hydrate_{0}".format(field_name), None)
@@ -450,20 +453,18 @@ class Resource( object ):
                 if getattr(fld, 'is_tomany', False):
 
                     # ToManyFields return a list of bundles or an empty list.
-                    if not fld.readonly:
-                        setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
+                    setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
 
                 else:
                     # ToOneFields return a single bundle or None.
-                    if not fld.readonly:
-                        if data is None:
-                            setattr( bundle.obj, fld.attribute, None )
-                        else:
-                            setattr( bundle.obj, fld.attribute, data.obj )
+                    if data is None:
+                        setattr( bundle.obj, fld.attribute, None )
+                    else:
+                        setattr( bundle.obj, fld.attribute, data.obj )
 
             else:
                 # An ordinary field returns its converted data.
-                if fld.attribute and not fld.readonly:
+                if fld.attribute:
                     setattr( bundle.obj, fld.attribute, data )
 
             # Reassign the -possibly changed- data
@@ -957,6 +958,10 @@ class DocumentResource( Resource ):
 
     def _related_fields_callback( self, bundle, callback_func ):
         for field_name, fld in self.fields.items():
+
+            if fld.readonly:
+                continue
+
             if getattr( fld, 'is_related', False ) and field_name in bundle.data:
                 related_data = bundle.data[ field_name ]
                 if not related_data:
