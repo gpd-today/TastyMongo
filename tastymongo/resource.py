@@ -438,34 +438,31 @@ class Resource( object ):
         bundle = self.pre_hydrate( bundle )
 
         for field_name, fld in self.fields.items():
-            if fld.readonly:
-                continue
-
             # You may provide a custom method on the resource that will replace
             # the default hydration behaviour for the field.
             callback = getattr(self, "hydrate_{0}".format(field_name), None)
             if not callback is None:
                 data = callback( bundle )
-            else:
+            elif not fld.readonly:
                 data = fld.hydrate( bundle )
 
-            if getattr(fld, 'is_related', False): 
-                if getattr(fld, 'is_tomany', False):
+                if getattr(fld, 'is_related', False): 
+                    if getattr(fld, 'is_tomany', False):
 
-                    # ToManyFields return a list of bundles or an empty list.
-                    setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
+                        # ToManyFields return a list of bundles or an empty list.
+                        setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
+
+                    else:
+                        # ToOneFields return a single bundle or None.
+                        if data is None:
+                            setattr( bundle.obj, fld.attribute, None )
+                        else:
+                            setattr( bundle.obj, fld.attribute, data.obj )
 
                 else:
-                    # ToOneFields return a single bundle or None.
-                    if data is None:
-                        setattr( bundle.obj, fld.attribute, None )
-                    else:
-                        setattr( bundle.obj, fld.attribute, data.obj )
-
-            else:
-                # An ordinary field returns its converted data.
-                if fld.attribute:
-                    setattr( bundle.obj, fld.attribute, data )
+                    # An ordinary field returns its converted data.
+                    if fld.attribute:
+                        setattr( bundle.obj, fld.attribute, data )
 
             # Reassign the -possibly changed- data
             bundle.data[ field_name ] = data
