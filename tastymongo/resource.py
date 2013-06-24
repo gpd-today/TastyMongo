@@ -448,23 +448,23 @@ class Resource( object ):
             else:
                 data = fld.hydrate( bundle )
 
-                if getattr(fld, 'is_related', False): 
-                    if getattr(fld, 'is_tomany', False):
+            if getattr(fld, 'is_related', False): 
+                if getattr(fld, 'is_tomany', False):
 
-                        # ToManyFields return a list of bundles or an empty list.
-                        setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
-
-                    else:
-                        # ToOneFields return a single bundle or None.
-                        if data is None:
-                            setattr( bundle.obj, fld.attribute, None )
-                        else:
-                            setattr( bundle.obj, fld.attribute, data.obj )
+                    # ToManyFields return a list of bundles or an empty list.
+                    setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
 
                 else:
-                    # An ordinary field returns its converted data.
-                    if fld.attribute:
-                        setattr( bundle.obj, fld.attribute, data )
+                    # ToOneFields return a single bundle or None.
+                    if data is None:
+                        setattr( bundle.obj, fld.attribute, None )
+                    else:
+                        setattr( bundle.obj, fld.attribute, data.obj )
+
+            else:
+                # An ordinary field returns its converted data.
+                if fld.attribute:
+                    setattr( bundle.obj, fld.attribute, data )
 
             # Reassign the -possibly changed- data
             bundle.data[ field_name ] = data
