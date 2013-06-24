@@ -443,7 +443,9 @@ class Resource( object ):
             callback = getattr(self, "hydrate_{0}".format(field_name), None)
             if not callback is None:
                 data = callback( bundle )
-            elif not fld.readonly:
+            elif fld.readonly:
+                continue
+            else:
                 data = fld.hydrate( bundle )
 
                 if getattr(fld, 'is_related', False): 
