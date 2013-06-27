@@ -3,12 +3,10 @@ from __future__ import unicode_literals
 
 import datetime
 import importlib
-from dateutil.parser import parse
+import dateutil
 from decimal import Decimal
-import re
 
 from .exceptions import ApiFieldError
-from .utils import *
 from mongoengine import Document
 from mongoengine.errors import ValidationError as MongoEngineValidationError
 
@@ -33,10 +31,6 @@ try:
 except ImportError:
     def may_read( doc, request ):
         return True
-
-
-DATE_REGEX = re.compile( '^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2}).*?$' )
-DATETIME_REGEX = re.compile( '^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})( T|\s+)(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2}).*?$' )
 
 
 # All the ApiField variants.
@@ -349,34 +343,19 @@ class DateField( ApiField ):
         if not value:
             return None
 
+        d = value
         if isinstance( value, basestring ):
-            match = DATE_REGEX.search( value )
-
-            if match:
-                data = match.groupdict()
-                return datetime.date( int( data['year'] ), int( data['month'] ), int( data['day'] ))
-            else:
+            try:
+                d = dateutil.parser.parse( value ).date()
+            except ValueError:
                 raise ApiFieldError( "Date `{0}` provided to the `{1}` field doesn't appear to be a valid date string: ".format( value, self.field_name) )
 
-        if isinstance( value, datetime.datetime ):
-            return datetime.date( value.year, value.month, value.day )
+        elif isinstance( value, datetime.datetime ):
+            d = value.date()
+        else:
+            raise ApiFieldError( "Date `{0}` provided to the `{1}` field doesn't appear to be a valid date string: ".format( value, self.field_name) )
 
-        return value
-
-    def hydrate( self, bundle ):
-        data = super( DateField, self ).hydrate( bundle )
-
-        if data and not hasattr( data, 'year' ):
-            try:
-                # Try to rip a date/datetime out of it.
-                data = make_aware( parse( data ))
-
-                if hasattr( data, 'hour' ):
-                    data = data.date()
-            except ValueError:
-                pass
-
-        return data
+        return d
 
 
 class DateTimeField( ApiField ):
@@ -390,36 +369,17 @@ class DateTimeField( ApiField ):
         if not value:
             return None
 
+        dt = value
         if isinstance( value, basestring ):
-            match = DATETIME_REGEX.search( value )
-            
-            if match:
-                data = match.groupdict()
-                return make_aware( datetime.datetime( int( data['year'] ), int( data['month'] ), int( data['day'] ), int( data['hour'] ), int( data['minute'] ), int( data['second'] )) )
-
-            # MongoDB doesn't have separate `dates`, only `datetimes`, so if
-            # `value` is a date string without datetime, pad it with 0 time.
-            match = DATE_REGEX.search( value )
-            if match: 
-                data = match.groupdict()
-                return make_aware( datetime.datetime( int( data['year'] ), int( data['month'] ), int( data['day'] ), 0, 0, 0 ))
-
-            else:
-                raise ApiFieldError( "Datetime `{0}` provided to `{1}` field doesn't appear to be a valid datetime string.".format( value, self.field_name ))
-
-        return value
-
-    def hydrate( self, bundle ):
-        data = super( DateTimeField, self ).hydrate( bundle )
-
-        if data and not hasattr( data, 'year' ):
             try:
-                # Try to rip a date/datetime out of it.
-                data = make_aware( parse( data ))
+                dt = dateutil.parser.parse( value )
             except ValueError:
-                pass
+                raise ApiFieldError( "Date `{0}` provided to the `{1}` field doesn't appear to be a valid date string: ".format( value, self.field_name) )
 
-        return data
+        elif not isinstance( value, datetime.datetime ):
+            raise ApiFieldError( "Date `{0}` provided to the `{1}` field doesn't appear to be a valid date string: ".format( value, self.field_name) )
+
+        return dt
 
 
 class TimeField( ApiField ):
@@ -430,26 +390,20 @@ class TimeField( ApiField ):
         if not value:
             return None
 
+        t = value
         if isinstance( value, basestring ):
-            return self.to_time( value )
+            try:
+                t = dateutil.parser.parse( value )
+            except ValueError:
+                raise ApiFieldError( "Time `{0}` provided to the `{1}` field doesn't appear to be a valid time string: ".format( value, self.field_name) )
 
-        return value
+        elif isinstance( value, datetime.datetime ):
+            t = value.time()
 
-    def to_time( self, s ):
-        try:
-            dt = parse( s )
-        except ValueError, e:
-            raise ApiFieldError( str( e ))
         else:
-            return datetime.time( dt.hour, dt.minute, dt.second )
+            raise ApiFieldError( "Time `{0}` provided to the `{1}` field doesn't appear to be a valid time string: ".format( value, self.field_name) )
 
-    def hydrate( self, bundle ):
-        data = super( TimeField, self ).hydrate( bundle )
-
-        if data and not isinstance( data, datetime.time ):
-            data = self.to_time( data )
-
-        return data
+        return t.replace( microseconds=0 )
 
 
 class RelatedField( ApiField ):

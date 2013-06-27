@@ -73,7 +73,7 @@ class Serializer(object):
 
         Default is ``iso-8601``, which looks like "2010-12-16T03:02:14".
         """
-        data = make_naive(data)
+        data = data.replace( tzinfo=None )
 
         return data.isoformat()
 
