@@ -3,7 +3,7 @@ from __future__ import unicode_literals
 
 import datetime
 import importlib
-import dateutil
+from dateutil import parser 
 from decimal import Decimal
 
 from .exceptions import ApiFieldError
@@ -346,13 +346,14 @@ class DateField( ApiField ):
         d = value
         if isinstance( value, basestring ):
             try:
-                d = dateutil.parser.parse( value ).date()
+                d = parser.parse( value ).date()
             except ValueError:
                 raise ApiFieldError( "Date `{0}` provided to the `{1}` field doesn't appear to be a valid date string: ".format( value, self.field_name) )
 
         elif isinstance( value, datetime.datetime ):
             d = value.date()
-        else:
+
+        if not isinstance( d, datetime.date ):
             raise ApiFieldError( "Date `{0}` provided to the `{1}` field doesn't appear to be a valid date string: ".format( value, self.field_name) )
 
         return d
@@ -372,11 +373,11 @@ class DateTimeField( ApiField ):
         dt = value
         if isinstance( value, basestring ):
             try:
-                dt = dateutil.parser.parse( value )
+                dt = parser.parse( value )
             except ValueError:
                 raise ApiFieldError( "Date `{0}` provided to the `{1}` field doesn't appear to be a valid date string: ".format( value, self.field_name) )
 
-        elif not isinstance( value, datetime.datetime ):
+        if not isinstance( dt, datetime.datetime ):
             raise ApiFieldError( "Date `{0}` provided to the `{1}` field doesn't appear to be a valid date string: ".format( value, self.field_name) )
 
         return dt
@@ -393,14 +394,14 @@ class TimeField( ApiField ):
         t = value
         if isinstance( value, basestring ):
             try:
-                t = dateutil.parser.parse( value )
+                t = parser.parse( value ).time()
             except ValueError:
                 raise ApiFieldError( "Time `{0}` provided to the `{1}` field doesn't appear to be a valid time string: ".format( value, self.field_name) )
 
         elif isinstance( value, datetime.datetime ):
             t = value.time()
 
-        else:
+        if not isinstance( t, datetime.time ):
             raise ApiFieldError( "Time `{0}` provided to the `{1}` field doesn't appear to be a valid time string: ".format( value, self.field_name) )
 
         return t.replace( microseconds=0 )
