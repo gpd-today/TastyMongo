@@ -445,6 +445,9 @@ class Resource( object ):
                 data = callback( bundle )
             elif fld.readonly:
                 continue
+            elif field_name not in bundle.data:
+                # We actually implement `patch`, so skip any fields not present
+                continue
             else:
                 data = fld.hydrate( bundle )
 
