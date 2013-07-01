@@ -7,16 +7,15 @@ from dateutil import parser
 from decimal import Decimal
 
 from .exceptions import ApiFieldError
+from .utils import to_naive_utc
 from mongoengine import Document
 from mongoengine.errors import ValidationError as MongoEngineValidationError
 
 from .bundle import Bundle
 
-
 class NOT_PROVIDED:
     def __str__( self ):
         return 'No default provided.'
-
 
 
 # Define a `may_read` method, which uses the `PrivilegeMixin` to test if read is allowed if found.
@@ -380,7 +379,7 @@ class DateTimeField( ApiField ):
         if not isinstance( dt, datetime.datetime ):
             raise ApiFieldError( "Date `{0}` provided to the `{1}` field doesn't appear to be a valid date string: ".format( value, self.field_name) )
 
-        return dt
+        return to_naive_utc( dt )
 
 
 class TimeField( ApiField ):
@@ -404,7 +403,7 @@ class TimeField( ApiField ):
         if not isinstance( t, datetime.time ):
             raise ApiFieldError( "Time `{0}` provided to the `{1}` field doesn't appear to be a valid time string: ".format( value, self.field_name) )
 
-        return t.replace( microseconds=0 )
+        return to_naive_utc( t )
 
 
 class RelatedField( ApiField ):
