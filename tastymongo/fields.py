@@ -7,7 +7,7 @@ from dateutil import parser
 from decimal import Decimal
 
 from .exceptions import ApiFieldError
-from .utils import to_naive_utc
+from .utils import make_naive
 from mongoengine import Document
 from mongoengine.errors import ValidationError as MongoEngineValidationError
 
@@ -379,7 +379,7 @@ class DateTimeField( ApiField ):
         if not isinstance( dt, datetime.datetime ):
             raise ApiFieldError( "Date `{0}` provided to the `{1}` field doesn't appear to be a valid date string: ".format( value, self.field_name) )
 
-        return to_naive_utc( dt )
+        return make_naive( dt )
 
 
 class TimeField( ApiField ):
@@ -403,7 +403,7 @@ class TimeField( ApiField ):
         if not isinstance( t, datetime.time ):
             raise ApiFieldError( "Time `{0}` provided to the `{1}` field doesn't appear to be a valid time string: ".format( value, self.field_name) )
 
-        return to_naive_utc( t )
+        return make_naive( t )
 
 
 class RelatedField( ApiField ):

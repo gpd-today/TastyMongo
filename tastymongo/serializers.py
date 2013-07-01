@@ -73,8 +73,7 @@ class Serializer(object):
 
         Default is ``iso-8601``, which looks like "2010-12-16T03:02:14".
         """
-        data = data.replace( tzinfo=None )
-
+        data = make_aware( data )
         return data.isoformat()
 
     def format_date(self, data):
@@ -91,7 +90,7 @@ class Serializer(object):
 
         Default is ``iso-8601``, which looks like "03:02:14".
         """
-
+        data = make_aware( data )
         return data.isoformat()
 
     def serialize( self, bundle, format='application/json', options=None ):
