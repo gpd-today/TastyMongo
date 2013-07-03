@@ -399,8 +399,6 @@ class Resource( object ):
 
         if obj is None:
             obj = self._meta.object_class()
-        elif isinstance( obj, Document ) and hasattr( request, 'cache' ):
-            obj = request.cache.add( obj )
         elif isinstance( obj, DBRef ):
             # Getting DBRef here means the object is gone, which mongoengine
             # doesn't care about since it doesn't maintain relations.
@@ -757,8 +755,6 @@ class Resource( object ):
             return http.HTTPNoContent()
         except NotFound:
             return http.HTTPNotFound()
-
-
 
     def obj_get_single( self, request, **kwargs ):
         """
@@ -1578,10 +1574,7 @@ class DocumentResource( Resource ):
         # Object not in cache, alas, we have to hit the database.
         matched = [o for o in self.obj_get_list( request, **filters )]
         if len( matched ) == 1:
-            object = matched[ 0 ]
-            if hasattr( request, 'cache' ):
-                object = request.cache.add( object )
-            return object
+            return matched[ 0 ]
 
         # Filters returned 0 or more than 1 match, raise an error.
         stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in filters.items()] )
