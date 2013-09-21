@@ -399,15 +399,9 @@ class Resource( object ):
 
         if obj is None:
             obj = self._meta.object_class()
-        elif isinstance( obj, DBRef ):
-            # Getting DBRef here means the object is gone, which mongoengine
-            # doesn't care about since it doesn't maintain relations.
-            # We do care about it though, but it's not our business to update
-            # invalid data here, so return None.
-            return None
 
         bundle = Bundle( obj=obj, data=data, request=request )
-        if len(bundle.data) > 1:
+        if len( bundle.data ) > 1:
             bundle.uri_only = False
 
         return bundle

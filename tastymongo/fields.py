@@ -636,19 +636,17 @@ class ToOneField( RelatedField ):
             return None
 
         related_resource = self.get_related_resource( attr )
-
         if not self.full:
             return related_resource.get_resource_uri( bundle.request, attr )
 
-        if isinstance( attr, Document ):
-            if not may_read( attr, bundle.request ):
-                attr = None
+        assert isinstance( attr, Document )
 
-        related_resource = self.get_related_resource( attr )
-        related_bundle = related_resource.build_bundle( request=bundle.request, obj=attr )
-        if not related_bundle:
+        if not may_read( attr, bundle.request ):
+            return None
+        if self.ignore_closed and getattr( attr, 'closed', False ):
             return None
 
+        related_bundle = related_resource.build_bundle( request=bundle.request, obj=attr )
         return related_resource.dehydrate( related_bundle )
 
 
@@ -717,11 +715,12 @@ class ToManyField( RelatedField ):
         the object. The related resources may in turn recurse for nested data.
         """
         if isinstance( self.attribute, basestring ):
-            # `attribute` points to an attribute or method on the object.
-            attr = bundle.obj[ self.attribute ]
-
-            # Check permissions for each document
-            attr = [ obj for obj in attr if may_read( obj, bundle.request ) ]
+            if self.full:
+                # Pull the document either from cache or db
+                attr = bundle.obj[ self.attribute ]
+            else:
+                # Don't hit the database, lift from _data
+                attr = bundle.obj._data[ self.attribute ]
 
             if attr is None:
                 if self.has_default:
@@ -744,17 +743,40 @@ class ToManyField( RelatedField ):
             attr = None
 
         if attr is None:
-            attr = []
+            return []
+
+        related_resource = self.get_related_resource()
+        if not self.full:
+            if related_resource:
+                return [ related_resource.get_resource_uri( bundle.request, r ) for r in attr ]
+            else:
+                # No single related resource defined, likely a list of GenericReferences.
+                # Try to deduce the resource from each item.
+                related_uris = []
+                for r in attr:
+                    related_resource = self.get_related_resource( r )
+                    related_uris.append( related_resource.get_resource_uri( bundle.request, r ) )
+
+                return related_uris
+
+        # Verify type and permissions for each document
+        attr = [ r for r in attr if isinstance( r, Document ) and may_read( r, bundle.request ) ]
 
         if self.ignore_closed:
-            attr = [r for r in attr if not getattr(r, 'closed', False) ]
+            attr = [r for r in attr if not getattr( r, 'closed', False ) ]
 
-        related_resource = self.get_related_resource( bundle )
-        related_bundles = [related_resource.build_bundle( request=bundle.request, obj=obj ) for obj in attr]
-        if not self.full or getattr( bundle, 'full', False ):
-            related_bundles = [related_resource.get_resource_uri( bundle.request, b) for b in related_bundles if b]
-        else:
+        if related_resource:
+            related_bundles = [related_resource.build_bundle( request=bundle.request, obj=r ) for r in attr]
             related_bundles = related_resource.dehydrate( [b for b in related_bundles if b] )
+        else:
+            # No single related resource defined, likely a list of GenericReferences.
+            # Try to deduce the resource from each item.
+            related_bundles = []
+            for r in attr:
+                related_resource = self.get_related_resource( r )
+                related_bundle = related_resource.build_bundle( bundle.request, r )
+                related_bundle = related_resource.dehydrate( related_bundle )
+                related_bundles.append( related_bundle )
 
         return related_bundles
 
