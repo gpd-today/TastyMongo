@@ -565,44 +565,6 @@ class RelatedField( ApiField ):
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
 
-    def dehydrate( self, bundle ):
-        '''
-        Returns the Document's data for the field.
-
-        ``attribute`` specifies which field on the object should
-        be accessed to get data for this corresponding ApiField.
-        '''
-        if isinstance( self.attribute, basestring ):
-            # `attribute` points to an attribute or method on the object.
-            attr = bundle.obj[ self.attribute ]
-
-            if isinstance( attr, Document ):
-                if not may_read( attr, bundle.request ):
-                    attr = None
-            elif isinstance( attr, list ):
-                # Check permissions for each document
-                attr = [ obj for obj in attr if may_read( obj, bundle.request ) ]
-
-            if attr is None:
-                if self.has_default:
-                    attr = self.default
-                elif not self.required:
-                    attr = None
-                else:
-                    raise ApiFieldError( "Required attribute=`{}` on object=`{}` is empty, and does not have a default value.".format( self.attribute, bundle.obj ) )
-
-            return self.convert( attr )
-
-        elif callable( self.attribute ):
-            # `attribute` is a method on the Resource that provides data.
-            return self.attribute()
-
-        elif self.has_default:
-            return self.convert( self.default )
-
-        else:
-            return None
-
 
 class ToOneField( RelatedField ):
     """
@@ -633,14 +595,38 @@ class ToOneField( RelatedField ):
         the related resource's dehydrate method to populate the data from
         the object. The related resource may in turn recurse for nested data.
         """
-        related_object = super( ToOneField, self ).dehydrate( bundle )
-        if related_object is None:
-            # ApiField's `dehydrate` will have raised an ApiFieldError if 
-            # the object may not be None, so we can safely return None.
+        if isinstance( self.attribute, basestring ):
+            attr = bundle.obj[ self.attribute ]
+
+            if isinstance( attr, Document ):
+                if not may_read( attr, bundle.request ):
+                    attr = None
+
+            if attr is None:
+                if self.has_default:
+                    attr = self.default
+                elif not self.required:
+                    attr = None
+                else:
+                    raise ApiFieldError( "Required attribute=`{}` on object=`{}` is empty, and does not have a default value.".format( self.attribute, bundle.obj ) )
+
+            attr = self.convert( attr )
+
+        elif callable( self.attribute ):
+            # `attribute` is a method on the Resource that provides data.
+            attr = self.attribute()
+
+        elif self.has_default:
+            attr = self.convert( self.default )
+
+        else:
+            attr = None
+
+        if attr is None:
             return None
 
-        related_resource = self.get_related_resource( related_object )
-        related_bundle = related_resource.build_bundle( request=bundle.request, obj=related_object )
+        related_resource = self.get_related_resource( attr )
+        related_bundle = related_resource.build_bundle( request=bundle.request, obj=attr )
         if not related_bundle:
             return None
 
@@ -714,15 +700,41 @@ class ToManyField( RelatedField ):
         the related resource's dehydrate method to populate the data from
         the object. The related resources may in turn recurse for nested data.
         """
-        related_objects = super( ToManyField, self ).dehydrate( bundle )
-        if related_objects is None:
-            related_objects = []
+        if isinstance( self.attribute, basestring ):
+            # `attribute` points to an attribute or method on the object.
+            attr = bundle.obj[ self.attribute ]
+
+            # Check permissions for each document
+            attr = [ obj for obj in attr if may_read( obj, bundle.request ) ]
+
+            if attr is None:
+                if self.has_default:
+                    attr = self.default
+                elif not self.required:
+                    attr = None
+                else:
+                    raise ApiFieldError( "Required attribute=`{}` on object=`{}` is empty, and does not have a default value.".format( self.attribute, bundle.obj ) )
+
+            attr = self.convert( attr )
+
+        elif callable( self.attribute ):
+            # `attribute` is a method on the Resource that provides data.
+            attr = self.attribute()
+
+        elif self.has_default:
+            attr = self.convert( self.default )
+
+        else:
+            attr = None
+
+        if attr is None:
+            attr = []
 
         if self.ignore_closed:
-            related_objects = [r for r in related_objects if not getattr(r, 'closed', False) ]
+            attr = [r for r in attr if not getattr(r, 'closed', False) ]
 
         related_resource = self.get_related_resource( bundle )
-        related_bundles = [related_resource.build_bundle( request=bundle.request, obj=obj ) for obj in related_objects]
+        related_bundles = [related_resource.build_bundle( request=bundle.request, obj=obj ) for obj in attr]
         if not self.full or getattr( bundle, 'full', False ):
             related_bundles = [related_resource.get_resource_uri( bundle.request, b) for b in related_bundles if b]
         else:
