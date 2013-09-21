@@ -145,16 +145,30 @@ class Api( object ):
             raise NotRegistered( "No resource was registered for resource_name='{}'.".format( resource_name ) )
 
     def resource_for_document( self, document ):
-        # FIXME: this becomes non-deterministic if there's more than a single Resource for a certain Document type.
+        # This becomes non-deterministic if there's more than a single Resource for a certain Document class.
+        # We may need to set introduce a canonical resource.
         for resource in self._registry.values():
             if resource._meta.object_class and isinstance( document, resource._meta.object_class ):
                 return resource
 
         raise ValueError( 'Could not find matching resource for document={}'.format( document ) )
 
-    def resource_from_uri( self, uri ):
-        return self._registry[ uri.split( '/' )[ -3 ] ]
+    def resource_for_collection( self, collection ):
+        # This becomes non-deterministic if there's more than a single Resource for a certain collection.
+        # We may need to set introduce a canonical resource.
+        for resource in self._registry.values():
+            if resource._meta.object_class and resource._meta.object_class._meta['collection'] == collection:
+                return resource
 
+        raise ValueError( 'Could not find matching resource for collection={}'.format( collection ) )
+
+    def resource_for_uri( self, uri ):
+        resource_name = uri.split( '/' )[ -3 ]
+        if resource_name in self._registry:
+            return self._registry[ resource_name ]
+
+        raise ValueError( 'Could not find matching resource for uri={}'.format( uri ) )
+    
     def build_route_name(self, resource_name, operation):
         if resource_name is not None:
             route_name = '{}/{}/{}/'.format(self.route, resource_name, operation)

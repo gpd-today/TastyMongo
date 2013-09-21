@@ -1124,22 +1124,31 @@ class DocumentResource( Resource ):
             'absolute': not not absolute if absolute else self._meta.use_absolute_uris,
         }
 
-        if data:
-            kwargs['operation'] = 'single'
-            if isinstance( data, Bundle ):
-                try:
-                    kwargs['id'] = data.obj.pk
-                except AttributeError:
-                    # We may have received a DBRef. This can occur when related
-                    # items didn't get updated correctly and indicates that the
-                    # object referred to doesn't exist any longer. 
-                    kwargs['id'] = ''
-            elif isinstance( data, ObjectId ):
-                kwargs['id'] = str(data)
-            else:
-                kwargs['id'] = data.pk
+        if not data:
+            kwargs[ 'operation' ] = 'list'
         else:
-            kwargs['operation'] = 'list'
+            kwargs['operation'] = 'single'
+
+            # Try to rip an id out of the data
+            if isinstance( data, Bundle ):
+                if data.obj and isinstance( data.obj, Document ):
+                    data = data.obj
+                else:
+                    data = data.data
+
+            if isinstance( data, Document ):
+                kwargs['id'] = getattr( data, 'pk', None )
+            
+            if isinstance( data, dict ):
+                if '_ref' in data:
+                    # GenericReference straight from _data
+                    data = data['_ref']
+
+            if isinstance( data, DBRef ):
+                kwargs[ 'id' ] = data.id  # returns an ObjectId
+
+            if isinstance( data, ObjectId ):
+                kwargs[ 'id' ] = str( data )
 
         return self._meta.api.build_uri( request, **kwargs )
 

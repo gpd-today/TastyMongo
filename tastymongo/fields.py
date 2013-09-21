@@ -10,6 +10,7 @@ from .exceptions import ApiFieldError
 from .utils import make_naive
 from mongoengine import Document
 from mongoengine.errors import ValidationError as MongoEngineValidationError
+from bson import DBRef
 
 from .bundle import Bundle
 
@@ -506,32 +507,40 @@ class RelatedField( ApiField ):
         """
         Instantiates the related resource.
 
-        @param data: if this field references a `GenericReferenceField`, `data` is used to determine what type
-            of resource is applicable.
-        @type data: Document or Bundle or dict
+        @param data: if this field references a `GenericReferenceField`, 
+                `data` is used to determine what type of resource is applicable.
         """
         if self.to:
             related_resource = self.to_class()
         elif data:
             related_resource = None
-
-            if isinstance( data, Document ):
-                related_resource = self._resource._meta.api.resource_for_document( data )
-            elif isinstance( data, Bundle ):
+            if isinstance( data, Bundle ):
                 if data.obj and isinstance( data.obj, Document ):
-                    related_resource = self._resource._meta.api.resource_for_document( data.obj )
+                    data = data.obj
                 else:
                     data = data.data
 
-            if not related_resource:
-                if isinstance( data, dict ) and self.field_name in data:
-                    data = data[ self.field_name ]
-
-                if 'resource_uri' in  data:
+            if isinstance( data, dict ):  # NOT elif because of data.data above!
+                # Extract something useful out of it
+                if 'resource_uri' in data:
                     data = data[ 'resource_uri' ]
 
-                related_resource = self._resource._meta.api.resource_from_uri( data )
-        else:
+                if self.field_name in data:
+                    data = data[ self.field_name ]
+
+                if '_ref' in data:
+                    data = data['_ref']
+                    
+            if isinstance( data, Document ):
+                related_resource = self._resource._meta.api.resource_for_document( data )
+
+            elif isinstance( data, DBRef ):
+                related_resource = self._resource._meta.api.resource_for_collection( data.collection )
+            
+            elif isinstance( data, basestring ):
+                related_resource = self._resource._meta.api.resource_for_uri( data )
+
+        if not related_resource:
             raise ValueError( 'Unable to resolve a related_resource for `{}.{}`'.format( self._resource._meta.resource_name, self.field_name ) )
 
         # Fix the ``api`` if it's not present.
@@ -596,11 +605,12 @@ class ToOneField( RelatedField ):
         the object. The related resource may in turn recurse for nested data.
         """
         if isinstance( self.attribute, basestring ):
-            attr = bundle.obj[ self.attribute ]
-
-            if isinstance( attr, Document ):
-                if not may_read( attr, bundle.request ):
-                    attr = None
+            if self.full:
+                # Pull the document either from cache or db
+                attr = bundle.obj[ self.attribute ]
+            else:
+                # Don't hit the database, lift from _data
+                attr = bundle.obj._data[ self.attribute ]
 
             if attr is None:
                 if self.has_default:
@@ -608,7 +618,7 @@ class ToOneField( RelatedField ):
                 elif not self.required:
                     attr = None
                 else:
-                    raise ApiFieldError( "Required attribute=`{}` on object=`{}` is empty, and does not have a default value.".format( self.attribute, bundle.obj ) )
+                    raise ApiFieldError( "Required relation=`{}` on object=`{}` may not be empty.".format( self.attribute, bundle.obj ) )
 
             attr = self.convert( attr )
 
@@ -626,14 +636,20 @@ class ToOneField( RelatedField ):
             return None
 
         related_resource = self.get_related_resource( attr )
+
+        if not self.full:
+            return related_resource.get_resource_uri( bundle.request, attr )
+
+        if isinstance( attr, Document ):
+            if not may_read( attr, bundle.request ):
+                attr = None
+
+        related_resource = self.get_related_resource( attr )
         related_bundle = related_resource.build_bundle( request=bundle.request, obj=attr )
         if not related_bundle:
             return None
 
-        if not self.full or getattr( bundle, 'full', False ):
-            return related_resource.get_resource_uri( bundle.request, related_bundle )
-        else:
-            return related_resource.dehydrate( related_bundle )
+        return related_resource.dehydrate( related_bundle )
 
 
 class ToManyField( RelatedField ):
