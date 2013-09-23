@@ -12,17 +12,20 @@ class PersonResource( DocumentResource ):
     name = fields.StringField('name')
 
     class Meta:
+        object_class = Person
         resource_name = 'person'
-        queryset = Person.objects
+        filtering = {
+            'id': ['in', 'exact']
+        }
 
 
 class ActivityResource( DocumentResource ):
 
-    name = fields.StringField('name')
-    person = fields.ToOneField( PersonResource, 'person', )
+    person = fields.ToOneField( 'person', PersonResource )
 
     class Meta:
+        object_class = Activity
         resource_name = 'activity'
-        queryset = Activity.objects
-
-
+        filtering = {
+            'id': ['in', 'exact']
+        }

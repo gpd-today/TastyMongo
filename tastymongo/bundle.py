@@ -10,7 +10,7 @@ class Bundle( object ):
     `dehydrate/hydrate` cycle.
     """
     def __init__( self, obj=None, data=None, request=None ):
-        if isinstance( obj, Document ) and hasattr( request, 'cache' ):
+        if isinstance( obj, Document ) and hasattr( request, 'cache' ) and obj.pk:
             obj = request.cache.add( obj )
 
         self.obj = obj

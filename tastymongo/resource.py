@@ -486,7 +486,7 @@ class Resource( object ):
 
                 # Check for an optional method to do further dehydration.
                 method = getattr( self, "dehydrate_{0}".format( field_name ), None )
-                if method:
+                if callable( method ):
                     bundle.data[field_name] = method( bundle )
 
         if single_bundle:
@@ -562,7 +562,7 @@ class Resource( object ):
 
         # Determine which callback we're going to use
         method = getattr( self, '{0}_{1}'.format( request_method, request_type ), None )
-        if method is None:
+        if not callable( method ):
             error = 'Method="{0}_{1}" is not implemented for resource="{2}"'.format( request_method, request_type, self._meta.resource_name )
             raise ImmediateHTTPResponse( response=http.HTTPNotImplemented( body=error ))
 
@@ -612,7 +612,7 @@ class Resource( object ):
         data = paginator.page()
 
         # Create a bundle for every object and dehydrate those bundles individually
-        bundles = [self.build_bundle( request=request, obj=object ) for object in data['objects']]
+        bundles = [self.build_bundle( request=request, obj=obj ) for obj in data['objects']]
         bundles = self.dehydrate( [b for b in bundles if b] )
         data['objects'] = self.pre_serialize_list( bundles, request )
         return self.create_response( data, request )
@@ -627,13 +627,13 @@ class Resource( object ):
         Should return an HTTPResponse ( 200 OK ).
         """
         try:
-            object = self.obj_get_single( request=request, **request.matchdict )
+            obj = self.obj_get_single( request=request, **request.matchdict )
         except DoesNotExist, e:
             return http.HTTPNotFound()
         except MultipleObjectsReturned, e:
             return http.HTTPMultipleChoices( "More than one resource is found at this URI." )
 
-        bundle = self.build_bundle( request=request, obj=object )
+        bundle = self.build_bundle( request=request, obj=obj )
         if bundle:
             bundle = self.dehydrate( bundle )
         data = self.pre_serialize_single( bundle, request )
@@ -731,7 +731,7 @@ class Resource( object ):
         If the resources are deleted, return ``HttpNoContent`` (204 No Content).
         """
         self.obj_delete_list(request=request, **self.remove_api_resource_names(kwargs))
-        return http.HttpNoContent()
+        return http.HTTPNoContent()
 
     def delete_single(self, request, **kwargs):
         """
@@ -854,19 +854,15 @@ class DocumentResource( Resource ):
 
         if to_save:
             bundle.request.api['to_save'] |= to_save
-            '''
-            for o in to_save:
-                print('    ~~ TO SAVE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
-                    type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
-            '''
+            # for o in to_save:
+            #     print('    ~~ TO SAVE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
+            #         type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
 
         if to_delete:
             bundle.request.api['to_delete'] |= to_delete
-            '''
-            for o in to_delete:
-                print('    ~~ TO DELETE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
-                    type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
-            '''
+            # for o in to_delete:
+            #     print('    ~~ TO DELETE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
+            #         type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
 
         return bundle
 
@@ -1552,22 +1548,20 @@ class DocumentResource( Resource ):
         Uses `obj_get_list` to get the initial list, which should contain
         only one instance matched by the request and the provided `kwargs`.
         """
-        object = None
         filters = {}
 
         id = kwargs.get( 'pk' ) or kwargs.get( 'id' )
-        if not id:
-            if 'uri' in kwargs:
-                # We have received a uri. Try to grab an id from it.
-                id = kwargs.pop( 'uri', '' ).split( '/' )[-2]
+        if not id and 'uri' in kwargs:
+             # We have received a uri. Try to grab an id from it.
+            id = kwargs.pop( 'uri', '' ).split( '/' )[-2]
 
         if id:
             # Try to fetch the object from the document cache
             if hasattr( request, 'cache' ) and id in request.cache:
-                object = request.cache.get( id, None )
-                if object:  
+                obj = request.cache.get( id, None )
+                if obj:
                     # We're done, return the object.
-                    return object
+                    return obj
             else:
                 # Object not found in cache, so add a filter for its id
                 filters['id'] = id
@@ -1595,7 +1589,7 @@ class DocumentResource( Resource ):
         Returns `HTTPNoContent` if successful, or `HTTPNotFound`.
         """
         objects = self.obj_get_list(request, **kwargs)
-        bundles = [self.build_bundle( request=request, obj=object ) for object in objects]
+        bundles = [self.build_bundle( request=request, obj=obj ) for obj in objects]
         for bundle in bundles:
             if bundle:
                 bundle.request.api['to_delete'].add( bundle.obj )
@@ -1609,11 +1603,11 @@ class DocumentResource( Resource ):
         Returns `HTTPNoContent` if successful, or `HTTPNotFound`.
         """
         try:
-            object = self.obj_get_single(request, **kwargs)
+            obj = self.obj_get_single(request, **kwargs)
         except DoesNotExist:
             raise NotFound("A model instance matching the provided arguments could not be found.")
 
-        bundle = self.build_bundle( request=request, obj=object )
+        bundle = self.build_bundle( request=request, obj=obj )
         if bundle:
             bundle.request.api['to_delete'].add( bundle.obj )
             self._update_relations( bundle )

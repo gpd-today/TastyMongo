@@ -509,11 +509,13 @@ class RelatedField( ApiField ):
 
         @param data: if this field references a `GenericReferenceField`, 
                 `data` is used to determine what type of resource is applicable.
+        @rtype: Resource
         """
+        related_resource = None
+
         if self.to:
             related_resource = self.to_class()
         elif data:
-            related_resource = None
             if isinstance( data, Bundle ):
                 if data.obj and isinstance( data.obj, Document ):
                     data = data.obj
