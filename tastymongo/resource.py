@@ -835,6 +835,20 @@ class DocumentResource( Resource ):
     '''
     __metaclass__ = DocumentDeclarativeMetaclass
 
+    def _prepare_request( self, request ):
+        if not hasattr( request, 'api' ):
+            request.api = {
+                'errors': collections.defaultdict(list),
+                'updated': set(),
+                'saved': set(),
+                'created': set(),
+                'to_save': set(),
+                'to_delete': set(),
+                'deleted': set()
+            }
+
+        return request
+
     def _mark_relational_changes_for( self, bundle, obj=None ):
         # Track and store any changes to relations of `obj` on the bundle.
         if obj is None:
@@ -974,17 +988,7 @@ class DocumentResource( Resource ):
         return bundle
 
     def dispatch( self, request_type, request, **kwargs ):
-        
-        request.api = {
-            'errors': collections.defaultdict(list),
-            'updated': set(),
-            'saved': set(),
-            'created': set(),
-            'to_save': set(),
-            'to_delete': set(),
-            'deleted': set()
-        }
-
+        self._prepare_request( request )
         return super( DocumentResource, self ).dispatch( request_type, request, **kwargs )
 
 
@@ -1360,6 +1364,8 @@ class DocumentResource( Resource ):
         that all related resources exist. Then validate the resource tree, 
         and finally save all updated documents.
         """
+        self._prepare_request( bundle.request )
+
         bundle = self.save_new( bundle )
         bundle = self.validate( bundle )
         bundle = self.update( bundle )

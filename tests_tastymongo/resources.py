@@ -1,6 +1,7 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
+from tastymongo.constants import ALL_WITH_RELATIONS, ALL
 from tastymongo.resource import DocumentResource
 from tastymongo import fields
 
@@ -27,5 +28,6 @@ class ActivityResource( DocumentResource ):
         object_class = Activity
         resource_name = 'activity'
         filtering = {
-            'id': ['in', 'exact']
+            'id': ['in', 'exact'],
+            'name': ALL
         }
