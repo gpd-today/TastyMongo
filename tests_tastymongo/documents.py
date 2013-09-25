@@ -22,3 +22,13 @@ class Person( Document ):
 
     def __unicode__( self ):
         return unicode( self.name )
+
+
+class Deliverable( Document ):
+
+    name = StringField( required=True )
+    owner = ReferenceField( 'Person', required=True )
+    activities = ListField( ReferenceField( 'Activity' ) )
+
+    def __unicode__( self ):
+        return unicode( self.name )

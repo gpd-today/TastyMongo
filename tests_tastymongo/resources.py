@@ -5,7 +5,7 @@ from tastymongo.constants import ALL_WITH_RELATIONS, ALL
 from tastymongo.resource import DocumentResource
 from tastymongo import fields
 
-from tests_tastymongo.documents import Activity, Person
+from tests_tastymongo.documents import Activity, Person, Deliverable
 
 
 class PersonResource( DocumentResource ):
@@ -19,7 +19,6 @@ class PersonResource( DocumentResource ):
             'id': ['in', 'exact']
         }
 
-
 class ActivityResource( DocumentResource ):
 
     person = fields.ToOneField( 'person', PersonResource )
@@ -30,4 +29,16 @@ class ActivityResource( DocumentResource ):
         filtering = {
             'id': ['in', 'exact'],
             'name': ALL
+        }
+
+class DeliverableResource( DocumentResource ):
+
+    owner = fields.ToOneField( 'owner', PersonResource )
+    activities = fields.ToManyField( 'activities', 'ActivityResource' )
+
+    class Meta:
+        object_class = Deliverable
+        resource_name = 'deliverable'
+        filtering = {
+            'id': ['in', 'exact']
         }

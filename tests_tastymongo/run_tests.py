@@ -7,6 +7,8 @@ import unittest
 
 if __name__ == '__main__':
     mongoengine.register_connection( mongoengine.DEFAULT_CONNECTION_NAME, 'tastymongo_test' )
+    c = mongoengine.connection.get_connection()
+    c.drop_database( 'tastymongo_test' )
 
     test_loader = unittest.defaultTestLoader.discover( '.' )
     test_runner = unittest.TextTestRunner()
