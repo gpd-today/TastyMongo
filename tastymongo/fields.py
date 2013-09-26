@@ -505,7 +505,7 @@ class RelatedField( ApiField ):
 
     def get_related_resource( self, data=None ):
         """
-        Instantiates the related resource.
+        Gets the related resource.
 
         @param data: if this field references a `GenericReferenceField`, 
                 `data` is used to determine what type of resource is applicable.
@@ -514,7 +514,7 @@ class RelatedField( ApiField ):
         related_resource = None
 
         if self.to:
-            related_resource = self.to_class()
+            related_resource = self._resource._meta.api.resource_for_class( self.to_class )
         elif data:
             if isinstance( data, Bundle ):
                 if data.obj and isinstance( data.obj, Document ):

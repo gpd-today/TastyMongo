@@ -148,6 +148,16 @@ class Api( object ):
         else:
             raise NotRegistered( "No resource was registered for resource_name='{}'.".format( resource_name ) )
 
+    def resource_for_class( self, cls ):
+        '''
+        @param cls: either a resource or document class
+        '''
+        for resource in self._registry.values():
+            if isinstance( resource, cls ) or resource._meta.object_class and resource._meta.object_class == cls:
+                return resource
+
+        raise ValueError( 'Could not find matching resource for class={}'.format( cls ) )
+
     def resource_for_document( self, document ):
         # This becomes non-deterministic if there's more than a single Resource for a certain Document class.
         # We may need to set introduce a canonical resource.
