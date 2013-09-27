@@ -31,7 +31,7 @@ import mongoengine.fields as mongofields
 from mongoengine.document import Document
 from bson import ObjectId, DBRef
 
-from copy import deepcopy
+from copy import copy
 from operator import or_
 import collections 
 
@@ -108,7 +108,7 @@ class DeclarativeMetaclass( type ):
                 parent_class_fields = getattr( p, 'base_fields', {})
 
                 for field_name, fld in parent_class_fields.items():
-                    attrs['base_fields'][field_name] = deepcopy( fld )
+                    attrs['base_fields'][field_name] = copy( fld )
         except NameError:
             pass
 
@@ -153,7 +153,7 @@ class Resource( object ):
     __metaclass__ = DeclarativeMetaclass
 
     def __init__( self, api=None ):
-        self.fields = deepcopy( self.base_fields )
+        self.fields = { k: copy( v ) for k, v in self.base_fields.items() }
 
         if api:
             self._meta.api = api
@@ -556,6 +556,10 @@ class Resource( object ):
         Handles the common operations ( allowed HTTP method, authentication,
         throttling, method lookup ) surrounding most CRUD interactions.
         """
+        #import cProfile, pstats, StringIO
+        #pr = cProfile.Profile()
+        #pr.enable()
+
         allowed_methods = getattr( self._meta, '{0}_allowed_methods'.format(request_type), None )
         request_method = self.check_method( request, allowed=allowed_methods )
         #print( 'resource={0}; request={1}_{2}'.format( self._meta.resource_name, request_method, request_type ) )
@@ -572,6 +576,13 @@ class Resource( object ):
         # All clear. Process the request.
         response = method( request, **kwargs )
         self.log_throttled_access(request)
+
+        #pr.disable()
+        #s = StringIO.StringIO()
+        #sortby = 'cumulative'
+        #ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        #ps.print_stats()
+        #print( s.getvalue() )
 
         return response
 
