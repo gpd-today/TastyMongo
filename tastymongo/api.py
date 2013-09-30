@@ -22,20 +22,17 @@ class Api( object ):
     Optionally supplying ``api_name`` allows you to name the API. Generally,
     this is done with version numbers (i.e. ``v1``, ``v2``, etc.) but can
     be named any string.
-
-    `permission` specifies a required pyramid permission for the API
     """
-    def __init__(self, config, api_name='api', api_version='v1', permission=None):
+    def __init__(self, config, api_name='api', api_version='v1'):
         self.api_name = api_name
         self.api_version = api_version
         self._registry = {}
         self.config = config
 
         self.route = '/{}/{}'.format(self.api_name, self.api_version)
-        self.permission = permission if isinstance( permission, basestring ) else 'authenticated'
 
         self.config.add_route(self.route, self.route + '/')
-        self.config.add_view( self.wrap_view(self, self.top_level), route_name=self.route, permission=permission )
+        self.config.add_view( self.wrap_view(self, self.top_level), route_name=self.route)
 
     @staticmethod
     def wrap_view( resource, view ):
@@ -106,14 +103,13 @@ class Api( object ):
 
         return response_class( body=serialized, content_type=build_content_type( desired_format ) )
 
-    def register( self, resource, permission=None ):
+    def register( self, resource ):
         """
         Registers an instance of a ``Resource`` subclass with the API.
 
         @type resource: Resource
         """
         resource_name = getattr( resource._meta, 'resource_name', None )
-        permission = permission if isinstance( permission, basestring ) else 'authenticated'
 
         # Also add a hook to the Api on the resource
         resource._meta.api = self
@@ -127,17 +123,17 @@ class Api( object ):
         # add 'schema' action
         schema_name = self.build_route_name( resource_name, 'schema' )
         self.config.add_route( schema_name, '{}/{}/schema/'.format( self.route, resource_name ) )
-        self.config.add_view( self.wrap_view( resource, resource.get_schema ), route_name=schema_name, permission=permission )
+        self.config.add_view( self.wrap_view( resource, resource.get_schema ), route_name=schema_name )
 
         # add 'list' action
         list_name = self.build_route_name( resource_name, 'list' )
         self.config.add_route( list_name, '{}/{}/'.format( self.route, resource_name ) )
-        self.config.add_view( self.wrap_view( resource, resource.dispatch_list ), route_name=list_name, permission=permission )
+        self.config.add_view( self.wrap_view( resource, resource.dispatch_list ), route_name=list_name )
 
         # add 'single' action
         single_name = self.build_route_name( resource_name, 'single' )
         self.config.add_route( single_name, '{}/{}/{{id}}/'.format( self.route, resource_name ) )
-        self.config.add_view( self.wrap_view( resource, resource.dispatch_single ), route_name=single_name, permission=permission )
+        self.config.add_view( self.wrap_view( resource, resource.dispatch_single ), route_name=single_name )
 
     def unregister(self, resource_name):
         """
