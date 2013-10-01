@@ -665,7 +665,8 @@ class Resource( object ):
 
         bundle = self.save( bundle )
 
-        location = self.get_resource_uri( request )
+        location = self.get_resource_uri( request, bundle )
+
         if self._meta.return_data_on_post:
             # Re-populate the data from the objects.
             bundle = self.dehydrate( bundle )
@@ -725,6 +726,7 @@ class Resource( object ):
         bundle = self.save( bundle )
 
         location = self.get_resource_uri( request, bundle )
+
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
             bundle = self.dehydrate( bundle )
