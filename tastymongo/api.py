@@ -4,8 +4,7 @@ from __future__ import unicode_literals
 from pyramid.response import Response
 
 from . import http
-from .exceptions import NotRegistered, BadRequest, ConfigurationError, NotFound
-from .fields import ApiFieldError
+from .exceptions import NotRegistered, ConfigurationError, NotFound
 from .serializers import Serializer
 from .utils import *
 from .resource import Resource
@@ -101,7 +100,7 @@ class Api( object ):
         if isinstance( exception, NotFound ):
             response_class = http.HTTPNotFound
 
-        return response_class( body=serialized, content_type=build_content_type( desired_format ) )
+        return response_class( body=serialized, content_type=str( desired_format ), charset=b'UTF-8', **kwargs )
 
     def register( self, resource ):
         """
@@ -213,5 +212,5 @@ class Api( object ):
         desired_format = determine_format(request, serializer)
 
         serialized = serializer.serialize( available_resources, format=desired_format )
-        return Response( body=serialized, content_type=build_content_type( desired_format ) )
+        return Response( body=serialized, content_type=str( desired_format ), charset=b'UTF-8', **kwargs )
 
