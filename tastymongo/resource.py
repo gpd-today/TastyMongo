@@ -163,7 +163,7 @@ class Resource( object ):
             return self.fields[name]
         raise AttributeError( name )
 
-    def get_resource_uri( self, request, bundle_or_object = None, absolute=None ):
+    def get_resource_uri( self, request, data=None, absolute=None ):
         """
         This function should return the relative or absolute uri of the 
         bundle or object.
@@ -724,6 +724,7 @@ class Resource( object ):
         """
         data = self.deserialize( request, request.body, format=request.content_type )
         data = self.post_deserialize_single( data, request )
+        data['resource_uri'] = self.get_resource_uri( request, request.path)
 
         bundle = self.build_bundle( request=request, data=data )
         bundle = self.hydrate( bundle )
@@ -1119,7 +1120,7 @@ class DocumentResource( Resource ):
 
     def get_resource_uri( self, request, data=None, absolute=None ):
         """
-        Returns the resource's relative uri per the given API.
+        Returns the resource's relative or absolute uri per the given API.
         """
         kwargs = {
             'resource_name': self._meta.resource_name,
@@ -1138,19 +1139,23 @@ class DocumentResource( Resource ):
                 else:
                     data = data.data
 
-            if isinstance( data, Document ):
-                kwargs['id'] = getattr( data, 'pk', None )
-            
             if isinstance( data, dict ):
                 if '_ref' in data:
                     # GenericReference straight from _data
                     data = data['_ref']
 
-            if isinstance( data, DBRef ):
+            if isinstance( data, Document ):
+                kwargs['id'] = getattr( data, 'pk', None )
+
+            elif isinstance( data, DBRef ):
                 kwargs[ 'id' ] = data.id  # returns an ObjectId
 
-            if isinstance( data, ObjectId ):
+            elif isinstance( data, ObjectId ):
                 kwargs[ 'id' ] = str( data )
+
+            elif isinstance( data, basestring):
+                # assume the data _is_ the URI
+                kwargs[ 'id' ] = data.split( '/' )[-2]
 
         return self._meta.api.build_uri( request, **kwargs )
 
@@ -1593,7 +1598,6 @@ class DocumentResource( Resource ):
             raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
         else:
             raise self._meta.object_class.MultipleObjectsReturned( "More than one `{0}` matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
-
 
     def obj_delete_list( self, request, **kwargs ):
         """
