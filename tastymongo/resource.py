@@ -885,15 +885,9 @@ class DocumentResource( Resource ):
 
         if to_save:
             bundle.request.api['to_save'] |= to_save
-            # for o in to_save:
-            #     print('    ~~ TO SAVE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
-            #         type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
 
         if to_delete:
             bundle.request.api['to_delete'] |= to_delete
-            # for o in to_delete:
-            #     print('    ~~ TO DELETE `{0}`: `{1}` (id={2}) [added by `{3}`: {4} (id={5})]'.format(
-            #         type(o)._class_name, o, o.pk, type(obj)._class_name, obj, obj.pk))
 
         return bundle
 
@@ -955,7 +949,6 @@ class DocumentResource( Resource ):
                 obj.save()
 
             bundle.request.api['saved'].add(obj) 
-            #print('    ~~~~~ SAVED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
         while bundle.request.api['to_delete']:
             obj = bundle.request.api['to_delete'].pop()
@@ -965,8 +958,6 @@ class DocumentResource( Resource ):
                 self._mark_relational_changes_for( bundle, obj )
             else:
                 obj.delete()
-
-            #print('    ~~~~~ DELETED `{0}`: `{1}` (id={2})'.format( type(obj)._class_name, obj, obj.pk ))
 
         if bundle.request.api['to_save']: 
             # Deletion may have triggered documents that need to be updated.
