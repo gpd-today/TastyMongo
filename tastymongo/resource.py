@@ -244,6 +244,10 @@ class Resource( object ):
 
         request_method = request.method.lower()
 
+        # Make `patch` an alias to `put`, the difference is theoretical only.
+        if request_method == 'patch':
+            request_method = 'put'
+
         if request_method == "options":
             allows = str( ','.join( map( unicode.upper, allowed )) )
             response = http.HTTPResponse( allows )
