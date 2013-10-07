@@ -143,6 +143,9 @@ class Api( object ):
         else:
             raise NotRegistered( "No resource was registered for resource_name='{}'.".format( resource_name ) )
 
+    def resource_by_name( self, name ):
+        return self._registry.get( name, None )
+
     def resource_for_class( self, cls ):
         '''
         @param cls: either a resource or document class
