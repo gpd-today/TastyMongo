@@ -23,22 +23,12 @@ def determine_format(request, serializer, default_format='application/json'):
         return serializer.get_mime_for_format('jsonp')
     
     # Try to fallback on the Accepts header.
-    if request.accept != '*/*':
-        formats = list(serializer.supported_formats) or []
-        best_format = request.accept.best_match(formats)
-        
-        if best_format:
-            return best_format
+    #if request.accept != '*/*':
+    #    formats = list(serializer.supported_formats) or []
+    #    best_format = request.accept.best_match(formats)
+    #
+    #    if best_format:
+    #        return best_format
     
     # No valid 'Accept' header/formats. Sane default.
     return default_format
-
-
-def build_content_type(format, encoding='utf-8'):
-    """
-    Appends character encoding to the provided format if not already present.
-    """
-    if 'charset' in format:
-        return format
-    
-    return str("{0}; charset={1}".format(format, encoding))

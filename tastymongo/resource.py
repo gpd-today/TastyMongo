@@ -6,7 +6,7 @@ from . import http
 from .serializers import Serializer
 from .exceptions import *
 from .constants import ALL, ALL_WITH_RELATIONS, QUERY_TERMS, LOOKUP_SEP
-from .utils import determine_format, build_content_type
+from .utils import determine_format
 from .bundle import Bundle
 from .authentication import Authentication
 from .throttle import BaseThrottle
@@ -340,7 +340,7 @@ class Resource( object ):
             desired_format = self._meta.default_format
 
         serialized = self.serialize( request, data, desired_format, serializer_options )
-        return response_class( body=serialized, content_type=build_content_type( desired_format ), **kwargs )
+        return response_class( body=serialized, content_type=str( desired_format ), charset=b'UTF-8', **kwargs )
 
 
 
@@ -760,7 +760,7 @@ class Resource( object ):
         If the resource did not exist, return `HTTP404` (404 Not Found).
         """
         # construct a filter from the request path.
-        kwargs['uri'] = request.path 
+        kwargs['uri'] = request.path
         try:
             self.obj_delete_single(request=request, **kwargs)
             return http.HTTPNoContent()
