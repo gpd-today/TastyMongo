@@ -100,7 +100,7 @@ class Api( object ):
         if isinstance( exception, NotFound ):
             response_class = http.HTTPNotFound
 
-        return response_class( body=serialized, content_type=str( desired_format ), charset=b'UTF-8', **kwargs )
+        return response_class( body=serialized, content_type=str( desired_format ), charset=b'UTF-8' )
 
     def register( self, resource ):
         """
