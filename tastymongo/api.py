@@ -215,5 +215,5 @@ class Api( object ):
         desired_format = determine_format(request, serializer)
 
         serialized = serializer.serialize( available_resources, format=desired_format )
-        return Response( body=serialized, content_type=str( desired_format ), charset=b'UTF-8', **kwargs )
+        return Response( body=serialized, content_type=str( desired_format ), charset=b'UTF-8' )
 
