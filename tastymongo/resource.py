@@ -163,7 +163,7 @@ class Resource( object ):
             return self.fields[name]
         raise AttributeError( name )
 
-    def _prepare_request( self, request, type, method ):
+    def _prepare_request( self, request, type=None, method=None ):
         if not hasattr( request, 'api' ):
             request.api = {
                 'errors': collections.defaultdict(list),
