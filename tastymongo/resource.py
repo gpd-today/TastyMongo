@@ -163,6 +163,22 @@ class Resource( object ):
             return self.fields[name]
         raise AttributeError( name )
 
+    def _prepare_request( self, request, type, method ):
+        if not hasattr( request, 'api' ):
+            request.api = {
+                'errors': collections.defaultdict(list),
+                'updated': set(),
+                'saved': set(),
+                'created': set(),
+                'to_save': set(),
+                'to_delete': set(),
+                'deleted': set(),
+                'type': type,
+                'method': method
+            }
+
+        return request
+
     def get_resource_uri( self, request, data=None, absolute=None ):
         """
         This function should return the relative or absolute uri of the 
@@ -566,7 +582,8 @@ class Resource( object ):
 
         allowed_methods = getattr( self._meta, '{0}_allowed_methods'.format(request_type), None )
         request_method = self.check_method( request, allowed=allowed_methods )
-        #print( 'resource={0}; request={1}_{2}'.format( self._meta.resource_name, request_method, request_type ) )
+
+        self._prepare_request( request, request_type, request_method )
 
         # Determine which callback we're going to use
         method = getattr( self, '{0}_{1}'.format( request_method, request_type ), None )
@@ -853,20 +870,6 @@ class DocumentResource( Resource ):
     '''
     __metaclass__ = DocumentDeclarativeMetaclass
 
-    def _prepare_request( self, request ):
-        if not hasattr( request, 'api' ):
-            request.api = {
-                'errors': collections.defaultdict(list),
-                'updated': set(),
-                'saved': set(),
-                'created': set(),
-                'to_save': set(),
-                'to_delete': set(),
-                'deleted': set()
-            }
-
-        return request
-
     def _mark_relational_changes_for( self, bundle, obj=None ):
         # Track and store any changes to relations of `obj` on the bundle.
         if obj is None:
@@ -997,7 +1000,6 @@ class DocumentResource( Resource ):
         return bundle
 
     def dispatch( self, request_type, request, **kwargs ):
-        self._prepare_request( request )
         return super( DocumentResource, self ).dispatch( request_type, request, **kwargs )
 
 
