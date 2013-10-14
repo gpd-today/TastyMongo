@@ -709,8 +709,7 @@ class Resource( object ):
         bundles = [ self.build_bundle( request=request, data=item ) for item in data ]
         bundles = self.hydrate( bundles )
 
-        for bundle in bundles:
-            self.save( bundle )
+        bundles = [ self.save( bundle ) for bundle in bundles ]
 
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
