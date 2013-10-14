@@ -1152,7 +1152,7 @@ class DocumentResource( Resource ):
             elif isinstance( data, ObjectId ):
                 kwargs[ 'id' ] = str( data )
 
-            elif isinstance( data, basestring):
+            elif isinstance( data, basestring ):
                 # assume the data _is_ the URI
                 kwargs[ 'id' ] = data.split( '/' )[-2]
 
@@ -1551,11 +1551,13 @@ class DocumentResource( Resource ):
             # Pyramid's Request object uses a Multidict for its representation.
             # Transform this into an 'ordinary' dict for further processing.
             filters = request.GET.mixed()
+        else:
+            filters = None
 
-        Q_filter, legible_filters = self.build_filters( filters, request )
+        q_filter, legible_filters = self.build_filters( filters, request )
 
         try:
-            return self.get_queryset( request ).filter( Q_filter )
+            return self.get_queryset( request ).filter( q_filter )
         except ValueError:
             raise BadRequest( "Invalid resource lookup data provided ( mismatched type )." )
 
