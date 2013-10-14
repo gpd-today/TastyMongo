@@ -768,8 +768,8 @@ class ToManyField( RelatedField ):
             attr = [r for r in attr if not getattr( r, 'closed', False ) ]
 
         if related_resource:
-            related_bundles = [related_resource.build_bundle( request=bundle.request, obj=r ) for r in attr]
-            related_bundles = related_resource.dehydrate( [b for b in related_bundles if b] )
+            related_bundles = [ related_resource.build_bundle( request=bundle.request, obj=r ) for r in attr ]
+            related_bundles = related_resource.dehydrate( related_bundles )
         else:
             # No single related resource defined, likely a list of GenericReferences.
             # Try to deduce the resource from each item.

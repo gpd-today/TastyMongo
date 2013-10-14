@@ -373,16 +373,7 @@ class Resource( object ):
         format = format or request.content_type or self._meta.default_format
         return self._meta.serializer.deserialize( data, format )
 
-    def post_deserialize_list( self, data, request ):
-        """
-        A hook to alter data just after it has been received from the user &
-        gets deserialized.
-
-        Useful for altering the user data before any hydration is applied.
-        """
-        return data
-
-    def post_deserialize_single( self, data, request ):
+    def post_deserialize( self, data, request ):
         """
         A hook to alter data just after it has been received from the user &
         gets deserialized.
@@ -426,14 +417,14 @@ class Resource( object ):
 
         return bundle
 
-    def pre_hydrate( self, bundle ):
+    def pre_hydrate( self, bundles ):
         '''
         A hook for allowing some custom hydration on the data specific to this
         resource before each field's hydrate function is called.
         '''
-        return bundle
+        return bundles
 
-    def hydrate( self, bundle ):
+    def hydrate( self, bundles ):
         """
         Takes data from the resource and converts it to a form ready to be 
         stored on objects. Returns a fully hydrated bundle.
@@ -446,45 +437,53 @@ class Resource( object ):
 
         Errors encountered along the way are propagated to the parent bundle.
         """
+        single_bundle = False
+        if not isinstance( bundles, collections.Iterable ):
+            single_bundle = True
+            bundles = [ bundles, ]
 
-        bundle = self.pre_hydrate( bundle )
+        bundles = self.pre_hydrate( bundles )
 
-        for field_name, fld in self.fields.items():
-            # You may provide a custom method on the resource that will replace
-            # the default hydration behaviour for the field.
-            callback = getattr(self, "hydrate_{0}".format(field_name), None)
-            if not callback is None:
-                data = callback( bundle )
-            elif fld.readonly:
-                continue
-            elif field_name not in bundle.data:
-                # We actually implement `patch`, so skip any fields not present
-                continue
-            else:
-                data = fld.hydrate( bundle )
+        for bundle in bundles:
+            for field_name, fld in self.fields.items():
+                # You may provide a custom method on the resource that will replace
+                # the default hydration behaviour for the field.
+                callback = getattr(self, "hydrate_{0}".format(field_name), None)
+                if not callback is None:
+                    data = callback( bundle )
+                elif fld.readonly:
+                    continue
+                elif field_name not in bundle.data:
+                    # We actually implement `patch`, so skip any fields not present
+                    continue
+                else:
+                    data = fld.hydrate( bundle )
 
-            if getattr(fld, 'is_related', False): 
-                if getattr(fld, 'is_tomany', False):
+                if getattr(fld, 'is_related', False):
+                    if getattr(fld, 'is_tomany', False):
 
-                    # ToManyFields return a list of bundles or an empty list.
-                    setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
+                        # ToManyFields return a list of bundles or an empty list.
+                        setattr( bundle.obj, fld.attribute, [b.obj for b in data] )
+
+                    else:
+                        # ToOneFields return a single bundle or None.
+                        if data is None:
+                            setattr( bundle.obj, fld.attribute, None )
+                        else:
+                            setattr( bundle.obj, fld.attribute, data.obj )
 
                 else:
-                    # ToOneFields return a single bundle or None.
-                    if data is None:
-                        setattr( bundle.obj, fld.attribute, None )
-                    else:
-                        setattr( bundle.obj, fld.attribute, data.obj )
+                    # An ordinary field returns its converted data.
+                    if fld.attribute:
+                        setattr( bundle.obj, fld.attribute, data )
 
-            else:
-                # An ordinary field returns its converted data.
-                if fld.attribute:
-                    setattr( bundle.obj, fld.attribute, data )
+                # Reassign the -possibly changed- data
+                bundle.data[ field_name ] = data
 
-            # Reassign the -possibly changed- data
-            bundle.data[ field_name ] = data
+        if single_bundle:
+            bundles = bundles[0]
 
-        return bundle
+        return bundles
 
     def save( self, bundle ):
         raise NotImplementedError()
@@ -509,10 +508,12 @@ class Resource( object ):
                 if callable( method ):
                     bundle.data[field_name] = method( bundle )
 
+        bundles = self.post_dehydrate( bundles )
+
         if single_bundle:
             bundles = bundles[0]
 
-        return self.post_dehydrate( bundles )
+        return bundles
 
     def post_dehydrate( self, bundles ):
         '''
@@ -521,23 +522,14 @@ class Resource( object ):
         '''
         return bundles
 
-    def pre_serialize_list( self, bundles_list, request ):
+    def pre_serialize( self, bundles, request ):
         """
         A hook to alter data just before it gets serialized & sent to the user.
 
         Useful for restructuring/renaming aspects of the what's going to be
         sent.
         """
-        return bundles_list
-
-    def pre_serialize_single( self, bundle, request ):
-        """
-        A hook to alter data just before it gets serialized & sent to the user.
-
-        Useful for restructuring/renaming aspects of the what's going to be
-        sent.
-        """
-        return bundle
+        return bundles
 
     def serialize( self, request, data, format, options=None ):
         """
@@ -550,7 +542,6 @@ class Resource( object ):
         Mostly a hook, this uses the `Serializer` from `Resource._meta`.
         """
         return self._meta.serializer.serialize( data, format, options )
-
 
 
     def dispatch_list( self, request, **kwargs ):
@@ -632,21 +623,21 @@ class Resource( object ):
         Should return an HTTPResponse ( 200 OK ).
         """
         objects = self.obj_get_list( request=request, **request.matchdict )
-        ordered_objects = self.apply_ordering(objects, options=request.GET.mixed())
+        ordered_objects = self.apply_ordering( objects, options=request.GET.mixed() )
 
         paginator = self._meta.paginator_class(
-                request.GET, 
-                ordered_objects, 
-                resource_uri=self.get_resource_uri( request ), 
-                limit=self._meta.limit, 
-                max_limit=self._meta.max_limit, 
-                )
+            request.GET,
+            ordered_objects,
+            resource_uri=self.get_resource_uri( request ),
+            limit=self._meta.limit,
+            max_limit=self._meta.max_limit,
+        )
         data = paginator.page()
 
         # Create a bundle for every object and dehydrate those bundles individually
-        bundles = [self.build_bundle( request=request, obj=obj ) for obj in data['objects']]
-        bundles = self.dehydrate( [b for b in bundles if b] )
-        data['objects'] = self.pre_serialize_list( bundles, request )
+        bundles = [ self.build_bundle( request=request, obj=obj ) for obj in data['objects'] ]
+        bundles = self.dehydrate( bundles )
+        data['objects'] = self.pre_serialize( bundles, request )
         return self.create_response( data, request )
 
     def get_single( self, request ):
@@ -668,7 +659,7 @@ class Resource( object ):
         bundle = self.build_bundle( request=request, obj=obj )
         if bundle:
             bundle = self.dehydrate( bundle )
-        data = self.pre_serialize_single( bundle, request )
+        data = self.pre_serialize( [ bundle ], request )
         return self.create_response( data, request )
 
     def post_list( self, request, **kwargs ):
@@ -679,7 +670,7 @@ class Resource( object ):
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
         data = self.deserialize( request, request.body, format=request.content_type )
-        data = self.post_deserialize_single( data, request )
+        data = self.post_deserialize( data, request )
 
         bundle = self.build_bundle( request=request, data=data )
         bundle = self.hydrate( bundle )
@@ -691,7 +682,7 @@ class Resource( object ):
         if self._meta.return_data_on_post:
             # Re-populate the data from the objects.
             bundle = self.dehydrate( bundle )
-            data = self.pre_serialize_single( bundle, request )
+            data = self.pre_serialize( [ bundle ], request )
             return self.create_response( data, request, response_class=http.HTTPCreated, location=location )
         else:
             return http.HTTPCreated( location=location )
@@ -713,20 +704,18 @@ class Resource( object ):
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
         data = self.deserialize( request, request.body, format=request.content_type )
-        data = self.post_deserialize_list( data, request )
+        data = self.post_deserialize( data, request )
 
-        bundles = []
-        for item in data:
-            bundle = self.build_bundle( request=request, data=item )
-            bundle = self.hydrate( bundle )
-            bundle = self.save( bundle )
+        bundles = [ self.build_bundle( request=request, data=item ) for item in data ]
+        bundles = self.hydrate( bundles )
 
-            bundles.append( bundle )
+        for bundle in bundles:
+            self.save( bundle )
 
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
-            bundles = self.dehydrate( bundles ) 
-            data = {'objects': self.pre_serialize_list( bundles, request )}
+            bundles = self.dehydrate( bundles )
+            data = {'objects': self.pre_serialize( bundles, request )}
             return self.create_response( data, request, response_class=http.HTTPAccepted )
         else:
             return http.HTTPNoContent()
@@ -740,7 +729,7 @@ class Resource( object ):
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
         data = self.deserialize( request, request.body, format=request.content_type )
-        data = self.post_deserialize_single( data, request )
+        data = self.post_deserialize( data, request )
         data['resource_uri'] = self.get_resource_uri( request, request.path)
 
         bundle = self.build_bundle( request=request, data=data )
@@ -752,7 +741,7 @@ class Resource( object ):
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
             bundle = self.dehydrate( bundle )
-            data = self.pre_serialize_single( bundle, request )
+            data = self.pre_serialize( [ bundle ], request )
             return self.create_response( data, request, response_class=http.HTTPAccepted, location=location )
         else:
             return http.HTTPNoContent( location=location )
@@ -1607,7 +1596,7 @@ class DocumentResource( Resource ):
         Returns `HTTPNoContent` if successful, or `HTTPNotFound`.
         """
         objects = self.obj_get_list(request, **kwargs)
-        bundles = [self.build_bundle( request=request, obj=obj ) for obj in objects]
+        bundles = [ self.build_bundle( request=request, obj=obj ) for obj in objects ]
         for bundle in bundles:
             if bundle:
                 bundle.request.api['to_delete'].add( bundle.obj )
