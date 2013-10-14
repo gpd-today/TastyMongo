@@ -1039,11 +1039,9 @@ class DocumentResource( Resource ):
             result = fields.DecimalField
         elif isinstance( f, ( mongofields.IntField, mongofields.SequenceField ) ):
             result = fields.IntegerField
-        elif isinstance( f, ( mongofields.FileField, mongofields.ImageField, mongofields.BinaryField ) ):
-            result = fields.FileField
         elif isinstance( f, ( mongofields.DictField, mongofields.MapField ) ):
             result = fields.DictField
-        elif isinstance( f, ( mongofields.EmbeddedDocumentField ) ):
+        elif isinstance( f, mongofields.EmbeddedDocumentField ):
             result = fields.EmbeddedDocumentField
         elif isinstance( f, ( mongofields.DateTimeField, mongofields.ComplexDateTimeField ) ):
             result = fields.DateTimeField
@@ -1110,7 +1108,6 @@ class DocumentResource( Resource ):
             final_fields[name].field_name = name
 
         return final_fields
-
 
 
     def dehydrate_id( self, bundle ):
