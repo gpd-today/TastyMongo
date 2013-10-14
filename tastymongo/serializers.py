@@ -193,7 +193,7 @@ class Serializer(object):
         options = options or {}
         data = self.to_simple( data )
         js = json.dumps( data, sort_keys=True, indent=4 )
-        html = '<html><body><pre>{}</pre></body></html>'.format( js );
+        html = '<html><body><pre>{}</pre></body></html>'.format( js )
         return html
 
     def from_html( self, content ):

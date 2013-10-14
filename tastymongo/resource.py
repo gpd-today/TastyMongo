@@ -1008,9 +1008,9 @@ class DocumentResource( Resource ):
         """
         Given a MongoDB field, return if it should be included in the
         contributed ApiFields.
+
+        By default, ignore ReferenceFields, and lists of References. These are opt-in, to avoid exposing too much data.
         """
-        # Ignore reference fields for now, because objects know nothing about 
-        # any API through which they're exposed. 
         if isinstance( field, mongofields.ListField ) and hasattr( field, 'field' ):
             field = field.field
 
@@ -1078,8 +1078,7 @@ class DocumentResource( Resource ):
             if excludes and name in excludes:
                 continue
 
-            # Exotic fields (currently Relational fields only) are filtered 
-            # out by `should_skip_field`.
+            # Skip fields for which `should_skip_field` returns True. By default, ReferenceFields are omitted.
             if cls.should_skip_field( f ):
                 continue
 
