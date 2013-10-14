@@ -76,13 +76,11 @@ class DetailTests( unittest.TestCase ):
         # Create a new activity
         response = self.activity_resource.post_list( self.request )
         deserialized = json.loads( response.body )
-        print( response )
         self.assertIn( 'id', deserialized )
 
         # Find out if it was indeed created:
         self.request.matchdict = { 'name': 'post_list created activity'}
         response = self.activity_resource.dispatch_single( self.request )
-        print( response )
         deserialized = json.loads( response.body )
 
         # Check if the correct activity has been returned

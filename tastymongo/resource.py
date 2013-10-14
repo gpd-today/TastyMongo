@@ -346,18 +346,37 @@ class Resource( object ):
         request_method = request.method.lower()
         self._meta.throttle.accessed( self._meta.authentication.get_identifier(request), url=request.path_url, request_method=request_method )
 
-    def create_response( self, data, request=None, response_class=Response, serializer_options=None, **kwargs ):
-        """
+    def create_response( self, bundles,request=None, data=None, response_class=Response, serializer_options=None, **kwargs ):
+        '''
         Extracts the common "which-format/serialize/return-response" cycle.
-        """
+
+        @param bundles
+        @type bundles: Bundle or List<Bundle>
+        @param data:
+        @type data: object
+        '''
         if request:
             desired_format = self.determine_format( request )
         else:
             desired_format = self._meta.default_format
 
+        data = data or {}
+
+        if bundles:
+            single_bundle = False
+            if not isinstance( bundles, collections.Iterable ):
+                single_bundle = True
+                bundles = [ bundles, ]
+
+            bundles = self.pre_serialize( bundles, request )
+
+            if single_bundle:
+                data = bundles[ 0 ]
+            else:
+                data[ 'objects' ] = bundles
+
         serialized = self.serialize( request, data, desired_format, serializer_options )
         return response_class( body=serialized, content_type=str( desired_format ), charset=b'UTF-8', **kwargs )
-
 
 
     def deserialize( self, request, data, format=None ):
@@ -371,7 +390,9 @@ class Resource( object ):
         Mostly a hook, this uses the `Serializer` from `Resource._meta`.
         """
         format = format or request.content_type or self._meta.default_format
-        return self._meta.serializer.deserialize( data, format )
+        data = self._meta.serializer.deserialize( data, format )
+        data = self.post_deserialize( data, request )
+        return data
 
     def post_deserialize( self, data, request ):
         """
@@ -481,7 +502,7 @@ class Resource( object ):
                 bundle.data[ field_name ] = data
 
         if single_bundle:
-            bundles = bundles[0]
+            bundles = bundles[ 0 ]
 
         return bundles
 
@@ -611,7 +632,7 @@ class Resource( object ):
         self.is_authenticated( request )
         self.check_throttle( request )
         self.log_throttled_access(request)
-        return self.create_response( self.build_schema(), request )
+        return self.create_response( data=self.build_schema(), request=request )
 
     def get_list( self, request ):
         """
@@ -637,8 +658,8 @@ class Resource( object ):
         # Create a bundle for every object and dehydrate those bundles individually
         bundles = [ self.build_bundle( request=request, obj=obj ) for obj in data['objects'] ]
         bundles = self.dehydrate( bundles )
-        data['objects'] = self.pre_serialize( bundles, request )
-        return self.create_response( data, request )
+
+        return self.create_response( bundles, data=data, request=request )
 
     def get_single( self, request ):
         """
@@ -659,8 +680,8 @@ class Resource( object ):
         bundle = self.build_bundle( request=request, obj=obj )
         if bundle:
             bundle = self.dehydrate( bundle )
-        data = self.pre_serialize( [ bundle ], request )
-        return self.create_response( data, request )
+
+        return self.create_response( bundle, request )
 
     def post_list( self, request, **kwargs ):
         """
@@ -670,7 +691,6 @@ class Resource( object ):
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
         data = self.deserialize( request, request.body, format=request.content_type )
-        data = self.post_deserialize( data, request )
 
         bundle = self.build_bundle( request=request, data=data )
         bundle = self.hydrate( bundle )
@@ -682,8 +702,7 @@ class Resource( object ):
         if self._meta.return_data_on_post:
             # Re-populate the data from the objects.
             bundle = self.dehydrate( bundle )
-            data = self.pre_serialize( [ bundle ], request )
-            return self.create_response( data, request, response_class=http.HTTPCreated, location=location )
+            return self.create_response( bundle, request, response_class=http.HTTPCreated, location=location )
         else:
             return http.HTTPCreated( location=location )
         
@@ -704,7 +723,6 @@ class Resource( object ):
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
         data = self.deserialize( request, request.body, format=request.content_type )
-        data = self.post_deserialize( data, request )
 
         bundles = [ self.build_bundle( request=request, data=item ) for item in data ]
         bundles = self.hydrate( bundles )
@@ -714,8 +732,7 @@ class Resource( object ):
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
             bundles = self.dehydrate( bundles )
-            data = {'objects': self.pre_serialize( bundles, request )}
-            return self.create_response( data, request, response_class=http.HTTPAccepted )
+            return self.create_response( bundles, request, response_class=http.HTTPAccepted )
         else:
             return http.HTTPNoContent()
 
@@ -728,8 +745,7 @@ class Resource( object ):
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
         data = self.deserialize( request, request.body, format=request.content_type )
-        data = self.post_deserialize( data, request )
-        data['resource_uri'] = self.get_resource_uri( request, request.path)
+        data[ 'resource_uri' ] = self.get_resource_uri( request, request.path)
 
         bundle = self.build_bundle( request=request, data=data )
         bundle = self.hydrate( bundle )
@@ -740,8 +756,7 @@ class Resource( object ):
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
             bundle = self.dehydrate( bundle )
-            data = self.pre_serialize( [ bundle ], request )
-            return self.create_response( data, request, response_class=http.HTTPAccepted, location=location )
+            return self.create_response( bundle, request, response_class=http.HTTPAccepted, location=location )
         else:
             return http.HTTPNoContent( location=location )
         
@@ -858,7 +873,11 @@ class DocumentResource( Resource ):
     '''
     __metaclass__ = DocumentDeclarativeMetaclass
 
-    def _mark_relational_changes_for( self, bundle, obj=None ):
+    def _mark_relational_changes( self, bundle, obj=None ):
+        '''
+        @param bundle
+        @type bundle: Bundle
+        '''
         # Track and store any changes to relations of `obj` on the bundle.
         if obj is None:
             obj = bundle.obj
@@ -887,6 +906,9 @@ class DocumentResource( Resource ):
         '''
         Validates the object in the bundle. If validation fails, stashes
         invalid relational fields that are not required.
+
+        @param bundle
+        @type bundle: Bundle
         '''
         if not RelationManagerMixin or not isinstance( bundle.obj, RelationManagerMixin ):
             return bundle
@@ -896,7 +918,7 @@ class DocumentResource( Resource ):
         try:
             bundle.obj.validate()
         except MongoEngineValidationError as e:
-            for k in e.errors.keys():  # ! Document, not Resource, fields 
+            for k in e.errors.keys():  # ! Document, not Resource, fields
                 fld = bundle.obj._fields[k]
                 if isinstance( fld, mongofields.ReferenceField ):
                     if not fld.required:
@@ -915,6 +937,9 @@ class DocumentResource( Resource ):
     def _pop_stashed_relations( self, bundle ):
         '''
         Pops any previously stashed invalid relations back on the object.
+
+        @param bundle
+        @type bundle: Bundle
         '''
         if not RelationManagerMixin or not isinstance( bundle.obj, RelationManagerMixin ):
             return bundle
@@ -929,13 +954,16 @@ class DocumentResource( Resource ):
     def _update_relations( self, bundle ):
         ''' 
         Updates any relational changes stored in the bundle.
+
+        @param bundle
+        @type bundle: Bundle
         '''
         while bundle.request.api['to_save']:
             obj = bundle.request.api['to_save'].pop()
 
             if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
                 # The object to be saved may induce further away updates.
-                self._mark_relational_changes_for( bundle, obj )
+                self._mark_relational_changes( bundle, obj )
                 obj.save( request=bundle.request )
             else:
                 obj.save()
@@ -947,7 +975,7 @@ class DocumentResource( Resource ):
 
             if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
                 obj.delete( request=bundle.request )
-                self._mark_relational_changes_for( bundle, obj )
+                self._mark_relational_changes( bundle, obj )
             else:
                 obj.delete()
 
@@ -1335,11 +1363,11 @@ class DocumentResource( Resource ):
             qs_filter = "{0}{1}{2}".format( resource_filters[0][1].attribute, LOOKUP_SEP, filter_type )
             or_filters[is_or_filter][qs_filter] = value
 
-        Q_filter = Q(**or_filters[0]) if or_filters[0] else Q()
+        q_filter = Q(**or_filters[0]) if or_filters[0] else Q()
         if or_filters[1]:
-            Q_filter &= reduce(or_, (Q(**{k:v}) for k,v in or_filters[1].items()) )
+            q_filter &= reduce(or_, (Q(**{k:v}) for k,v in or_filters[1].items()) )
 
-        return Q_filter, or_filters
+        return q_filter, or_filters
 
     def get_queryset( self, request ):
         if hasattr( self._meta, "queryset" ):
@@ -1347,7 +1375,6 @@ class DocumentResource( Resource ):
             # Ensure the queryset doesn't auto-dereference, since we'll do that
             qs._auto_dereference = False
             return qs
-
         else:
             raise NotImplementedError('Resource needs a `queryset` to return objects')
 
@@ -1464,7 +1491,7 @@ class DocumentResource( Resource ):
         '''
         # PHASE 1: If we're brand spankin' new try to get us an id.
         if not bundle.obj.pk:
-            bundle = self._mark_relational_changes_for( bundle )
+            bundle = self._mark_relational_changes( bundle )
             bundle = self._stash_invalid_relations( bundle )
 
             try:
@@ -1486,7 +1513,7 @@ class DocumentResource( Resource ):
         # PHASE 3: Second attempt to create the object now its relations exist.
         if not bundle.obj.pk:
             if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
-                bundle = self._mark_relational_changes_for( bundle )
+                bundle = self._mark_relational_changes( bundle )
                 bundle.obj.save( request=bundle.request )
             else:
                 bundle.obj.save()
@@ -1519,7 +1546,7 @@ class DocumentResource( Resource ):
             return bundle
 
         if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
-            bundle = self._mark_relational_changes_for( bundle )
+            bundle = self._mark_relational_changes( bundle )
             bundle.obj.save( request=bundle.request, validate=False )
         else:
             bundle.obj.save( validate=False )
