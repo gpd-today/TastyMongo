@@ -346,7 +346,7 @@ class Resource( object ):
         request_method = request.method.lower()
         self._meta.throttle.accessed( self._meta.authentication.get_identifier(request), url=request.path_url, request_method=request_method )
 
-    def create_response( self, bundles,request=None, data=None, response_class=Response, serializer_options=None, **kwargs ):
+    def create_response( self, bundles=None, request=None, data=None, response_class=Response, serializer_options=None, **kwargs ):
         '''
         Extracts the common "which-format/serialize/return-response" cycle.
 
@@ -438,14 +438,14 @@ class Resource( object ):
 
         return bundle
 
-    def pre_hydrate( self, bundles ):
+    def pre_hydrate( self, bundles, request ):
         '''
         A hook for allowing some custom hydration on the data specific to this
         resource before each field's hydrate function is called.
         '''
         return bundles
 
-    def hydrate( self, bundles ):
+    def hydrate( self, bundles, request ):
         """
         Takes data from the resource and converts it to a form ready to be 
         stored on objects. Returns a fully hydrated bundle.
@@ -463,7 +463,7 @@ class Resource( object ):
             single_bundle = True
             bundles = [ bundles, ]
 
-        bundles = self.pre_hydrate( bundles )
+        bundles = self.pre_hydrate( bundles, request )
 
         for bundle in bundles:
             for field_name, fld in self.fields.items():
@@ -509,7 +509,7 @@ class Resource( object ):
     def save( self, bundle ):
         raise NotImplementedError()
 
-    def dehydrate( self, bundles ):
+    def dehydrate( self, bundles, request ):
         """
         Given a list of bundles with object instances, extract the information
         from them to populate the resource data.
@@ -529,14 +529,14 @@ class Resource( object ):
                 if callable( method ):
                     bundle.data[field_name] = method( bundle )
 
-        bundles = self.post_dehydrate( bundles )
+        bundles = self.post_dehydrate( bundles, request )
 
         if single_bundle:
             bundles = bundles[0]
 
         return bundles
 
-    def post_dehydrate( self, bundles ):
+    def post_dehydrate( self, bundles, request ):
         '''
         A hook for allowing some custom dehydration on the whole resource after 
         each field's dehydrate function has been called.
@@ -657,7 +657,7 @@ class Resource( object ):
 
         # Create a bundle for every object and dehydrate those bundles individually
         bundles = [ self.build_bundle( request=request, obj=obj ) for obj in data['objects'] ]
-        bundles = self.dehydrate( bundles )
+        bundles = self.dehydrate( bundles, request )
 
         return self.create_response( bundles, data=data, request=request )
 
@@ -679,7 +679,7 @@ class Resource( object ):
 
         bundle = self.build_bundle( request=request, obj=obj )
         if bundle:
-            bundle = self.dehydrate( bundle )
+            bundle = self.dehydrate( bundle, request )
 
         return self.create_response( bundle, request )
 
@@ -693,7 +693,7 @@ class Resource( object ):
         data = self.deserialize( request, request.body, format=request.content_type )
 
         bundle = self.build_bundle( request=request, data=data )
-        bundle = self.hydrate( bundle )
+        bundle = self.hydrate( bundle, request )
 
         bundle = self.save( bundle )
 
@@ -701,7 +701,7 @@ class Resource( object ):
 
         if self._meta.return_data_on_post:
             # Re-populate the data from the objects.
-            bundle = self.dehydrate( bundle )
+            bundle = self.dehydrate( bundle, request )
             return self.create_response( bundle, request, response_class=http.HTTPCreated, location=location )
         else:
             return http.HTTPCreated( location=location )
@@ -725,18 +725,18 @@ class Resource( object ):
         data = self.deserialize( request, request.body, format=request.content_type )
 
         bundles = [ self.build_bundle( request=request, data=item ) for item in data ]
-        bundles = self.hydrate( bundles )
+        bundles = self.hydrate( bundles, request )
 
         bundles = [ self.save( bundle ) for bundle in bundles ]
 
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
-            bundles = self.dehydrate( bundles )
+            bundles = self.dehydrate( bundles, request )
             return self.create_response( bundles, request, response_class=http.HTTPAccepted )
         else:
             return http.HTTPNoContent()
 
-    def put_single(self, request, **kwargs):
+    def put_single( self, request, **kwargs ):
         """
         Updates an existing Resource.
 
@@ -748,14 +748,14 @@ class Resource( object ):
         data[ 'resource_uri' ] = self.get_resource_uri( request, request.path)
 
         bundle = self.build_bundle( request=request, data=data )
-        bundle = self.hydrate( bundle )
+        bundle = self.hydrate( bundle, request )
         bundle = self.save( bundle )
 
         location = self.get_resource_uri( request, bundle )
 
         if self._meta.return_data_on_put:
             # Re-populate the data from the objects.
-            bundle = self.dehydrate( bundle )
+            bundle = self.dehydrate( bundle, request )
             return self.create_response( bundle, request, response_class=http.HTTPAccepted, location=location )
         else:
             return http.HTTPNoContent( location=location )

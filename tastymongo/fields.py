@@ -572,7 +572,7 @@ class RelatedField( ApiField ):
                     raise ApiFieldError("The `{0}` field was given data but is readonly: `{1}`.".format( self.field_name, data ) )
             else:
                 related_bundle = related_resource.build_bundle( request=request, data=data )
-                return related_resource.hydrate( related_bundle )
+                return related_resource.hydrate( related_bundle, request )
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
 
@@ -649,7 +649,7 @@ class ToOneField( RelatedField ):
             return None
 
         related_bundle = related_resource.build_bundle( request=bundle.request, obj=attr )
-        return related_resource.dehydrate( related_bundle )
+        return related_resource.dehydrate( related_bundle, bundle.request )
 
 
 class ToManyField( RelatedField ):
@@ -769,7 +769,7 @@ class ToManyField( RelatedField ):
 
         if related_resource:
             related_bundles = [ related_resource.build_bundle( request=bundle.request, obj=r ) for r in attr ]
-            related_bundles = related_resource.dehydrate( related_bundles )
+            related_bundles = related_resource.dehydrate( related_bundles, bundle.request )
         else:
             # No single related resource defined, likely a list of GenericReferences.
             # Try to deduce the resource from each item.
@@ -777,7 +777,7 @@ class ToManyField( RelatedField ):
             for r in attr:
                 related_resource = self.get_related_resource( r )
                 related_bundle = related_resource.build_bundle( bundle.request, r )
-                related_bundle = related_resource.dehydrate( related_bundle )
+                related_bundle = related_resource.dehydrate( related_bundle, bundle.request )
                 related_bundles.append( related_bundle )
 
         return related_bundles
