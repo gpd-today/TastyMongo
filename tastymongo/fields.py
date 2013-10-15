@@ -119,7 +119,7 @@ class ApiField( object ):
 
         if self.field_name in bundle.data: 
             # The bundle has data for this field. Return it.
-            data = self.convert(bundle.data[ self.field_name ])
+            data = self.convert( bundle.data[ self.field_name ] )
 
         elif self.has_default:
             # The bundle has no data, but there's a default value for the field.
@@ -671,7 +671,6 @@ class ToManyField( RelatedField ):
         
         Returns a list of bundles or an empty list.
         '''
-
         if self.ignore_closed:
             closed_relations = [r for r in getattr( bundle.obj, self.field_name, []) if getattr(r, 'closed', False )]
             bundle.data[ self.field_name ] = bundle.data.get(self.field_name, [])
@@ -765,7 +764,7 @@ class ToManyField( RelatedField ):
         attr = [ r for r in attr if isinstance( r, Document ) and may_read( r, bundle.request ) ]
 
         if self.ignore_closed:
-            attr = [r for r in attr if not getattr( r, 'closed', False ) ]
+            attr = [ r for r in attr if not getattr( r, 'closed', False ) ]
 
         if related_resource:
             related_bundles = [ related_resource.build_bundle( request=bundle.request, obj=r ) for r in attr ]

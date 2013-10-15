@@ -366,7 +366,7 @@ class Resource( object ):
             single_bundle = False
             if not isinstance( bundles, collections.Iterable ):
                 single_bundle = True
-                bundles = [ bundles, ]
+                bundles = [ bundles ]
 
             bundles = self.pre_serialize( bundles, request )
 
@@ -461,7 +461,7 @@ class Resource( object ):
         single_bundle = False
         if not isinstance( bundles, collections.Iterable ):
             single_bundle = True
-            bundles = [ bundles, ]
+            bundles = [ bundles ]
 
         bundles = self.pre_hydrate( bundles, request )
 
@@ -517,7 +517,10 @@ class Resource( object ):
         single_bundle = False
         if not isinstance( bundles, collections.Iterable ):
             single_bundle = True
-            bundles = [ bundles, ]
+            bundles = [ bundles ]
+
+        if not single_bundle and hasattr( self, '_prefetch_documents' ):
+            self._prefetch_documents( bundles, request )
 
         for bundle in bundles:
             # Dehydrate each field.
@@ -873,6 +876,34 @@ class DocumentResource( Resource ):
     '''
     __metaclass__ = DocumentDeclarativeMetaclass
 
+    def _prefetch_documents( self, bundles, request ):
+        # On bundles, find DBRefs in fields to prefetch
+        to_fetch = {}
+        for field_name, field in self.fields.items():
+            # Per field, loop over the bundles and pick up related docs we could have to dereference.
+            if getattr( field, 'is_related', False ) and field.to and field.full:
+                related_resource = self._meta.api.resource_for_class( field.to_class )
+                resource_name = related_resource._meta.resource_name
+
+                if resource_name not in to_fetch:
+                    to_fetch[ resource_name ] = set()
+
+                if getattr( field, 'is_tomany', False ):
+                    for bundle in bundles:
+                        to_fetch[ resource_name ].update( bundle.obj._data[ field.attribute ] )
+                else:
+                    for bundle in bundles:
+                        to_fetch[ resource_name ].add( bundle.obj._data[ field.attribute ] )
+
+        for resource_name, related in to_fetch.items():
+            # Limit each set to ObjectIds we can't find in the cache yet
+            ids = [ ref.id for ref in related if isinstance( ref, DBRef ) and ref.id not in request.cache ]
+
+            # Fetch the remaining ids
+            if len( ids ):
+                related_resource = self._meta.api.resource_by_name( resource_name )
+                docs = request.cache.add( related_resource._meta.object_class.objects( id__in=ids ) )
+
     def _mark_relational_changes( self, bundle, obj=None ):
         '''
         @param bundle
@@ -955,7 +986,6 @@ class DocumentResource( Resource ):
         ''' 
         Updates any relational changes stored in the bundle.
 
-        @param bundle
         @type bundle: Bundle
         '''
         while bundle.request.api['to_save']:
@@ -1002,7 +1032,7 @@ class DocumentResource( Resource ):
                 related_resource = fld.get_related_resource( related_data )
                 
                 if not getattr( fld, 'is_tomany', False ):
-                    related_data = [ related_data, ] 
+                    related_data = [ related_data ]
 
                 for related_bundle in related_data:
                     
@@ -1573,7 +1603,7 @@ class DocumentResource( Resource ):
         try:
             return self.get_queryset( request ).filter( q_filter )
         except ValueError:
-            raise BadRequest( "Invalid resource lookup data provided ( mismatched type )." )
+            raise BadRequest( "Invalid resource lookup data provided (mismatched type)." )
 
     def obj_get_single( self, request, **kwargs ):
         """
@@ -1603,7 +1633,7 @@ class DocumentResource( Resource ):
             filters = kwargs.copy()
 
         # Object not in cache, alas, we have to hit the database.
-        matched = [o for o in self.obj_get_list( request, **filters )]
+        matched = [ o for o in self.obj_get_list( request, **filters ) ]
         if len( matched ) == 1:
             return matched[ 0 ]
 
