@@ -100,7 +100,7 @@ class Paginator(object):
 
         return offset
 
-    def get_slice(self, limit, offset):
+    def get_slice( self, limit, offset ):
         """
         Slices the result set to the specified ``limit`` & ``offset``.
         """
@@ -110,15 +110,15 @@ class Paginator(object):
 
         return self.objects[offset:offset + limit]
 
-    def get_count(self):
+    def get_count( self ):
         """
         Returns a count of the total number of objects seen.
         """
         try:
-            return len( self.objects )
-        except TypeError:
-            # objects can be any iterable, but mongoengine removed `len()`
             return self.objects.count()
+        except ( AttributeError, TypeError ):
+            # We may get a list here
+            return len( self.objects )
 
     def get_previous(self, limit, offset):
         """
