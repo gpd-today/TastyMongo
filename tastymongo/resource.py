@@ -174,7 +174,8 @@ class Resource( object ):
                 'to_delete': set(),
                 'deleted': set(),
                 'type': type,
-                'method': method
+                'method': method,
+                'resource': self
             }
 
         return request
