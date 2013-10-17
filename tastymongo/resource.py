@@ -363,7 +363,7 @@ class Resource( object ):
 
         data = data or {}
 
-        if bundles:
+        if bundles is not None:
             single_bundle = False
             if not isinstance( bundles, collections.Iterable ):
                 single_bundle = True
@@ -1308,7 +1308,7 @@ class DocumentResource( Resource ):
             # '/api/v1/<resource_name>/<objectid/' or some other string
             value = value.split( '/' )[-2] if '/' in value else value
             if filter_type in ('in', 'range'):
-                value = [value,]
+                value = [ value ]
         elif isinstance( value, collections.Iterable ):
             # ['/api/v1/<resource_name>/<objectid/', '/api/v1/<resource_name>/<object2id>/', ...]
             # or ['<objectid1>', '<objectid2>', ...]
