@@ -1301,9 +1301,10 @@ class DocumentResource( Resource ):
             value = True
         elif value in ( 'false', 'False', False ):
             value = False
-        elif value in ( 'nil', 'none', 'None', None ):
+        elif value in ( 'nil', 'null', 'none', 'None', None ):
             value = None
 
+        # Parse a single resource_uri, or a list of them
         if isinstance( value, basestring ): 
             # '/api/v1/<resource_name>/<objectid/' or some other string
             value = value.split( '/' )[-2] if '/' in value else value
@@ -1346,20 +1347,20 @@ class DocumentResource( Resource ):
         Functionality is limited since all OR's are combined and OR'ed with all
         non-OR conditions, there's no support for nested ORs and ANDs.
 
-        Returns a QCombination object that can be used in <queryset>.filter(), 
-        and a `legible` version for human debugging.
+        Returns a Q (combination) object that can be used in <queryset>.filter()
         """
         if not filters:
             filters = {}
 
-        or_filters = { 0: {}, 1: {}, }
+        # The first dict contains `and` filters, the second `or` filters
+        filter_group = { 0: {}, 1: {}, }
 
         for filter_expr, value in filters.items():
             filter_bits = filter_expr.split( LOOKUP_SEP )
             filter_type = 'exact'  # default
             field_name = filter_bits.pop( 0 )
 
-            is_or_filter = field_name == 'OR'
+            is_or_filter = ( field_name == 'OR' )
             if is_or_filter:
                 field_name = filter_bits.pop( 0 )
 
@@ -1388,17 +1389,18 @@ class DocumentResource( Resource ):
                     resource_filter = { "{0}{1}{2}".format( field.field_name, LOOKUP_SEP, filter_type ): value }
                     # Use the results for this resource for the next query.
                     filter_type = 'in'
-                    value = [d for d in resource.obj_get_list( request, **resource_filter ).scalar('id')]
+                    value = [ str(d) for d in resource.obj_get_list( request, **resource_filter ).scalar( 'id' ) ]
 
             # Return the queryset filter
             qs_filter = "{0}{1}{2}".format( resource_filters[0][1].attribute, LOOKUP_SEP, filter_type )
-            or_filters[is_or_filter][qs_filter] = value
+            filter_group[is_or_filter][qs_filter] = value
 
-        q_filter = Q(**or_filters[0]) if or_filters[0] else Q()
-        if or_filters[1]:
-            q_filter &= reduce(or_, (Q(**{k:v}) for k,v in or_filters[1].items()) )
+        # Combine `filter_group` into a (set of) Q filters. `and` clauses
+        q_filter = Q( **filter_group[0] ) if filter_group[0] else Q()
+        if filter_group[1]:
+            q_filter &= reduce( or_, ( Q(**{k:v}) for k,v in filter_group[1].items() ) )
 
-        return q_filter, or_filters
+        return q_filter
 
     def get_queryset( self, request ):
         if hasattr( self._meta, "queryset" ):
@@ -1599,7 +1601,7 @@ class DocumentResource( Resource ):
         else:
             filters = None
 
-        q_filter, legible_filters = self.build_filters( filters, request )
+        q_filter = self.build_filters( filters, request )
 
         try:
             return self.get_queryset( request ).filter( q_filter )
