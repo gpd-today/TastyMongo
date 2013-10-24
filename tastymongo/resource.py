@@ -471,7 +471,7 @@ class Resource( object ):
                 # You may provide a custom method on the resource that will replace
                 # the default hydration behaviour for the field.
                 callback = getattr(self, "hydrate_{0}".format(field_name), None)
-                if not callback is None:
+                if callable( callback ):
                     data = callback( bundle )
                 elif fld.readonly:
                     continue
@@ -1036,7 +1036,6 @@ class DocumentResource( Resource ):
                     related_data = [ related_data ]
 
                 for related_bundle in related_data:
-                    
                     # Execute the callback function on the related resource
                     callback = getattr( related_resource, callback_func )
                     related_bundle = callback( related_bundle )
