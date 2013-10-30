@@ -1199,7 +1199,7 @@ class DocumentResource( Resource ):
 
             elif isinstance( data, basestring ):
                 # assume the data _is_ the URI
-                kwargs[ 'id' ] = data.split( '/' )[-2]
+                kwargs[ 'id' ] = self._meta.api.get_id_from_resource_uri( data )
 
         return self._meta.api.build_uri( request, **kwargs )
 
@@ -1303,18 +1303,19 @@ class DocumentResource( Resource ):
         elif value in ( 'nil', 'null', 'none', 'None', None ):
             value = None
 
+        # TODO/BUG: here, we assume that any string is a resource uri.
+        # This is evidently not true; you can filter by a resource's name or any other string field as well.
         # Parse a single resource_uri, or a list of them
-        if isinstance( value, basestring ): 
-            # '/api/v1/<resource_name>/<objectid/' or some other string
-            value = value.split( '/' )[-2] if '/' in value else value
+        if isinstance( value, basestring ):
+            value = self._meta.api.get_id_from_resource_uri( value ) or value
             if filter_type in ('in', 'range'):
                 value = [ value ]
         elif isinstance( value, collections.Iterable ):
-            # ['/api/v1/<resource_name>/<objectid/', '/api/v1/<resource_name>/<object2id>/', ...]
+            # ['/api/v1/<resource_name>/<objectid>/', '/api/v1/<resource_name>/<object2id>/', ...]
             # or ['<objectid1>', '<objectid2>', ...]
             for i, v in enumerate( value ):
                 if isinstance( v, basestring ):
-                    value[i] = v.split( '/' )[-2] if '/' in v else v
+                    value[i] = self._meta.api.get_id_from_resource_uri( v ) or v
 
         return value
 
@@ -1619,7 +1620,7 @@ class DocumentResource( Resource ):
         id = kwargs.get( 'pk' ) or kwargs.get( 'id' )
         if not id and 'uri' in kwargs:
              # We have received a uri. Try to grab an id from it.
-            id = kwargs.pop( 'uri', '' ).split( '/' )[-2]
+            id = self._meta.api.get_id_from_resource_uri( kwargs.pop( 'uri', '' ) )
 
         if id:
             # Try to fetch the object from the document cache

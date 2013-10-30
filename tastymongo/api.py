@@ -189,6 +189,15 @@ class Api( object ):
 
         return route_name
 
+    def get_id_from_resource_uri( self, value ):
+        if isinstance( value, basestring ) and value.startswith( self.route ):
+            # '/api/v1/<resource_name>/<objectid>/' or some other string
+            parts = value.split( '/' )
+            if len( parts ) == 6:
+                return parts[-2]
+
+        return None
+
     def build_uri( self, request, id=None, resource_name=None, operation=None, route_name=None, absolute=False ):
         if route_name is None:
             route_name = self.build_route_name( resource_name, operation )
