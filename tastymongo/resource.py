@@ -1378,7 +1378,7 @@ class DocumentResource( Resource ):
             # `check_filtering`, for which we return the filter:
             #   { 'author__id__in': author_ids }
             # where `author_ids` is the result set from
-            #   AuthorResource.filter( name__icontains='Fred' ).scalar('id')
+            #   AuthorResource.filter( name__icontains='Fred' )
             resource_filters = self.check_filtering( field_name, filter_type, filter_bits )
             value = self.parse_filter_value( value, field_name, filters, filter_expr, filter_type )
 
@@ -1389,7 +1389,7 @@ class DocumentResource( Resource ):
                     resource_filter = { "{0}{1}{2}".format( field.field_name, LOOKUP_SEP, filter_type ): value }
                     # Use the results for this resource for the next query.
                     filter_type = 'in'
-                    value = [ str(d) for d in resource.obj_get_list( request, **resource_filter ).scalar( 'id' ) ]
+                    value = [ str(d['_id']) for d in resource.obj_get_list( request, **resource_filter ).only( 'id' ).as_pymongo() ]
 
             # Return the queryset filter
             qs_filter = "{0}{1}{2}".format( resource_filters[0][1].attribute, LOOKUP_SEP, filter_type )
