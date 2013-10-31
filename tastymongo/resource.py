@@ -1321,7 +1321,7 @@ class DocumentResource( Resource ):
 
     def build_filters( self, filters, request ):
         """
-        Given a dictionary of filters, creates the corresponding DRM filters,
+        Given a dictionary of filters, creates the corresponding ODM filters,
         checking whether filtering on the field is allowed in the Resource
         definition.
 
@@ -1352,8 +1352,8 @@ class DocumentResource( Resource ):
         if not filters:
             filters = {}
 
-        # The first dict contains `and` filters, the second `or` filters
-        filter_group = { 0: {}, 1: {}, }
+        and_filters = {}
+        or_filters = {}
 
         for filter_expr, value in filters.items():
             filter_bits = filter_expr.split( LOOKUP_SEP )
@@ -1393,12 +1393,20 @@ class DocumentResource( Resource ):
 
             # Return the queryset filter
             qs_filter = "{0}{1}{2}".format( resource_filters[0][1].attribute, LOOKUP_SEP, filter_type )
-            filter_group[is_or_filter][qs_filter] = value
 
-        # Combine `filter_group` into a (set of) Q filters. `and` clauses
-        q_filter = Q( **filter_group[0] ) if filter_group[0] else Q()
-        if filter_group[1]:
-            q_filter &= reduce( or_, ( Q(**{k:v}) for k,v in filter_group[1].items() ) )
+            if is_or_filter:
+                or_filters[ qs_filter ] = value
+            else:
+                and_filters[ qs_filter ] = value
+
+        # Combine `filter_group` into a (set of) Q filters. A single Q object is `and`; for `or`, we create a set of filters.
+        q_filter = Q()
+
+        if and_filters:
+            q_filter = Q( **and_filters )
+
+        if or_filters:
+            q_filter &= reduce( or_, ( Q(**{k:v}) for k,v in or_filters.items() ) )
 
         return q_filter
 
