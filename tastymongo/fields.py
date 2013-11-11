@@ -144,7 +144,7 @@ class ApiField( object ):
         '''
         if isinstance( self.attribute, basestring ):
             # `attribute` points to an attribute or method on the object.
-            attr = bundle.obj[ self.attribute ]
+            attr = getattr( bundle.obj, self.attribute )
 
             if attr is None:
                 if self.has_default:
