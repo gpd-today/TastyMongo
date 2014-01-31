@@ -10,7 +10,7 @@ from .exceptions import ApiFieldError
 from .utils import make_naive
 from mongoengine import Document
 from mongoengine.errors import ValidationError as MongoEngineValidationError
-from bson import DBRef
+from bson import DBRef, ObjectId
 
 from .bundle import Bundle
 
@@ -594,6 +594,41 @@ class ToOneField( RelatedField ):
         related_data = super( ToOneField, self ).hydrate( bundle )
         if related_data is None:
             return None
+
+        if False and isinstance( related_data, basestring ):
+            # There's no additional data, just a resource_uri, that can be 
+            # the same or different from what we already have. 
+            data_id = self._resource._meta.api.get_id_from_resource_uri( related_data )
+            if not data_id:
+                raise ApiFieldError( 'Invalid data for related field `{}` on `{}`'.format(self.field_name, self._resource.Meta.resource_name))
+
+            # See if it corresponds to what we already have 
+            obj_data = bundle.obj._data[ self.attribute ]
+
+            if isinstance( obj_data, dict ) and '_ref' in obj_data:
+                obj_data = obj_data['_ref']  # Generic Reference
+
+            if isinstance( obj_data, DBRef ) or isinstance( obj_data, Document ):
+                obj_data = obj_data.id  # Returns an ObjectId
+
+            if isinstance( obj_data, ObjectId ):
+                obj_data = str( obj_data )
+
+            if obj_data == data_id:
+                #FIXME: INEFFICIENT DIRTY HACK: 
+                # 
+                # We run into trouble because `build_bundle` uses
+                # `obj_get_single` for building related data, where quite
+                # convoluted querysets decrease performance and may lead to
+                # irrelevant errors preventing updates of otherwise valid
+                # PUT/POSTs to a resource.
+                #
+                # This fixes failing cases, but it is inefficient in that it 
+                # may still access the database, whereas we could, should and 
+                # can skip that completely. However, that ties into the
+                # hydration cycle in several other places, so until we fix that
+                # thoroughly this patch is a workaround.
+                return Bundle( obj=getattr( bundle.obj, self.attribute ), request=bundle.request )
 
         return self.get_related_bundle( related_data, request=bundle.request )
 
