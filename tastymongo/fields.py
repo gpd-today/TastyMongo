@@ -595,7 +595,7 @@ class ToOneField( RelatedField ):
         if related_data is None:
             return None
 
-        if False and isinstance( related_data, basestring ):
+        if isinstance( related_data, basestring ):
             # There's no additional data, just a resource_uri, that can be 
             # the same or different from what we already have. 
             data_id = self._resource._meta.api.get_id_from_resource_uri( related_data )
