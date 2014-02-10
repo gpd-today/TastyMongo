@@ -749,7 +749,7 @@ class Resource( object ):
         Returns `HTTPBadRequest` (500) with any errors that occurred.
         """
         data = self.deserialize( request, request.body, format=request.content_type )
-        data[ 'resource_uri' ] = self.get_resource_uri( request, request.path)
+        data[ 'resource_uri' ] = self.get_resource_uri( request, request.path )
 
         bundle = self.build_bundle( request=request, data=data )
         bundle = self.hydrate( bundle, request )
@@ -837,14 +837,9 @@ class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
     def __new__( cls, name, bases, attrs ):
         meta = attrs.get( 'Meta' )
 
-        if meta:
-            # We may define a queryset or an object_class.
-            if hasattr( meta, 'queryset' ) and not hasattr( meta, 'object_class' ):
-                setattr( meta, 'object_class', meta.queryset._document )
-            
-            elif hasattr( meta, 'object_class' ) and not hasattr( meta, 'queryset' ):
-                if hasattr( meta.object_class, 'objects' ):
-                    setattr( meta, 'queryset', meta.object_class.objects )
+        # We may define a queryset or an object_class.
+        if meta and hasattr( meta, 'queryset' ) and not hasattr( meta, 'object_class' ):
+            setattr( meta, 'object_class', meta.queryset._document )
 
         new_class = super( DocumentDeclarativeMetaclass, cls ).__new__( cls, name, bases, attrs )
         include_fields = getattr( new_class._meta, 'fields', [] )
@@ -1411,13 +1406,18 @@ class DocumentResource( Resource ):
         return q_filter
 
     def get_queryset( self, request ):
-        if hasattr( self._meta, "queryset" ):
+        if hasattr( self._meta, 'queryset' ) and self._meta.queryset:
             qs = self._meta.queryset.clone()
             # Ensure the queryset doesn't auto-dereference, since we'll do that
             qs._auto_dereference = False
             return qs
+        elif hasattr( self._meta, 'object_class' ):
+            qs = self._meta.object_class.objects()
+            # Ensure the queryset doesn't auto-dereference, since we'll do that
+            qs._auto_dereference = False
+            return qs
         else:
-            raise NotImplementedError('Resource needs a `queryset` to return objects')
+            raise NotImplementedError('Resource needs a `queryset` or `object_class` to return objects')
 
 
     def save( self, bundle ):
