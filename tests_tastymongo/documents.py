@@ -4,31 +4,26 @@ from __future__ import unicode_literals
 from mongoengine import *
 
 
-class Activity( Document ):
+class Mixin(object):
+    name = StringField()
 
-    name = StringField( required=True )
+    def __unicode__( self ):
+        return unicode( self.name )
+
+
+class Activity( Mixin, Document ):
     person = ReferenceField( 'Person', required=True )
     finished = BooleanField( default=False )
     tags = ListField( StringField() )
 
-    def __unicode__( self ):
-        return unicode( self.name )
 
-
-class Person( Document ):
-
-    name = StringField( required=True )
+class Person( Mixin, Document ):
     activities = ListField( ReferenceField( 'Activity' ) )
 
-    def __unicode__( self ):
-        return unicode( self.name )
 
-
-class Deliverable( Document ):
-
-    name = StringField( required=True )
+class Deliverable( Mixin, Document ):
     owner = ReferenceField( 'Person', required=True )
     activities = ListField( ReferenceField( 'Activity' ) )
 
-    def __unicode__( self ):
-        return unicode( self.name )
+
+

@@ -4,83 +4,79 @@ from __future__ import unicode_literals
 import unittest
 import json
 import mongoengine
-
-from bson import DBRef, ObjectId
-
 from pyramid import testing
-from pyramid.request import Request
 
-from tests_tastymongo.documents import Activity, Person
-from tests_tastymongo.resources import ActivityResource, PersonResource, DeliverableResource
-from tests_tastymongo.utils import Struct
+from tests_tastymongo.run_tests import setup_db, setup_request
 
-from tastymongo.api import Api
+from tests_tastymongo.documents import Activity, Person, Deliverable
 
 
-class DetailTests( unittest.TestCase ):
+class BasicTests( unittest.TestCase ):
 
     def setUp( self ):
-        # Setup application/request config
-        self.request = Request.blank( '/api/v1/' )
-        self.config = testing.setUp( request=self.request )
-
-        # Setup our API
-        self.api = Api( self.config )
-
-        # Create some resources
-        self.activity_resource = ActivityResource()
-        self.deliverable_resource = DeliverableResource()
-        self.person_resource = PersonResource()
-        self.api.register( self.activity_resource )
-        self.api.register( self.person_resource )
+        self.conn = setup_db()
+        self.data = setup_request()
 
         # Setup data
-        d = self.data = Struct()
-        d.person1, created = Person.objects.get_or_create( name='Dude', defaults={ 'email': 'dude@progressivecompany.com', 'password': 'dude' } )
-        d.person2, created = Person.objects.get_or_create( name='Dude2', defaults={ 'email': 'dude2@progressivecompany.com', 'password': 'dude' } )
-        d.activity1, created = Activity.objects.get_or_create( name='Act1!', person=d.person1 )
-        d.activity2, created = Activity.objects.get_or_create( name='Act2!', person=d.person1 )
+        self.data.a1 = Activity( name='a1', person=self.data.user )
+        self.data.a1.save()
 
-        self.request.user = d.person1
-        policy = self.config.testing_securitypolicy( userid=str( d.person1.pk ) ) #, permissive=True )
-        self.config.set_authentication_policy( policy )
 
     def tearDown( self ):
         testing.tearDown()
 
-        # Clear our references
+        # Clear data
         self.data = None
 
+    def test_document_to_uri( self ):
+        d = self.data
+
+        uri = d.person_resource.get_resource_uri( d.request, d.user )
+        self.assertEqual( uri, '/api/v1/person/{0}/'.format( d.user.pk ) )
+
+        uri = d.activity_resource.get_resource_uri( d.request, d.a1 )
+        self.assertEqual( uri, '/api/v1/activity/{0}/'.format( d.a1.pk ) )
+
+        a2 = Activity( name='a2', person=d.user )
+        uri = d.activity_resource.get_resource_uri( d.request, a2 )
+        self.assertEqual( uri, '/api/v1/activity/None/' ) # TODO: not sure this is correct. Would the list uri be better?
+
     def test_get_single( self ):
+        d = self.data
+
         # Get a single activity
-        self.request.matchdict = { 'id': self.data.activity1.id }
-        response = self.activity_resource.dispatch_single( self.request )
+        d.request.matchdict = { 'id': self.data.a1.id }
+        response = d.activity_resource.dispatch_single( d.request )
         deserialized = json.loads( response.body )
 
         # Check if the correct activity has been returned
-        self.assertEqual( deserialized['id'], unicode(self.data.activity1.id) )
-        self.assertEqual( deserialized['person'].split('/')[-2], unicode(self.data.person1.id) )
+        self.assertEqual( deserialized['id'], unicode(self.data.a1.id) )
+        self.assertEqual( deserialized['person'].split('/')[-2], unicode(self.data.user.id) )
 
     def test_get_list( self ):
+        d = self.data
+
         # Get a bunch of activities
-        self.request.matchdict = {}
-        response = self.activity_resource.dispatch_list( self.request )
+        d.request.matchdict = {}
+        response = d.activity_resource.dispatch_list( d.request )
         deserialized = json.loads( response.body )
 
         # Find out if we got multiple activities
         self.assertEqual( len(deserialized['objects']), deserialized['meta']['total_count'] )
 
     def test_post_list( self ):
-        self.request.body = b'{{ "name": "post_list created activity", "person": "/api/v1/person/{0}/"}}'.format( self.data.person1.pk )
+        d = self.data
+
+        d.request.body = b'{{ "name": "post_list created activity", "person": "{0}"}}'.format( d.person_resource.get_resource_uri( d.request, d.user ) )
 
         # Create a new activity
-        response = self.activity_resource.post_list( self.request )
+        response = d.activity_resource.post_list( d.request )
         deserialized = json.loads( response.body )
         self.assertIn( 'id', deserialized )
 
         # Find out if it was indeed created:
-        self.request.matchdict = { 'name': 'post_list created activity'}
-        response = self.activity_resource.dispatch_single( self.request )
+        d.request.matchdict = { 'name': 'post_list created activity'}
+        response = d.activity_resource.dispatch_single( d.request )
         deserialized = json.loads( response.body )
 
         # Check if the correct activity has been returned
