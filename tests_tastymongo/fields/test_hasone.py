@@ -31,10 +31,10 @@ class HasOneTests( unittest.TestCase ):
         user = Person.objects.get( id=d.user.pk )
         self.assertEqual( user.name, 'p1' )
 
-        d.request.body = b'''{{
-            "name": "post_list created activity",
-            "person": {{ "resource_uri": "{0}", "name": "p2" }}
-        }}'''.format( user_uri )
+        d.request.body = json.dumps({
+            'name': 'post_list created activity',
+            'person': { 'resource_uri': user_uri, 'name': 'p2' }
+        })
 
         response = d.activity_resource.post_list( d.request )
         deserialized = json.loads( response.body )
@@ -52,15 +52,14 @@ class HasOneTests( unittest.TestCase ):
         # Setup data
         d.a1 = Activity( name='a1', person=d.user )
         d.a1.save()
-        activity_uri = d.activity_resource.get_resource_uri( d.request, d.a1 )
 
         user = Person.objects.get( id=d.user.pk )
         self.assertEqual( user.name, 'p1' )
 
-        d.request.body = b'''{{
-            "resource_uri": "{0}",
-            "person": {{ "resource_uri": "{1}", "name": "p2" }}
-        }}'''.format( activity_uri, user_uri )
+        d.request.body = json.dumps({
+            'resource_uri': d.activity_resource.get_resource_uri( d.request, d.a1 ),
+            'person': { 'resource_uri': user_uri, 'name': 'p2' }
+        })
 
         response = d.activity_resource.post_list( d.request )
         deserialized = json.loads( response.body )
@@ -69,6 +68,3 @@ class HasOneTests( unittest.TestCase ):
 
         user = Person.objects.get( id=d.user.pk )
         self.assertEqual( user.name, 'p2' )
-
-
-

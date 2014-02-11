@@ -67,7 +67,10 @@ class BasicTests( unittest.TestCase ):
     def test_post_list( self ):
         d = self.data
 
-        d.request.body = b'{{ "name": "post_list created activity", "person": "{0}"}}'.format( d.person_resource.get_resource_uri( d.request, d.user ) )
+        d.request.body = json.dumps({
+            'name': 'post_list created activity',
+            'person': d.person_resource.get_resource_uri( d.request, d.user )
+        })
 
         # Create a new activity
         response = d.activity_resource.post_list( d.request )
