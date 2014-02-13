@@ -2,6 +2,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 from pyramid.response import Response
+from pyramid.settings import asbool
 
 from . import http
 from .exceptions import NotRegistered, ConfigurationError, NotFound
@@ -26,6 +27,10 @@ class Api( object ):
         self.api_name = api_name
         self.api_version = api_version
         self._registry = {}
+
+        # Parse `pyramid.debug_api` setting
+        debug_api = asbool( config.registry.settings.get( 'pyramid.debug_api', 'false' ) )
+        config.registry.settings[ 'pyramid.debug_api' ] = debug_api
         self.config = config
 
         self.route = '/{}/{}'.format(self.api_name, self.api_version)
@@ -75,14 +80,12 @@ class Api( object ):
 
     @staticmethod
     def _handle_server_error( resource, request, exception ):
-        settings = request.registry.settings
-
         data = {
             'code': getattr( exception, 'code', 0 ),
             'message': unicode( exception )
         }
 
-        if getattr( settings, 'debug_api', False ):
+        if request.registry.settings[ 'pyramid.debug_api' ]:
             import sys, traceback
             data[ 'traceback' ] = '\n'.join( traceback.format_exception( *( sys.exc_info() ) ) )
 
