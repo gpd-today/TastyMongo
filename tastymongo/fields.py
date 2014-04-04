@@ -208,7 +208,12 @@ class IntegerField( ApiField ):
         if value is None:
             return None
 
-        return int( value )
+        try:
+            value = int( value )
+        except ValueError:
+            value = int( round( float( value ) ) )
+
+        return value
 
 
 class FloatField( ApiField ):
