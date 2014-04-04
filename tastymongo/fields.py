@@ -179,6 +179,9 @@ class ObjectIdField( ApiField ):
                 default=NOT_PROVIDED, required=required, readonly=True,
                 unique=True, help_text='A MongoEngine ObjectId' )
 
+    def convert( self, value ):
+        return self._resource._meta.api.get_id_from_resource_uri( value ) or value
+
     def dehydrate( self, bundle ):
         return bundle.obj.id
         
@@ -254,6 +257,8 @@ class BooleanField( ApiField ):
     def convert( self, value ):
         if value is None:
             return None
+        if value in ( 'false', 'False', 'f', '0', False ):
+            return False
 
         return bool( value )
 
@@ -588,6 +593,9 @@ class ToOneField( RelatedField ):
     """
     help_text = 'A single related resource. Can be either a URI or nested resource data.'
 
+    def convert( self, value ):
+        return self._resource._meta.api.get_id_from_resource_uri( value ) or value
+
     def hydrate( self, bundle ):
         """
         When there's data for the field, create a related bundle with the data 
@@ -698,6 +706,12 @@ class ToManyField( RelatedField ):
     """
     help_text = 'Many related resources. Can be either a list of URIs or a list of individually nested resource data.'
     is_tomany = True
+
+    def convert( self, value ):
+        if isinstance( value, list ):
+            return [ self._resource._meta.api.get_id_from_resource_uri( elem ) or elem for elem in value ]
+        else:
+            return self._resource._meta.api.get_id_from_resource_uri( value )
 
     def hydrate( self, bundle ):
         '''

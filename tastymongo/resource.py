@@ -34,6 +34,7 @@ from bson import ObjectId, DBRef
 from copy import copy
 from operator import or_
 import collections 
+from constants import *
 
 from kitchen.text.converters import getwriter
 import sys
@@ -1257,6 +1258,17 @@ class DocumentResource( Resource ):
         if filter_bits is None:
             filter_bits = []
 
+        # filter out forbidden filtering methods for list dict and embeddedDocument fields:
+        if isinstance( field, ( fields.ListField, fields.DictField, fields.EmbeddedDocumentField ) ) and filter_type not in ( 'exists', 'size' ):
+            raise InvalidFilterError( "The `{0}` field does not allow filtering with '{1}'.".format( field.field_name, filter_type ) )
+        # filter out forbidden filtering methods for the size operator:
+        if filter_type == 'size' and not isinstance( field, ( fields.ListField, fields.DictField, fields.EmbeddedDocumentField, fields.ToManyField ) ):
+            raise InvalidFilterError( "The `{0}` field does not allow filtering with '{1}'.".format( field.field_name, filter_type ) )
+        # take care that the string operators only are used for string fields:
+        if filter_type in QUERY_MATCH_OPERATORS and not isinstance( field, fields.StringField ):
+            raise InvalidFilterError( "The `{0}` field does not allow filtering with '{1}'.".format( field.field_name, filter_type ) )
+
+
         if not field.field_name in self._meta.filtering:
             raise InvalidFilterError( "The `{0}` field does not allow filtering.".format( field.field_name ) )
 
@@ -1289,27 +1301,43 @@ class DocumentResource( Resource ):
         """
         Turn the string or list of strings `value` into a python object.
         """
-        # Simple values
-        if value in ( 'true', 'True', 't', '1', True ):
-            value = True
-        elif value in ( 'false', 'False', 'f', '0', False ):
-            value = False
-        elif value in ( 'nil', 'null', 'none', 'None', None ):
-            value = None
+        # # Simple values
+        # if value in ( 'true', 'True', 't', '1', True ):
+        #     value = True
+        # elif value in ( 'false', 'False', 'f', '0', False ):
+        #     value = False
+        # elif value in ( 'nil', 'null', 'none', 'None', None ):
+        #     value = None
 
-        # TODO/BUG: here, we assume that any string is a resource uri.
-        # This is evidently not true; you can filter by a resource's name or any other string field as well.
-        # Parse a single resource_uri, or a list of them
-        if isinstance( value, basestring ):
-            value = self._meta.api.get_id_from_resource_uri( value ) or value
-            if filter_type in ('in', 'range'):
+        if filter_type == 'size':
+            # takes an int
+            value = int( value )
+        elif filter_type == 'exists':
+            # takes a boolean
+            if value in ( 'true', 'True', 't', '1', True ):
+                value = True
+            elif value in ( 'false', 'False', 'f', '0', False ):
+                value = False
+            else:
+                value = None
+        elif filter_type in ( 'contains', 'icontains', 'startswith', 'istartswith', 'endswith', 'iendswith', 'exact', 'iexact' ):
+            # these query operators work only on strings
+            value = value
+        elif filter_type in ( 'exact', 'ne', 'gt', 'gte', 'lt', 'lte' ):
+            # then the value should be of the same type as field, so we can use the field's convert function:
+            if not isinstance( field, fields.StringField ) and value in ( 'nil', 'null', 'none', 'None', None ):
+                value = None
+            else:
+                value = field.convert( value )
+        elif filter_type in ( 'in', 'nin', 'all' ):
+            # then the value should be a list of elements of the same type as field
+            if not isinstance( value, list ):
+                # with a single value it is possible that webob did not create a list
                 value = [ value ]
-        elif isinstance( value, collections.Iterable ):
-            # ['/api/v1/<resource_name>/<objectid>/', '/api/v1/<resource_name>/<object2id>/', ...]
-            # or ['<objectid1>', '<objectid2>', ...]
-            for i, v in enumerate( value ):
-                if isinstance( v, basestring ):
-                    value[i] = self._meta.api.get_id_from_resource_uri( v ) or v
+            if not isinstance( field, fields.StringField ):
+                value = [ None if elem in ( 'nil', 'null', 'none', 'None', None ) else field.convert( elem ) for elem in value ]
+            else:
+                value = [ field.convert( elem ) for elem in value ]
 
         return value
 
