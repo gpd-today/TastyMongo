@@ -35,8 +35,8 @@ class Api( object ):
 
         self.route = '/{}/{}'.format(self.api_name, self.api_version)
 
-        self.config.add_route(self.route, self.route + '/')
-        self.config.add_view( self.wrap_view(self, self.top_level), route_name=self.route)
+        self.config.add_route( self.route, self.route + '/' )
+        self.config.add_view( self.wrap_view( self, self.top_level ), route_name=self.route )
 
     @staticmethod
     def wrap_view( resource, view ):
@@ -210,7 +210,7 @@ class Api( object ):
         else:
             return request.route_path( route_name, id=id)
 
-    def top_level(self, request):
+    def top_level( self, request ):
         """
         A view that returns a serialized list of all resources registered
         to the ``Api``. Useful for discovery.

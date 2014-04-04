@@ -180,7 +180,7 @@ class Resource( object ):
 
         return request
 
-    def get_resource_uri( self, request, data=None, absolute=None ):
+    def get_resource_uri( self, request, data=None, absolute=False ):
         """
         This function should return the relative or absolute uri of the 
         bundle or object.
@@ -1157,7 +1157,7 @@ class DocumentResource( Resource ):
         '''
         return bundle.obj.pk
 
-    def get_resource_uri( self, request, data=None, absolute=None ):
+    def get_resource_uri( self, request, data=None, absolute=False ):
         """
         Returns the resource's relative or absolute uri per the given API.
         """
@@ -1243,7 +1243,7 @@ class DocumentResource( Resource ):
 
         return obj_list.order_by( *order_by_args )
 
-    def check_filtering( self, field_name, filter_type='exact', filter_bits=None ):
+    def check_filtering( self, field, filter_type='exact', filter_bits=None ):
         """
         Given a field name, an optional filter type and an optional list of
         additional relations, determine if a field can be filtered on.
@@ -1257,43 +1257,42 @@ class DocumentResource( Resource ):
         if filter_bits is None:
             filter_bits = []
 
-        if not field_name in self._meta.filtering:
-            raise InvalidFilterError( "The `{0}` field does not allow filtering.".format(field_name) )
+        if not field.field_name in self._meta.filtering:
+            raise InvalidFilterError( "The `{0}` field does not allow filtering.".format( field.field_name ) )
 
         # Check to see if it's an allowed lookup type.
-        if not self._meta.filtering[field_name] in ( ALL, ALL_WITH_RELATIONS ):
+        if not self._meta.filtering[ field.field_name ] in ( ALL, ALL_WITH_RELATIONS ):
             # Must be an explicit whitelist.
-            if not filter_type in self._meta.filtering[field_name]:
-                raise InvalidFilterError( "`{0}` is not an allowed filter on the `{1}` field.".format( filter_type, field_name ))
+            if not filter_type in self._meta.filtering[ field.field_name ]:
+                raise InvalidFilterError( "`{0}` is not an allowed filter on the `{1}` field.".format( filter_type, field.field_name ))
 
-        if self.fields[field_name].attribute is None:
-            raise InvalidFilterError( "The `{0}` field has no 'attribute' to apply a filter on.".format(field_name) )
+        if field.attribute is None:
+            raise InvalidFilterError( "The `{0}` field has no 'attribute' to apply a filter on.".format( field.field_name ) )
 
         # Check to see if it's a relational lookup and if that's allowed.
         if len( filter_bits ):
-            if not getattr(self.fields[ field_name ], 'is_related', False):
-                raise InvalidFilterError("The '%s' field does not support relations." % field_name)
+            if not getattr( field.field_name, 'is_related', False ):
+                raise InvalidFilterError( "The '%s' field does not support relations." % field.field_name )
 
-            if not self._meta.filtering[ field_name ] == ALL_WITH_RELATIONS:
-                raise InvalidFilterError("Lookups are not allowed more than one level deep on the '%s' field." % field_name)
+            if not self._meta.filtering[ field.field_name ] == ALL_WITH_RELATIONS:
+                raise InvalidFilterError( "Lookups are not allowed more than one level deep on the '%s' field." % field.field_name )
 
             # Recursively descend through the remaining lookups in the filter,
             # if any. We should ensure that all along the way, we're allowed
             # to filter on that field by the related resource.
-            related_resource = self.fields[field_name].get_related_resource( None )
-            return [ ( self, self.fields[field_name] ) ] + related_resource.check_filtering( filter_bits[0], filter_type, filter_bits[1:] )
+            related_resource = field.get_related_resource( None )
+            return [ ( self, field ) ] + related_resource.check_filtering( filter_bits[0], filter_type, filter_bits[1:] )
 
-        return [ ( self, self.fields[field_name] ) ]
+        return [ ( self, field ) ]
 
-    def parse_filter_value( self, value, field_name, filters, filter_expr, filter_type ):
+    def parse_filter_value( self, value, field, filter_type ):
         """
         Turn the string or list of strings `value` into a python object.
         """
-
         # Simple values
-        if value in ( 'true', 'True', True ):
+        if value in ( 'true', 'True', 't', '1', True ):
             value = True
-        elif value in ( 'false', 'False', False ):
+        elif value in ( 'false', 'False', 'f', '0', False ):
             value = False
         elif value in ( 'nil', 'null', 'none', 'None', None ):
             value = None
@@ -1363,6 +1362,8 @@ class DocumentResource( Resource ):
                 # Not a field the Resource knows about, so ignore it.
                 continue
 
+            field = self.fields[ field_name ]
+
             # Override filter_type if it is given.
             if len( filter_bits ) and filter_bits[-1].replace('[]', '') in QUERY_TERMS:
                 filter_type = filter_bits.pop().replace('[]', '')
@@ -1374,8 +1375,8 @@ class DocumentResource( Resource ):
             #   { 'author__id__in': author_ids }
             # where `author_ids` is the result set from
             #   AuthorResource.filter( name__icontains='Fred' )
-            resource_filters = self.check_filtering( field_name, filter_type, filter_bits )
-            value = self.parse_filter_value( value, field_name, filters, filter_expr, filter_type )
+            resource_filters = self.check_filtering( field, filter_type, filter_bits )
+            value = self.parse_filter_value( value, field, filter_type )
 
             if len( resource_filters ) > 1:
                 # Traverse related fields backwards, creating lists of ids as
