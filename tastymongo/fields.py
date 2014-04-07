@@ -173,14 +173,15 @@ class ObjectIdField( ApiField ):
     """
     
     help_text = "ObjectId field that corresponds to MongoDB's ObjectId"
-    
-    def __init__( self, attribute=None, default=NOT_PROVIDED, required=False, readonly=True, unique=True, help_text='A MongoEngine ObjectId' ):
-        super( ObjectIdField, self ).__init__( attribute='id',
-                default=NOT_PROVIDED, required=required, readonly=True,
-                unique=True, help_text='A MongoEngine ObjectId' )
+
+    def __init__( self, attribute='id', default=NOT_PROVIDED, required=False, readonly=True, unique=True, help_text='A MongoEngine ObjectId' ):
+        super( ObjectIdField, self ).__init__( attribute=attribute, default=default, required=required,
+            readonly=readonly, unique=unique, help_text=help_text )
 
     def convert( self, value ):
-        return self._resource._meta.api.get_id_from_resource_uri( value ) or value
+        if isinstance( value, ObjectId ):
+            return value
+        return self._resource._meta.api.get_id_from_resource_uri( value ) or ObjectId( value )
 
     def dehydrate( self, bundle ):
         return bundle.obj.id
