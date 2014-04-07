@@ -1320,16 +1320,16 @@ class DocumentResource( Resource ):
                 value = False
             else:
                 value = None
-        elif filter_type in ( 'contains', 'icontains', 'startswith', 'istartswith', 'endswith', 'iendswith', 'exact', 'iexact' ):
+        elif filter_type in QUERY_MATCH_OPERATORS:
             # these query operators work only on strings
             value = value
-        elif filter_type in ( 'exact', 'ne', 'gt', 'gte', 'lt', 'lte' ):
+        elif filter_type in QUERY_EQUALITY_OPERATORS:
             # then the value should be of the same type as field, so we can use the field's convert function:
             if not isinstance( field, fields.StringField ) and value in ( 'nil', 'null', 'none', 'None', None ):
                 value = None
             else:
                 value = field.convert( value )
-        elif filter_type in ( 'in', 'nin', 'all' ):
+        elif filter_type in QUERY_LIST_OPERATORS:
             # then the value should be a list of elements of the same type as field
             if not isinstance( value, list ):
                 # with a single value it is possible that webob did not create a list
