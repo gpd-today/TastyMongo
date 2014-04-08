@@ -5,7 +5,7 @@ from tastymongo.constants import ALL_WITH_RELATIONS, ALL
 from tastymongo.resource import DocumentResource
 from tastymongo import fields
 
-from tests_tastymongo.documents import Activity, Person, Deliverable
+from tests_tastymongo.documents import Activity, Person, Deliverable, AllFieldsDocument
 
 
 class PersonResource( DocumentResource ):
@@ -41,4 +41,40 @@ class DeliverableResource( DocumentResource ):
         resource_name = 'deliverable'
         filtering = {
             'id': ['in', 'exact']
+        }
+
+class AllFieldsDocumentResource( DocumentResource ):
+
+    to_one_field = fields.ToOneField( 'to_one_field', 'AllFieldsDocumentResource' )
+    to_many_field = fields.ToManyField( 'to_many_field', 'AllFieldsDocumentResource' )
+
+    id_field = fields.ObjectIdField( 'id_field' )
+    string_field = fields.StringField( 'string_field' )
+    int_field = fields.IntegerField( 'int_field' )
+    float_field = fields.FloatField( 'float_field' )
+    decimal_field = fields.DecimalField( 'decimal_field' )
+    boolean_field = fields.BooleanField( 'boolean_field' )
+    list_field = fields.ListField( 'list_field' )
+    dict_field = fields.DictField( 'dict_field' )
+    document_field = fields.EmbeddedDocumentField( 'document_field' )
+    date_field = fields.DateField( 'date_field' )
+    datetime_field = fields.DateTimeField( 'datetime_field' )
+    time_field = fields.TimeField( 'time_field' )
+
+    class Meta:
+        object_class = AllFieldsDocument
+        resource_name = 'all_fields_document'
+        filtering = {
+            'id_field': ALL,
+            'string_field': ALL,
+            'int_field': ALL,
+            'float_field': ALL,
+            'decimal_field': ALL,
+            'boolean_field': ALL,
+            'list_field': ALL,
+            'dict_field': ALL,
+            'document_field': ALL,
+            'date_field': ALL,
+            'datetime_field': ALL_WITH_RELATIONS,
+            'time_field': ALL_WITH_RELATIONS
         }

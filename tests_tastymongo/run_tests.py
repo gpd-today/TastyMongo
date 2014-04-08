@@ -12,7 +12,7 @@ from tastymongo.api import Api
 
 from tests_tastymongo.utils import Struct
 from tests_tastymongo.documents import Person
-from tests_tastymongo.resources import ActivityResource, PersonResource, DeliverableResource
+from tests_tastymongo.resources import ActivityResource, PersonResource, DeliverableResource, AllFieldsDocumentResource
 
 
 def setup_db( drop=True ):
@@ -38,9 +38,11 @@ def setup_request( user=None ):
     d.activity_resource = ActivityResource()
     d.deliverable_resource = DeliverableResource()
     d.person_resource = PersonResource()
+    d.allfieldsdocument_resource = AllFieldsDocumentResource()
     d.api.register( d.activity_resource )
     d.api.register( d.deliverable_resource )
     d.api.register( d.person_resource )
+    d.api.register( d.allfieldsdocument_resource )
 
     if user is not False:
         if user:
