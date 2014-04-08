@@ -1252,11 +1252,24 @@ class DocumentResource( Resource ):
         If a filter does not meet the needed conditions, it should raise an
         `InvalidFilterError`.
 
-        If the filter meets the conditions, a list of tupes of the form
+        If the filter meets the conditions, a list of tuples of the form
         [ ( Resource, Field ), ... ]  is returned.
         """
         if filter_bits is None:
             filter_bits = []
+        # Check to see if it's a relational lookup and if that's allowed.
+        if len( filter_bits ):
+            if not getattr( field, 'is_related', False ):
+                raise InvalidFilterError( "The '%s' field does not support relations." % field.field_name )
+
+            if not self._meta.filtering[ field.field_name ] == ALL_WITH_RELATIONS:
+                raise InvalidFilterError( "Lookups are not allowed more than one level deep on the '%s' field." % field.field_name )
+
+            # Recursively descend through the remaining lookups in the filter,
+            # if any. We should ensure that all along the way, we're allowed
+            # to filter on that field by the related resource.
+            related_resource = field.get_related_resource( None )
+            return [ ( self, field ) ] + related_resource.check_filtering( self.fields[ filter_bits[0] ], filter_type, filter_bits[1:] )
 
         # filter out forbidden filtering methods for list dict and embeddedDocument fields:
         if isinstance( field, ( fields.ListField, fields.DictField, fields.EmbeddedDocumentField ) ) and filter_type not in ( 'exists', 'size' ):
@@ -1268,9 +1281,11 @@ class DocumentResource( Resource ):
         if filter_type in QUERY_MATCH_OPERATORS and not isinstance( field, fields.StringField ):
             raise InvalidFilterError( "The `{0}` field does not allow filtering with '{1}'.".format( field.field_name, filter_type ) )
 
-
+        # look at the resource specific limitations on filtering, defined in this resource's meta:
         if not field.field_name in self._meta.filtering:
             raise InvalidFilterError( "The `{0}` field does not allow filtering.".format( field.field_name ) )
+        elif not isinstance( self._meta.filtering[ field.field_name ], int ) and filter_type not in self._meta.filtering[ field.field_name ]:
+            raise InvalidFilterError( "The `{0}` field does not allow filtering with '{1}'.".format( field.field_name, filter_type ) )
 
         # Check to see if it's an allowed lookup type.
         if not self._meta.filtering[ field.field_name ] in ( ALL, ALL_WITH_RELATIONS ):
@@ -1280,20 +1295,6 @@ class DocumentResource( Resource ):
 
         if field.attribute is None:
             raise InvalidFilterError( "The `{0}` field has no 'attribute' to apply a filter on.".format( field.field_name ) )
-
-        # Check to see if it's a relational lookup and if that's allowed.
-        if len( filter_bits ):
-            if not getattr( field.field_name, 'is_related', False ):
-                raise InvalidFilterError( "The '%s' field does not support relations." % field.field_name )
-
-            if not self._meta.filtering[ field.field_name ] == ALL_WITH_RELATIONS:
-                raise InvalidFilterError( "Lookups are not allowed more than one level deep on the '%s' field." % field.field_name )
-
-            # Recursively descend through the remaining lookups in the filter,
-            # if any. We should ensure that all along the way, we're allowed
-            # to filter on that field by the related resource.
-            related_resource = field.get_related_resource( None )
-            return [ ( self, field ) ] + related_resource.check_filtering( filter_bits[0], filter_type, filter_bits[1:] )
 
         return [ ( self, field ) ]
 
