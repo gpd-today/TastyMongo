@@ -1301,13 +1301,6 @@ class DocumentResource( Resource ):
         """
         Turn the string or list of strings `value` into a python object.
         """
-        # # Simple values
-        # if value in ( 'true', 'True', 't', '1', True ):
-        #     value = True
-        # elif value in ( 'false', 'False', 'f', '0', False ):
-        #     value = False
-        # elif value in ( 'nil', 'null', 'none', 'None', None ):
-        #     value = None
 
         if filter_type == 'size':
             # takes an int
@@ -1325,7 +1318,7 @@ class DocumentResource( Resource ):
             value = value
         elif filter_type in QUERY_EQUALITY_OPERATORS:
             # then the value should be of the same type as field, so we can use the field's convert function:
-            if not isinstance( field, fields.StringField ) and value in ( 'nil', 'null', 'none', 'None', None ):
+            if not isinstance( field, fields.StringField ) and value in ( '', 'nil', 'null', 'none', 'None', None ):
                 value = None
             else:
                 value = field.convert( value )
@@ -1335,7 +1328,7 @@ class DocumentResource( Resource ):
                 # with a single value it is possible that webob did not create a list
                 value = [ value ]
             if not isinstance( field, fields.StringField ):
-                value = [ None if elem in ( 'nil', 'null', 'none', 'None', None ) else field.convert( elem ) for elem in value ]
+                value = [ None if elem in ( '', 'nil', 'null', 'none', 'None', None ) else field.convert( elem ) for elem in value ]
             else:
                 value = [ field.convert( elem ) for elem in value ]
 
