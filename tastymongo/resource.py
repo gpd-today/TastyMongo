@@ -1321,16 +1321,16 @@ class DocumentResource( Resource ):
             if not isinstance( field, fields.StringField ) and value in ( '', 'nil', 'null', 'none', 'None', None ):
                 value = None
             else:
-                value = field.convert( value )
+                value = field.convert_from_string( value )
         elif filter_type in QUERY_LIST_OPERATORS:
             # then the value should be a list of elements of the same type as field
             if not isinstance( value, list ):
                 # with a single value it is possible that webob did not create a list
                 value = [ value ]
             if not isinstance( field, fields.StringField ):
-                value = [ None if elem in ( '', 'nil', 'null', 'none', 'None', None ) else field.convert( elem ) for elem in value ]
+                value = [ None if elem in ( '', 'nil', 'null', 'none', 'None', None ) else field.convert_from_string( elem ) for elem in value ]
             else:
-                value = [ field.convert( elem ) for elem in value ]
+                value = [ field.convert_from_string( elem ) for elem in value ]
 
         return value
 

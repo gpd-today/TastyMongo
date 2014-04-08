@@ -109,6 +109,13 @@ class ApiField( object ):
         """
         return value
 
+    def convert_from_string( self, value ):
+        """
+        Handles conversion from the string data to the type of the field.
+        Should be overridden when the default conversion is not sufficient
+        """
+        return self.convert( value )
+
     def hydrate( self, bundle ):
         """
         Returns any data for the field that is present in the bundle.
@@ -178,10 +185,12 @@ class ObjectIdField( ApiField ):
         super( ObjectIdField, self ).__init__( attribute=attribute, default=default, required=required,
             readonly=readonly, unique=unique, help_text=help_text )
 
-    def convert( self, value ):
+    def convert_from_string( self, value ):
+        if value is None:
+            return None
         if isinstance( value, ObjectId ):
             return value
-        return self._resource._meta.api.get_id_from_resource_uri( value ) or ObjectId( value )
+        return ObjectId( value )
 
     def dehydrate( self, bundle ):
         return bundle.obj.id
@@ -553,6 +562,8 @@ class RelatedField( ApiField ):
             elif isinstance( data, basestring ):
                 related_resource = self._resource._meta.api.resource_for_uri( data )
 
+
+
         if not related_resource:
             raise ValueError( 'Unable to resolve a related_resource for `{}.{}`'.format( self._resource._meta.resource_name, self.field_name ) )
 
@@ -594,8 +605,13 @@ class ToOneField( RelatedField ):
     """
     help_text = 'A single related resource. Can be either a URI or nested resource data.'
 
-    def convert( self, value ):
-        return self._resource._meta.api.get_id_from_resource_uri( value ) or value
+    def convert_from_string( self, value ):
+        if value is None:
+            return None
+        if isinstance( value, dict ):
+            # we have a dict with a DBRef
+            return value['_ref'].id
+        return ObjectId( self._resource._meta.api.get_id_from_resource_uri( value ) or value )
 
     def hydrate( self, bundle ):
         """
@@ -610,13 +626,13 @@ class ToOneField( RelatedField ):
             return None
 
         if isinstance( related_data, basestring ):
-            # There's no additional data, just a resource_uri, that can be 
-            # the same or different from what we already have. 
+            # There's no additional data, just a resource_uri, that can be
+            # the same or different from what we already have.
             data_id = self._resource._meta.api.get_id_from_resource_uri( related_data )
             if not data_id:
                 raise ApiFieldError( 'Invalid data for related field `{}` on `{}`'.format(self.field_name, self._resource.Meta.resource_name))
 
-            # See if it corresponds to what we already have 
+            # See if it corresponds to what we already have
             obj_data = bundle.obj._data[ self.attribute ]
 
             if isinstance( obj_data, dict ) and '_ref' in obj_data:
@@ -629,16 +645,16 @@ class ToOneField( RelatedField ):
                 obj_data = str( obj_data )
 
             if obj_data == data_id:
-                #FIXME: INEFFICIENT DIRTY HACK: 
-                # 
+                #FIXME: INEFFICIENT DIRTY HACK:
+                #
                 # We run into trouble because `build_bundle` uses
                 # `obj_get_single` for building related data, where quite
                 # convoluted querysets decrease performance and may lead to
                 # irrelevant errors preventing updates of otherwise valid
                 # PUT/POSTs to a resource.
                 #
-                # This fixes failing cases, but it is inefficient in that it 
-                # may still access the database, whereas we could, should and 
+                # This fixes failing cases, but it is inefficient in that it
+                # may still access the database, whereas we could, should and
                 # can skip that completely. However, that ties into the
                 # hydration cycle in several other places, so until we fix that
                 # thoroughly this patch is a workaround.
@@ -650,8 +666,8 @@ class ToOneField( RelatedField ):
         """
         Returns the URI only or the (nested) data for the related resource.
 
-        When a fully populated object is requested, pick up the object 
-        for the related resource, create a bundle for it and call upon 
+        When a fully populated object is requested, pick up the object
+        for the related resource, create a bundle for it and call upon
         the related resource's dehydrate method to populate the data from
         the object. The related resource may in turn recurse for nested data.
         """
@@ -701,6 +717,7 @@ class ToOneField( RelatedField ):
         return related_resource.dehydrate( related_bundle, bundle.request )
 
 
+
 class ToManyField( RelatedField ):
     """
     Provides access to a list of related resources.
@@ -708,7 +725,7 @@ class ToManyField( RelatedField ):
     help_text = 'Many related resources. Can be either a list of URIs or a list of individually nested resource data.'
     is_tomany = True
 
-    def convert( self, value ):
+    def convert_from_string( self, value ):
         if isinstance( value, list ):
             return [ self._resource._meta.api.get_id_from_resource_uri( elem ) or elem for elem in value ]
         else:
