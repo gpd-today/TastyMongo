@@ -190,6 +190,8 @@ class ObjectIdField( ApiField ):
             return None
         if isinstance( value, ObjectId ):
             return value
+        if self._resource:
+            return ObjectId( self._resource._meta.api.get_id_from_resource_uri( value ) or value )
         return ObjectId( value )
 
     def dehydrate( self, bundle ):
