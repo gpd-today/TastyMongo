@@ -1146,7 +1146,7 @@ class DocumentResource( Resource ):
                 kwargs['default'] = f.auto_now_add
 
             final_fields[name] = api_field_class( **kwargs )
-            final_fields[name].field_name = name
+            final_fields[name].contribute_to_class( cls, name )
 
         return final_fields
 
