@@ -1269,7 +1269,9 @@ class DocumentResource( Resource ):
             # if any. We should ensure that all along the way, we're allowed
             # to filter on that field by the related resource.
             related_resource = field.get_related_resource( None )
-            return [ ( self, field ) ] + related_resource.check_filtering( self.fields[ filter_bits[0] ], filter_type, filter_bits[1:] )
+            if filter_bits[0] not in related_resource.fields:
+                raise InvalidFilterError( "`{0}` is not a field on `{1}`".format( filter_bits[0], field.field_name ) )
+            return [ ( self, field ) ] + related_resource.check_filtering( related_resource.fields[ filter_bits[0] ], filter_type, filter_bits[1:] )
 
         # filter out forbidden filtering methods for list dict and embeddedDocument fields:
         if isinstance( field, ( fields.ListField, fields.DictField, fields.EmbeddedDocumentField ) ) and filter_type not in ( 'exists', 'size' ):
@@ -1324,7 +1326,7 @@ class DocumentResource( Resource ):
                 # with a single value it is possible that webob did not create a list
                 value = [ value ]
             if not isinstance( field, fields.StringField ):
-                value = [ None if elem in ( '', 'nil', 'null', 'none', 'None', None ) else field.convert_from_string( elem ) for elem in value ]
+                value = [ field.convert_from_string( elem ) for elem in value if elem not in ( '', 'nil', 'null', 'none', 'None', None ) ]
             else:
                 value = [ field.convert_from_string( elem ) for elem in value ]
 
@@ -1398,7 +1400,7 @@ class DocumentResource( Resource ):
             # where `author_ids` is the result set from
             #   AuthorResource.filter( name__icontains='Fred' )
             resource_filters = self.check_filtering( field, filter_type, filter_bits )
-            value = self.parse_filter_value( value, field, filter_type )
+            value = resource_filters[-1][0].parse_filter_value( value, resource_filters[-1][1], filter_type )
 
             if len( resource_filters ) > 1:
                 # Traverse related fields backwards, creating lists of ids as
