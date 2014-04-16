@@ -1262,7 +1262,7 @@ class DocumentResource( Resource ):
             if not getattr( field, 'is_related', False ):
                 raise InvalidFilterError( "The '%s' field does not support relations." % field.field_name )
 
-            if not self._meta.filtering[ field.field_name ] == ALL_WITH_RELATIONS:
+            if not field.field_name in self._meta.filtering or ( isinstance( self._meta.filtering, dict ) and self._meta.filtering[ field.field_name ] != ALL_WITH_RELATIONS ):
                 raise InvalidFilterError( "Lookups are not allowed more than one level deep on the '%s' field." % field.field_name )
 
             # Recursively descend through the remaining lookups in the filter,
@@ -1284,14 +1284,9 @@ class DocumentResource( Resource ):
         # look at the resource specific limitations on filtering, defined in this resource's meta:
         if not field.field_name in self._meta.filtering:
             raise InvalidFilterError( "The `{0}` field does not allow filtering.".format( field.field_name ) )
-        elif not isinstance( self._meta.filtering[ field.field_name ], int ) and filter_type not in self._meta.filtering[ field.field_name ]:
-            raise InvalidFilterError( "The `{0}` field does not allow filtering with '{1}'.".format( field.field_name, filter_type ) )
-
-        # Check to see if it's an allowed lookup type.
-        if not self._meta.filtering[ field.field_name ] in ( ALL, ALL_WITH_RELATIONS ):
-            # Must be an explicit whitelist.
-            if not filter_type in self._meta.filtering[ field.field_name ]:
-                raise InvalidFilterError( "`{0}` is not an allowed filter on the `{1}` field.".format( filter_type, field.field_name ))
+        elif isinstance( self._meta.filtering, dict ) and self._meta.filtering[ field.field_name ] not in ( ALL, ALL_WITH_RELATIONS ):
+            if filter_type not in self._meta.filtering[ field.field_name ]:
+                raise InvalidFilterError( "The `{0}` field does not allow filtering with '{1}'.".format( field.field_name, filter_type ) )
 
         if field.attribute is None:
             raise InvalidFilterError( "The `{0}` field has no 'attribute' to apply a filter on.".format( field.field_name ) )
@@ -1345,16 +1340,21 @@ class DocumentResource( Resource ):
         `['startswith', 'exact', 'lte', 'icontains']` ) the `ALL` or 
         'ALL_WITH_RELATIONS' constants.
 
-        At the declarative level:
-            filtering = {
-                'resource_field_name': ['exact', 'startswith', 'endswith', 'contains'],
-                'resource_field_name_2': ['exact', 'gt', 'gte', 'lt', 'lte', 'range'],
-                'resource_field_name_3': ALL,
-                'resource_field_name_4': ALL_WITH_RELATIONS,
-                ...
-            }
+        The resource needs to explicitly allow filtering on its fields either by specifying the resource's filtering as
+        a list:
 
-        Accepts the filters as a dict. 
+        filtering = [ 'resource_field_name_1', 'resource_field_name_2', 'resource_field_name_4' ],
+
+        meaning these fields allow all possible types of filtering, or as a dict, indicating which specific filters are
+        allowed on each field:
+
+        filtering = {
+            'resource_field_name_1': ['exact', 'startswith', 'endswith', 'contains'],
+            'resource_field_name_2': ['exact', 'gt', 'gte', 'lt', 'lte', 'range'],
+            'resource_field_name_3': ALL,
+            'resource_field_name_4': ALL_WITH_RELATIONS,
+            ...
+        }
 
         Creates cross-relational lookups by using the results of intermediary
         filters on related resources.
