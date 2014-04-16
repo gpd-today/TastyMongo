@@ -1244,6 +1244,20 @@ class DocumentResource( Resource ):
 
         return obj_list.order_by( *order_by_args )
 
+    def api_field_from_document_field_name( self, field_name ):
+        """
+        Given a field name, we can find this field name on the document, and return an api field.
+        """
+
+        if field_name in self.Meta.object_class._fields:
+            related_field = self.api_field_from_mongoengine_field( self.Meta.object_class._fields[ field_name ] )
+            related_field = related_field( **{ 'attribute': field_name } )
+            related_field.contribute_to_class( self.__class__, field_name )
+            return related_field
+        else:
+            return None
+
+
     def check_filtering( self, field, filter_type='exact', filter_bits=None ):
         """
         Given a field name, an optional filter type and an optional list of
@@ -1265,13 +1279,24 @@ class DocumentResource( Resource ):
             if not field.field_name in self._meta.filtering or ( isinstance( self._meta.filtering, dict ) and self._meta.filtering[ field.field_name ] != ALL_WITH_RELATIONS ):
                 raise InvalidFilterError( "Lookups are not allowed more than one level deep on the '%s' field." % field.field_name )
 
-            # Recursively descend through the remaining lookups in the filter,
-            # if any. We should ensure that all along the way, we're allowed
-            # to filter on that field by the related resource.
+
             related_resource = field.get_related_resource( None )
             if filter_bits[0] not in related_resource.fields:
-                raise InvalidFilterError( "`{0}` is not a field on `{1}`".format( filter_bits[0], field.field_name ) )
-            return [ ( self, field ) ] + related_resource.check_filtering( related_resource.fields[ filter_bits[0] ], filter_type, filter_bits[1:] )
+                # then this field does not exist on the related resource
+                if filter_bits[0] in related_resource._meta.filtering:
+                    # then this field is allowed to be filtered on, even though its excluded from the resource, this
+                    # means that we probably want to filter on a field of the document, which we create here:
+                    related_field = related_resource.api_field_from_document_field_name( filter_bits[0] )
+                if not filter_bits[0] in related_resource._meta.filtering or not related_field:
+                    # then this field does not exist on either the resource or the document, or it does not allow
+                    # filtering either
+                    raise InvalidFilterError( "`{0}` is not a field on `{1}`".format( filter_bits[0], field.field_name ) )
+            else:
+                related_field = related_resource.fields[ filter_bits[0] ]
+
+            # Recursively descend through the remaining lookups in the filter, if any. By recursively calling
+            # check_filtering, we ensure that on every level, the lookup is allowed.
+            return [ ( self, field ) ] + related_resource.check_filtering( related_field, filter_type, filter_bits[1:] )
 
         # filter out forbidden filtering methods for list dict and embeddedDocument fields:
         if isinstance( field, ( fields.ListField, fields.DictField, fields.EmbeddedDocumentField ) ) and filter_type not in ( 'exists', 'size' ):
@@ -1383,10 +1408,15 @@ class DocumentResource( Resource ):
                 field_name = filter_bits.pop( 0 )
 
             if field_name not in self.fields:
-                # Not a field the Resource knows about, so ignore it.
-                continue
-
-            field = self.fields[ field_name ]
+                if field_name in self._meta.filtering:
+                    # then this field is allowed to be filtered on, even though its excluded from the resource, this
+                    # means that we probably want to filter on a field of the document, which we create here:
+                    field = self.api_field_from_document_field_name( field_name )
+                else:
+                    # Not a field the Resource knows about, so ignore it.
+                    continue
+            else:
+                field = self.fields[ field_name ]
 
             # Override filter_type if it is given.
             if len( filter_bits ) and filter_bits[-1].replace('[]', '') in QUERY_TERMS:
