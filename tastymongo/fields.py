@@ -322,7 +322,7 @@ class EmbeddedDocumentField( ApiField ):
         dct = {}
         for k, f in doc._fields.items():
             if k in value:
-                api_field_class = self._resource.api_field_from_mongoengine_field( f )()
+                api_field_class = self._resource.get_api_field_for_mongoengine_field( f )()
                 dct[k] = api_field_class.convert( value[k] )
 
         return dct

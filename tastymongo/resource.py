@@ -1062,7 +1062,7 @@ class DocumentResource( Resource ):
         return False
 
     @classmethod
-    def api_field_from_mongoengine_field( cls, f, default=fields.StringField ):
+    def get_api_field_for_mongoengine_field( cls, f, default=fields.StringField ):
         """
         Returns the field type that would likely be associated with each
         MongoEngine type.
@@ -1124,7 +1124,7 @@ class DocumentResource( Resource ):
             if cls.should_skip_field( f ):
                 continue
 
-            api_field_class = cls.api_field_from_mongoengine_field( f )
+            api_field_class = cls.get_api_field_for_mongoengine_field( f )
 
             kwargs = {
                 'attribute': f.name,
@@ -1244,14 +1244,13 @@ class DocumentResource( Resource ):
 
         return obj_list.order_by( *order_by_args )
 
-    def api_field_from_document_field_name( self, field_name ):
+    def get_api_field_for_document_field( self, field_name ):
         """
         Given a field name, we can find this field name on the document, and return an api field.
         """
-
         if field_name in self.Meta.object_class._fields:
-            related_field = self.api_field_from_mongoengine_field( self.Meta.object_class._fields[ field_name ] )
-            related_field = related_field( **{ 'attribute': field_name } )
+            related_field = self.get_api_field_for_mongoengine_field( self.Meta.object_class._fields[ field_name ] )
+            related_field = related_field( attribute=field_name )
             related_field.contribute_to_class( self.__class__, field_name )
             return related_field
         else:
@@ -1271,49 +1270,56 @@ class DocumentResource( Resource ):
         """
         if filter_bits is None:
             filter_bits = []
+
         # Check to see if it's a relational lookup and if that's allowed.
         if len( filter_bits ):
             if not getattr( field, 'is_related', False ):
                 raise InvalidFilterError( "The '%s' field does not support relations." % field.field_name )
 
-            if not field.field_name in self._meta.filtering or ( isinstance( self._meta.filtering, dict ) and self._meta.filtering[ field.field_name ] != ALL_WITH_RELATIONS ):
+            if not field.field_name in self._meta.filtering or ( isinstance( self._meta.filtering, dict ) and
+                    self._meta.filtering[ field.field_name ] != ALL_WITH_RELATIONS ):
                 raise InvalidFilterError( "Lookups are not allowed more than one level deep on the '%s' field." % field.field_name )
 
 
             related_resource = field.get_related_resource( None )
-            if filter_bits[0] not in related_resource.fields:
+            if filter_bits[0] in related_resource.fields:
+                related_field = related_resource.fields[ filter_bits[0] ]
+            else:
                 # then this field does not exist on the related resource
                 if filter_bits[0] in related_resource._meta.filtering:
                     # then this field is allowed to be filtered on, even though its excluded from the resource, this
                     # means that we probably want to filter on a field of the document, which we create here:
-                    related_field = related_resource.api_field_from_document_field_name( filter_bits[0] )
+                    related_field = related_resource.get_api_field_for_document_field( filter_bits[0] )
+
                 if not filter_bits[0] in related_resource._meta.filtering or not related_field:
                     # then this field does not exist on either the resource or the document, or it does not allow
                     # filtering either
                     raise InvalidFilterError( "`{0}` is not a field on `{1}`".format( filter_bits[0], field.field_name ) )
-            else:
-                related_field = related_resource.fields[ filter_bits[0] ]
 
             # Recursively descend through the remaining lookups in the filter, if any. By recursively calling
             # check_filtering, we ensure that on every level, the lookup is allowed.
             return [ ( self, field ) ] + related_resource.check_filtering( related_field, filter_type, filter_bits[1:] )
 
+        invalid_filter = False
         # filter out forbidden filtering methods for list dict and embeddedDocument fields:
         if isinstance( field, ( fields.ListField, fields.DictField, fields.EmbeddedDocumentField ) ) and filter_type not in ( 'exists', 'size' ):
-            raise InvalidFilterError( "The `{0}` field does not allow filtering with '{1}'.".format( field.field_name, filter_type ) )
+            invalid_filter = True
         # filter out forbidden filtering methods for the size operator:
         if filter_type == 'size' and not isinstance( field, ( fields.ListField, fields.DictField, fields.EmbeddedDocumentField, fields.ToManyField ) ):
-            raise InvalidFilterError( "The `{0}` field does not allow filtering with '{1}'.".format( field.field_name, filter_type ) )
+            invalid_filter = True
         # take care that the string operators only are used for string fields:
         if filter_type in QUERY_MATCH_OPERATORS and not isinstance( field, fields.StringField ):
-            raise InvalidFilterError( "The `{0}` field does not allow filtering with '{1}'.".format( field.field_name, filter_type ) )
+            invalid_filter = True
 
         # look at the resource specific limitations on filtering, defined in this resource's meta:
         if not field.field_name in self._meta.filtering:
             raise InvalidFilterError( "The `{0}` field does not allow filtering.".format( field.field_name ) )
         elif isinstance( self._meta.filtering, dict ) and self._meta.filtering[ field.field_name ] not in ( ALL, ALL_WITH_RELATIONS ):
             if filter_type not in self._meta.filtering[ field.field_name ]:
-                raise InvalidFilterError( "The `{0}` field does not allow filtering with '{1}'.".format( field.field_name, filter_type ) )
+                invalid_filter = True
+
+        if invalid_filter:
+            raise InvalidFilterError( "The `{0}` field does not allow filtering with '{1}'.".format( field.field_name, filter_type ) )
 
         if field.attribute is None:
             raise InvalidFilterError( "The `{0}` field has no 'attribute' to apply a filter on.".format( field.field_name ) )
@@ -1323,37 +1329,42 @@ class DocumentResource( Resource ):
     def parse_filter_value( self, value, field, filter_type ):
         """
         Turn the string or list of strings `value` into a python object.
+        @type value: string or list<string>
         """
+        try:
+            if filter_type == 'size':
+                # takes an int
+                value = int( value )
+            elif filter_type == 'exists':
+                # takes a boolean
+                if value in ( 'true', 'True', 't', '1', True ):
+                    value = True
+                elif value in ( 'false', 'False', 'f', '0', False ):
+                    value = False
+                else:
+                    value = None
+            elif filter_type in QUERY_MATCH_OPERATORS:
+                # these query operators work only on strings
+                value = str( value )
+            elif filter_type in QUERY_EQUALITY_OPERATORS:
+                if not isinstance( field, fields.StringField ) and value in ( '', 'nil', 'null', 'none', 'None', None ):
+                    value = None
+                else:
+                    # then the value should be of the same type as field, so we can use the field's convert function:
+                    value = field.convert_from_string( value )
+            elif filter_type in QUERY_LIST_OPERATORS:
+                # then the value should be a list of elements of the same type as field
+                if not isinstance( value, list ):
+                    # with a single value it is possible that webob did not create a list
+                    value = [ value ]
 
-        if filter_type == 'size':
-            # takes an int
-            value = int( value )
-        elif filter_type == 'exists':
-            # takes a boolean
-            if value in ( 'true', 'True', 't', '1', True ):
-                value = True
-            elif value in ( 'false', 'False', 'f', '0', False ):
-                value = False
-            else:
-                value = None
-        elif filter_type in QUERY_MATCH_OPERATORS:
-            # these query operators work only on strings
-            value = value
-        elif filter_type in QUERY_EQUALITY_OPERATORS:
-            # then the value should be of the same type as field, so we can use the field's convert function:
-            if not isinstance( field, fields.StringField ) and value in ( '', 'nil', 'null', 'none', 'None', None ):
-                value = None
-            else:
-                value = field.convert_from_string( value )
-        elif filter_type in QUERY_LIST_OPERATORS:
-            # then the value should be a list of elements of the same type as field
-            if not isinstance( value, list ):
-                # with a single value it is possible that webob did not create a list
-                value = [ value ]
-            if not isinstance( field, fields.StringField ):
-                value = [ field.convert_from_string( elem ) for elem in value if elem not in ( '', 'nil', 'null', 'none', 'None', None ) ]
-            else:
-                value = [ field.convert_from_string( elem ) for elem in value ]
+                if not isinstance( field, fields.StringField ):
+                    value = [ field.convert_from_string( elem ) for elem in value if elem not in ( '', 'nil', 'null', 'none', 'None', None ) ]
+                else:
+                    value = [ field.convert_from_string( elem ) for elem in value ]
+        except:
+            raise InvalidFilterError( "The filter type `{}` on the `{}` field does not accept the value `{}`".format(
+                filter_type, field.field_name, value) )
 
         return value
 
@@ -1411,7 +1422,7 @@ class DocumentResource( Resource ):
                 if field_name in self._meta.filtering:
                     # then this field is allowed to be filtered on, even though its excluded from the resource, this
                     # means that we probably want to filter on a field of the document, which we create here:
-                    field = self.api_field_from_document_field_name( field_name )
+                    field = self.get_api_field_for_document_field( field_name )
                 else:
                     # Not a field the Resource knows about, so ignore it.
                     continue
