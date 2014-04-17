@@ -1,8 +1,8 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
-from mongoengine import Document, ReferenceField
-from tastymongo.fields import *
+from mongoengine import Document, EmbeddedDocument, ReferenceField
+from mongoengine.fields import *
 
 
 class Mixin(object):
@@ -26,20 +26,23 @@ class Deliverable( Mixin, Document ):
     owner = ReferenceField( 'Person', required=True )
     activities = ListField( ReferenceField( 'Activity' ) )
 
+class EmbeddedDoc( EmbeddedDocument ):
+
+     id_field = ObjectIdField()
 
 class AllFieldsDocument( Mixin, Document ):
 
     id_field = ObjectIdField()
     string_field = StringField()
-    int_field = IntegerField()
+    int_field = IntField()
     float_field = FloatField()
     decimal_field = DecimalField()
     boolean_field = BooleanField()
     list_field = ListField( StringField() )
     dict_field = DictField()
-    document_field = EmbeddedDocumentField()
-    date_field = DateField()
+    document_field = EmbeddedDocumentField( 'EmbeddedDoc' )
+    date_field = DateTimeField()
     datetime_field = DateTimeField()
-    time_field = TimeField()
+    time_field = DateTimeField()
     to_one_field = ReferenceField( 'AllFieldsDocument' )
     to_many_field = ListField( ReferenceField( 'AllFieldsDocument' ) )

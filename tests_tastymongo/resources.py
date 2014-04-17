@@ -45,8 +45,8 @@ class DeliverableResource( DocumentResource ):
 
 class AllFieldsDocumentResource( DocumentResource ):
 
-    to_one_field = fields.ToOneField( 'to_one_field', 'AllFieldsDocumentResource' )
-    to_many_field = fields.ToManyField( 'to_many_field', 'AllFieldsDocumentResource' )
+    to_one_field = fields.ToOneField( 'to_one_field', 'self' )
+    to_many_field = fields.ToManyField( 'to_many_field', 'self' )
 
     id_field = fields.ObjectIdField( 'id_field' )
     string_field = fields.StringField( 'string_field' )
@@ -75,6 +75,8 @@ class AllFieldsDocumentResource( DocumentResource ):
             'dict_field': ALL,
             'document_field': ALL,
             'date_field': ALL,
-            'datetime_field': ALL_WITH_RELATIONS,
-            'time_field': ALL_WITH_RELATIONS
+            'datetime_field': ALL,
+            'time_field': ALL,
+            'to_one_field': ALL_WITH_RELATIONS,
+            'to_many_field': ALL_WITH_RELATIONS
         }
