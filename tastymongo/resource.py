@@ -95,11 +95,16 @@ class ResourceOptions( object ):
         if  isinstance( overrides.get( 'filtering', None ),  ( list, tuple, set ) ):
             filtering_dict = {}
             for field in overrides[ 'filtering' ]:
-                if hasattr( meta, 'object_class' ) and hasattr( meta.object_class, '_fields' ) and isinstance(
-                        meta.object_class._fields.get( field ), mongofields.ReferenceField ):
-                    filtering_dict[ field ] = ALL_WITH_RELATIONS
-                else:
-                    filtering_dict[ field ] = ALL
+                filtering_dict[ field ] = ALL
+
+                # check for related fields; their default is that relations can be filtered on as well
+                if hasattr( meta, 'object_class' ) and hasattr( meta.object_class, '_fields' ):
+                    if isinstance( meta.object_class._fields.get( field ), mongofields.ReferenceField ):
+                        filtering_dict[ field ] = ALL_WITH_RELATIONS
+                    # also check for to_many_fields, which are listfields of referencefields:
+                    elif isinstance( meta.object_class._fields.get( field ), mongofields.ListField ) and \
+                            isinstance( meta.object_class._fields[ field ].field, mongofields.ReferenceField ):
+                        filtering_dict[ field ] = ALL_WITH_RELATIONS
             overrides[ 'filtering' ] = filtering_dict
 
         return object.__new__( type( str( 'ResourceOptions' ), ( cls, ), overrides ))
