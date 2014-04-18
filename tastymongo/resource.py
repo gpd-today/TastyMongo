@@ -1356,13 +1356,13 @@ class DocumentResource( Resource ):
             elif filter_type in QUERY_MATCH_OPERATORS:
                 # these query operators work only on strings
                 value = str( value )
-            elif filter_type in QUERY_EQUALITY_OPERATORS:
+            elif filter_type in QUERY_EQUALITY_OPERATORS and not isinstance( field, fields.ToManyField ):
                 if not isinstance( field, fields.StringField ) and value in ( '', 'nil', 'null', 'none', 'None', None ):
                     value = None
                 else:
                     # then the value should be of the same type as field, so we can use the field's convert function:
                     value = field.convert_from_string( value )
-            elif filter_type in QUERY_LIST_OPERATORS:
+            elif filter_type in QUERY_LIST_OPERATORS or isinstance( field, fields.ToManyField ):
                 # then the value should be a list of elements of the same type as field
                 if not isinstance( value, list ):
                     # with a single value it is possible that webob did not create a list

@@ -729,9 +729,9 @@ class ToManyField( RelatedField ):
 
     def convert_from_string( self, value ):
         if isinstance( value, list ):
-            return [ self._resource._meta.api.get_id_from_resource_uri( elem ) or elem for elem in value ]
+            return [ ( isinstance( elem, ObjectId ) and elem ) or ObjectId( self._resource._meta.api.get_id_from_resource_uri( elem ) or elem ) or elem for elem in value ]
         else:
-            return self._resource._meta.api.get_id_from_resource_uri( value )
+            return ( isinstance( value, ObjectId ) and value ) or ObjectId( self._resource._meta.api.get_id_from_resource_uri( value ) or value )
 
     def hydrate( self, bundle ):
         '''

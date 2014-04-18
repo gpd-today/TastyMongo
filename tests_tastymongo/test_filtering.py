@@ -10,18 +10,48 @@ from tastymongo.exceptions import InvalidFilterError
 
 from bson import ObjectId
 from tests_tastymongo.documents import AllFieldsDocument, EmbeddedDoc
+from tests_tastymongo.resources import AllFieldsDocumentResource
 from tests_tastymongo.run_tests import setup_db, setup_request
 
 from decimal import Decimal
 import datetime
 
+
 class BasicTests( unittest.TestCase ):
+    """
+    Given TastyMongo's set of fields and allowed query operators, there are plenty of different filtering possibilities.
+    The combination between field type and filter operator type, we can infer to what type we should parse the filter
+    value. These combinations are listed below, where an 'x' denotes that this combination is not possible (sensible).
+    The tests in this class cover this entire table, seeing to it that we parse to the right output whenever possible,
+    or reject the filter when it cannot be made sensible.
+
+    +-----------------------+----------------+------------------+----------------+-----------------+---------+------+
+    |                       |   exact, ne    | gt, gte, lt, lte |  in, nin, all  | MATCH_OPERATORS | exists  | size |
+    +-----------------------+----------------+------------------+----------------+-----------------+---------+------+
+    | ObjectIdField         | ObjectId       | ObjectId         | List<ObjectId> | x               | Boolean | x    |
+    | StringField           | String         | String           | List<String>   | String          | Boolean | x    |
+    | IntegerField          | Int            | Int              | List<Int>      | x               | Boolean | x    |
+    | FloatField            | Float          | Float            | List<Float>    | x               | Boolean | x    |
+    | DecimalField          | Decimal        | Decimal          | List<Decimal>  | x               | Boolean | x    |
+    | BooleanField          | Boolean        | Boolean          | List<Boolean>  | x               | Boolean | x    |
+    | ListField             | x              | x                | x              | x               | Boolean | Int  |
+    | DictField             | x              | x                | x              | x               | Boolean | Int  |
+    | EmbeddedDocumentField | x              | x                | x              | x               | Boolean | Int  |
+    | DateField             | Date           | Date             | List<Date>     | x               | Boolean | x    |
+    | DateTimeField         | DateTime       | DateTime         | List<DateTime> | x               | Boolean | x    |
+    | TimeField             | Time           | Time             | List<Time>     | x               | Boolean | x    |
+    | ToOneField            | ObjectId       | ObjectId         | List<ObjectId> | x               | Boolean | x    |
+    | ToManyField           | List<ObjectId> | x                | List<ObjectId> | x               | Boolean | Int  |
+    +-----------------------+----------------+------------------+----------------+-----------------+---------+------+
+
+    """
+    # TODO: Date / Datetime / Timefield filter testing
 
     def setUp( self ):
         self.conn = setup_db()
         self.data = setup_request()
 
-        # Setup data
+        # Insert a document
         self.data.document = AllFieldsDocument(
             id_field = ObjectId(),
             string_field = 'hello world',
@@ -38,13 +68,18 @@ class BasicTests( unittest.TestCase ):
             to_one_field = None,
             to_many_field = None
         )
+        # we need to save before we can set a recursive relation:
         self.data.document.save()
         self.data.document.to_one_field = self.data.document
         self.data.document.to_many_field = [ self.data.document ]
         self.data.document.save()
 
+        # the api url is needed to parse resource_uris
         self.data.api_url = self.data.allfieldsdocument_resource._meta.api.route
 
+        self.data.resource = AllFieldsDocumentResource()
+
+        # all tastymongo fields:
         self.data.document_fields = { 'id_field', 'string_field', 'int_field', 'float_field', 'decimal_field',
         'boolean_field', 'list_field', 'dict_field', 'document_field', 'date_field', 'datetime_field', 'time_field',
         'to_one_field', 'to_many_field' }
@@ -69,53 +104,81 @@ class BasicTests( unittest.TestCase ):
             # check that the filtering gets rejected for fields that are not string fields:
             for field in disallowed_fields:
                 with self.assertRaises( InvalidFilterError ):
-                    query = self.data.allfieldsdocument_resource.build_filters( { field + '__' + filter_type: None }, None )
+                    q_filter = self.data.allfieldsdocument_resource.build_filters( { field + '__' + filter_type: None }, None )
 
-            # and that we get a decent query for string fields:
-            query = self.data.allfieldsdocument_resource.build_filters( { 'string_field' + '__' + filter_type: 'test' }, None )
-            self.assertDictEqual( query.query, { 'string_field__' + filter_type: 'test' } )
+            # and that we get a decent q_filter for string fields:
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'string_field' + '__' + filter_type: 'hello world' }, None )
+            self.assertDictEqual( q_filter.query, { 'string_field__' + filter_type: 'hello world' } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
+    def test_size_filter( self ):
+        """
+        The size operator only works on list, dict, embeddeddocument and tomany fields, so test that we throw an error
+        otherwise
+        """
 
-    def test_objectid_field_filter( self ):
+        allowed_fields = { 'list_field', 'dict_field', 'document_field', 'to_many_field' }
+        disallowed_fields = self.data.document_fields - allowed_fields
+
+        # check that the filtering gets rejected for fields that are not allowed:
+        for field in disallowed_fields:
+            with self.assertRaises( InvalidFilterError ):
+                q_filter = self.data.allfieldsdocument_resource.build_filters( { field + '__size': 5 }, None )
+
+        # and that we get a decent query for allowed fields:
+        for field in allowed_fields:
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { field + '__size': 5 }, None )
+            self.assertDictEqual( q_filter.query, { field + '__size': 5 } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
+
+    def test_objectid_and_to_one_field_filter( self ):
         object_id = ObjectId()
 
-        for filter_type in QUERY_EQUALITY_OPERATORS:
+        for field in ( 'id_field', 'to_one_field' ):
 
-            value = str( object_id )
-            query = self.data.allfieldsdocument_resource.build_filters( { 'id_field__' + filter_type: value }, None )
-            self.assertDictEqual( query.query, { 'id_field__' + filter_type: object_id } )
+            for filter_type in QUERY_EQUALITY_OPERATORS:
 
-            value = '{0}/allfieldsdocument/{1}/'.format( self.data.api_url, str( object_id ) )
-            query = self.data.allfieldsdocument_resource.build_filters( { 'id_field__' + filter_type: value }, None )
-            self.assertDictEqual( query.query, { 'id_field__' + filter_type: object_id } )
+                value = str( object_id )
+                q_filter = self.data.allfieldsdocument_resource.build_filters( { field + '__' + filter_type: value }, None )
+                self.assertDictEqual( q_filter.query, { field + '__' + filter_type: object_id } )
+                result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
-            value = 'null'
-            query = self.data.allfieldsdocument_resource.build_filters( { 'id_field__' + filter_type: value }, None )
-            self.assertDictEqual( query.query, { 'id_field__' + filter_type: None } )
+                value = '{0}/allfieldsdocument/{1}/'.format( self.data.api_url, str( object_id ) )
+                q_filter = self.data.allfieldsdocument_resource.build_filters( { field + '__' + filter_type: value }, None )
+                self.assertDictEqual( q_filter.query, { field + '__' + filter_type: object_id } )
+                result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
-            value = 'should fail'
-            with self.assertRaises( InvalidFilterError ):
-                query = self.data.allfieldsdocument_resource.build_filters( { 'id_field__' + filter_type: value }, None )
+                if field == 'to_one_field':
+                    value = 'null'
+                    q_filter = self.data.allfieldsdocument_resource.build_filters( { field + '__' + filter_type: value }, None )
+                    self.assertDictEqual( q_filter.query, { field + '__' + filter_type: None } )
+                    result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
-        for filter_type in QUERY_LIST_OPERATORS:
+                value = 'should fail'
+                with self.assertRaises( InvalidFilterError ):
+                    q_filter = self.data.allfieldsdocument_resource.build_filters( { field + '__' + filter_type: value }, None )
 
-            value = str( object_id )
-            query = self.data.allfieldsdocument_resource.build_filters( { 'id_field__' + filter_type: value }, None )
-            self.assertDictEqual( query.query, { 'id_field__' + filter_type: [ object_id ] } )
+            for filter_type in QUERY_LIST_OPERATORS:
 
-            value = '{0}/allfieldsdocument/{1}/'.format( self.data.api_url, str( object_id ) )
-            query = self.data.allfieldsdocument_resource.build_filters( { 'id_field__' + filter_type: value }, None )
-            self.assertDictEqual( query.query, { 'id_field__' + filter_type: [ object_id ] } )
+                value = str( object_id )
+                q_filter = self.data.allfieldsdocument_resource.build_filters( { field + '__' + filter_type: value }, None )
+                self.assertDictEqual( q_filter.query, { field + '__' + filter_type: [ object_id ] } )
+                result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
-            value = 'should fail'
-            with self.assertRaises( InvalidFilterError ):
-                query = self.data.allfieldsdocument_resource.build_filters( { 'id_field__' + filter_type: value }, None )
+                value = '{0}/allfieldsdocument/{1}/'.format( self.data.api_url, str( object_id ) )
+                q_filter = self.data.allfieldsdocument_resource.build_filters( { field + '__' + filter_type: value }, None )
+                self.assertDictEqual( q_filter.query, { field + '__' + filter_type: [ object_id ] } )
+                result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
-            id_list = [ ObjectId(), ObjectId() ]
-            stringed_id_list = [ str( value ) for value in id_list ]
-            query = self.data.allfieldsdocument_resource.build_filters( { 'id_field__' + filter_type: stringed_id_list }, None )
-            self.assertDictEqual( query.query, { 'id_field__' + filter_type: id_list } )
+                value = 'should fail'
+                with self.assertRaises( InvalidFilterError ):
+                    q_filter = self.data.allfieldsdocument_resource.build_filters( { field + '__' + filter_type: value }, None )
 
+                id_list = [ ObjectId(), ObjectId() ]
+                stringed_id_list = [ str( value ) for value in id_list ]
+                q_filter = self.data.allfieldsdocument_resource.build_filters( { field + '__' + filter_type: stringed_id_list }, None )
+                self.assertDictEqual( q_filter.query, { field + '__' + filter_type: id_list } )
+                result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
     def test_string_field_filter( self ):
 
@@ -124,78 +187,90 @@ class BasicTests( unittest.TestCase ):
             # we pick the string 'None' which should not be recognized as anything but a string
             value = 'None'
 
-            query = self.data.allfieldsdocument_resource.build_filters( { 'string_field__' + filter_type: value }, None )
-            self.assertDictEqual( query.query, { 'string_field__' + filter_type: value } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'string_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'string_field__' + filter_type: value } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
         for filter_type in QUERY_LIST_OPERATORS:
 
             value = 'None'
 
-            query = self.data.allfieldsdocument_resource.build_filters( { 'string_field__' + filter_type: value }, None )
-            self.assertDictEqual( query.query, { 'string_field__' + filter_type: [ value ] } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'string_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'string_field__' + filter_type: [ value ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
     def test_int_field_filter( self ):
 
         for filter_type in QUERY_EQUALITY_OPERATORS:
 
             for value in ( -1.9, -1.2, -1, 0, 0.0, 3, 3.2, 3.9, 3.4999999999999999999999999999999999999999999 ):
-                query = self.data.allfieldsdocument_resource.build_filters( { 'int_field__' + filter_type: str( value ) }, None )
-                self.assertDictEqual( query.query, { 'int_field__' + filter_type: round( value ) } )
+                q_filter = self.data.allfieldsdocument_resource.build_filters( { 'int_field__' + filter_type: str( value ) }, None )
+                self.assertDictEqual( q_filter.query, { 'int_field__' + filter_type: round( value ) } )
+                result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
         for filter_type in QUERY_LIST_OPERATORS:
 
             value = 3
-            query = self.data.allfieldsdocument_resource.build_filters( { 'int_field__' + filter_type: str( value ) }, None )
-            self.assertDictEqual( query.query, { 'int_field__' + filter_type: [ value ] } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'int_field__' + filter_type: str( value ) }, None )
+            self.assertDictEqual( q_filter.query, { 'int_field__' + filter_type: [ value ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
     def test_float_field_filter( self ):
 
         for filter_type in QUERY_EQUALITY_OPERATORS:
 
             for value in ( -1.9, -1.2, -1, 0, 0.0, 3, 3.2, 3.9, 3.4999999999999999999999999999999999999999999 ):
-                query = self.data.allfieldsdocument_resource.build_filters( { 'float_field__' + filter_type: str( value ) }, None )
-                self.assertDictEqual( query.query, { 'float_field__' + filter_type: value } )
+                q_filter = self.data.allfieldsdocument_resource.build_filters( { 'float_field__' + filter_type: str( value ) }, None )
+                self.assertDictEqual( q_filter.query, { 'float_field__' + filter_type: value } )
+                result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
         for filter_type in QUERY_LIST_OPERATORS:
 
             value = 3.9
-            query = self.data.allfieldsdocument_resource.build_filters( { 'float_field__' + filter_type: str( value ) }, None )
-            self.assertDictEqual( query.query, { 'float_field__' + filter_type: [ value ] } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'float_field__' + filter_type: str( value ) }, None )
+            self.assertDictEqual( q_filter.query, { 'float_field__' + filter_type: [ value ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
     def test_decimal_field_filter( self ):
 
         for filter_type in QUERY_EQUALITY_OPERATORS:
 
             value = Decimal( 4.8 )
-            query = self.data.allfieldsdocument_resource.build_filters( { 'decimal_field__' + filter_type: str( value ) }, None )
-            self.assertDictEqual( query.query, { 'decimal_field__' + filter_type: value } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'decimal_field__' + filter_type: str( value ) }, None )
+            self.assertDictEqual( q_filter.query, { 'decimal_field__' + filter_type: value } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
         for filter_type in QUERY_LIST_OPERATORS:
 
             value = Decimal( 4.9 )
-            query = self.data.allfieldsdocument_resource.build_filters( { 'decimal_field__' + filter_type: str( value ) }, None )
-            self.assertDictEqual( query.query, { 'decimal_field__' + filter_type: [ value ] } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'decimal_field__' + filter_type: str( value ) }, None )
+            self.assertDictEqual( q_filter.query, { 'decimal_field__' + filter_type: [ value ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
     def test_boolean_field_filter( self ):
 
         for filter_type in QUERY_EQUALITY_OPERATORS:
 
             value = True
-            query = self.data.allfieldsdocument_resource.build_filters( { 'boolean_field__' + filter_type: str( value ) }, None )
-            self.assertDictEqual( query.query, { 'boolean_field__' + filter_type: value } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'boolean_field__' + filter_type: str( value ) }, None )
+            self.assertDictEqual( q_filter.query, { 'boolean_field__' + filter_type: value } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
             value = False
-            query = self.data.allfieldsdocument_resource.build_filters( { 'boolean_field__' + filter_type: str( value ) }, None )
-            self.assertDictEqual( query.query, { 'boolean_field__' + filter_type: value } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'boolean_field__' + filter_type: str( value ) }, None )
+            self.assertDictEqual( q_filter.query, { 'boolean_field__' + filter_type: value } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
-            query = self.data.allfieldsdocument_resource.build_filters( { 'boolean_field__' + filter_type: 'null' }, None )
-            self.assertDictEqual( query.query, { 'boolean_field__' + filter_type: None } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'boolean_field__' + filter_type: 'null' }, None )
+            self.assertDictEqual( q_filter.query, { 'boolean_field__' + filter_type: None } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
         for filter_type in QUERY_LIST_OPERATORS:
 
             value = True
-            query = self.data.allfieldsdocument_resource.build_filters( { 'boolean_field__' + filter_type: str( value ) }, None )
-            self.assertDictEqual( query.query, { 'boolean_field__' + filter_type: [ value ] } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'boolean_field__' + filter_type: str( value ) }, None )
+            self.assertDictEqual( q_filter.query, { 'boolean_field__' + filter_type: [ value ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
     def test_to_one_field_filter( self ):
 
@@ -204,49 +279,57 @@ class BasicTests( unittest.TestCase ):
             object_id = ObjectId()
 
             value = str( object_id )
-            query = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
-            self.assertDictEqual( query.query, { 'to_one_field__' + filter_type: object_id } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_one_field__' + filter_type: object_id } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
             value = '{0}/allfieldsdocument/{1}/'.format( self.data.api_url, str( object_id ) )
-            query = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
-            self.assertDictEqual( query.query, { 'to_one_field__' + filter_type: object_id } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_one_field__' + filter_type: object_id } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
             value = 'null'
-            query = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
-            self.assertDictEqual( query.query, { 'to_one_field__' + filter_type: None } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_one_field__' + filter_type: None } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
             value = 'should fail'
             with self.assertRaises( InvalidFilterError ):
-                query = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
+                q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
 
         for filter_type in QUERY_LIST_OPERATORS:
 
             value = str( object_id )
-            query = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
-            self.assertDictEqual( query.query, { 'to_one_field__' + filter_type: [ object_id ] } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_one_field__' + filter_type: [ object_id ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
             value = '{0}/allfieldsdocument/{1}/'.format( self.data.api_url, str( object_id ) )
-            query = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
-            self.assertDictEqual( query.query, { 'to_one_field__' + filter_type: [ object_id ] } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_one_field__' + filter_type: [ object_id ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
             value = 'should fail'
             with self.assertRaises( InvalidFilterError ):
-                query = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
+                q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: value }, None )
 
             id_list = [ ObjectId(), ObjectId() ]
             stringed_id_list = [ str( value ) for value in id_list ]
-            query = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: stringed_id_list }, None )
-            self.assertDictEqual( query.query, { 'to_one_field__' + filter_type: id_list } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + filter_type: stringed_id_list }, None )
+            self.assertDictEqual( q_filter.query, { 'to_one_field__' + filter_type: id_list } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
     def test_relational_look_up_filter( self ):
 
         for field in self.data.document_fields:
 
-            query = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + field + '__exists': 'True' }, None )
-            self.assertDictEqual( query.query, { 'to_one_field__in': [ str( self.data.document.id ) ] } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__' + field + '__exists': 'True' }, None )
+            self.assertDictEqual( q_filter.query, { 'to_one_field__in': [ str( self.data.document.id ) ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
-            query = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__to_one_field__' + field + '__exists': 'True' }, None )
-            self.assertDictEqual( query.query, { 'to_one_field__in': [ str( self.data.document.id ) ] } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__to_one_field__' + field + '__exists': 'True' }, None )
+            self.assertDictEqual( q_filter.query, { 'to_one_field__in': [ str( self.data.document.id ) ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
     def test_in_empty_list( self ):
         """
@@ -255,6 +338,69 @@ class BasicTests( unittest.TestCase ):
 
         for filter_type in QUERY_LIST_OPERATORS:
 
-            query = self.data.allfieldsdocument_resource.build_filters( { 'id_field__' + filter_type: '' }, None )
-            self.assertDictEqual( query.query, { 'id_field__' + filter_type: [] } )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'id_field__' + filter_type: '' }, None )
+            self.assertDictEqual( q_filter.query, { 'id_field__' + filter_type: [] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
+    def test_jedikkemoeder( self ):
+        """
+        ListFields, DictFields and EmbeddedDocumentFields can't be filtered on through the api, because their
+        structures are too complex. Test to see whether filtering gets rejected for filter types other than size and
+        exists.
+        """
+
+        for field in ( 'list_field', 'dict_field', 'document_field' ):
+
+            for filter_type in QUERY_EQUALITY_OPERATORS | QUERY_LIST_OPERATORS:
+                with self.assertRaises( InvalidFilterError ):
+                    q_filter = self.data.allfieldsdocument_resource.build_filters( { field + '__' + filter_type: 'should fail' }, None )
+
+    def test_to_many_field_filter( self ):
+        object_id = ObjectId()
+
+        for filter_type in ( 'exact', 'ne' ):
+
+            value = str( object_id )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_many_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_many_field__' + filter_type: [ object_id ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
+
+            value = '{0}/allfieldsdocument/{1}/'.format( self.data.api_url, str( object_id ) )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_many_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_many_field__' + filter_type: [ object_id ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
+
+            value = [ str( object_id ), str( object_id ) ]
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_many_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_many_field__' + filter_type: [ object_id, object_id ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
+
+            value = [ 'null' ]
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_many_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_many_field__' + filter_type: [] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
+
+            value = 'should fail'
+            with self.assertRaises( InvalidFilterError ):
+                q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_many_field__' + filter_type: value }, None )
+
+        for filter_type in QUERY_LIST_OPERATORS:
+
+            value = str( object_id )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_many_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_many_field__' + filter_type: [ object_id ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
+
+            value = '{0}/allfieldsdocument/{1}/'.format( self.data.api_url, str( object_id ) )
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_many_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_many_field__' + filter_type: [ object_id ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
+
+            value = [ str( object_id ), str( object_id ) ]
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_many_field__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_many_field__' + filter_type: [ object_id, object_id ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
+
+            value = 'should fail'
+            with self.assertRaises( InvalidFilterError ):
+                q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_many_field__' + filter_type: value }, None )

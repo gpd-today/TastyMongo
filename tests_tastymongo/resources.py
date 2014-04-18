@@ -64,19 +64,6 @@ class AllFieldsDocumentResource( DocumentResource ):
     class Meta:
         object_class = AllFieldsDocument
         resource_name = 'all_fields_document'
-        filtering = {
-            'id_field': ALL,
-            'string_field': ALL,
-            'int_field': ALL,
-            'float_field': ALL,
-            'decimal_field': ALL,
-            'boolean_field': ALL,
-            'list_field': ALL,
-            'dict_field': ALL,
-            'document_field': ALL,
-            'date_field': ALL,
-            'datetime_field': ALL,
-            'time_field': ALL,
-            'to_one_field': ALL_WITH_RELATIONS,
-            'to_many_field': ALL_WITH_RELATIONS
-        }
+        filtering = ( 'id_field', 'string_field', 'int_field', 'float_field', 'decimal_field',
+        'boolean_field', 'list_field', 'dict_field', 'document_field', 'date_field', 'datetime_field', 'time_field',
+        'to_one_field', 'to_many_field' )

@@ -1,7 +1,7 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
-from mongoengine import Document, EmbeddedDocument, ReferenceField
+from mongoengine import Document, EmbeddedDocument
 from mongoengine.fields import *
 
 
@@ -26,12 +26,12 @@ class Deliverable( Mixin, Document ):
     owner = ReferenceField( 'Person', required=True )
     activities = ListField( ReferenceField( 'Activity' ) )
 
-class EmbeddedDoc( EmbeddedDocument ):
 
+class EmbeddedDoc( EmbeddedDocument ):
      id_field = ObjectIdField()
 
-class AllFieldsDocument( Mixin, Document ):
 
+class AllFieldsDocument( Mixin, Document ):
     id_field = ObjectIdField()
     string_field = StringField()
     int_field = IntField()
