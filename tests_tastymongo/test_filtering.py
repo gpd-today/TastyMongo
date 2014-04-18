@@ -342,7 +342,7 @@ class BasicTests( unittest.TestCase ):
             self.assertDictEqual( q_filter.query, { 'id_field__' + filter_type: [] } )
             result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
-    def test_jedikkemoeder( self ):
+    def test_list_dict_doc_fields_filtering( self ):
         """
         ListFields, DictFields and EmbeddedDocumentFields can't be filtered on through the api, because their
         structures are too complex. Test to see whether filtering gets rejected for filter types other than size and
