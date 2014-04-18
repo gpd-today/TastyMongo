@@ -90,6 +90,18 @@ class ResourceOptions( object ):
         if overrides.get( 'single_allowed_methods', None ) is None:
             overrides['single_allowed_methods'] = allowed_methods
 
+        # We accept the meta.filtering as two types: a list of fields on which we allow all filter types, or a dict
+        # of fields specifying each allowed filter type. If we get a list, change it to a dict here.
+        if  isinstance( overrides.get( 'filtering', None ),  ( list, tuple, set ) ):
+            filtering_dict = {}
+            for field in overrides[ 'filtering' ]:
+                if hasattr( meta, 'object_class' ) and hasattr( meta.object_class, '_fields' ) and isinstance(
+                        meta.object_class._fields.get( field ), mongofields.ReferenceField ):
+                    filtering_dict[ field ] = ALL_WITH_RELATIONS
+                else:
+                    filtering_dict[ field ] = ALL
+            overrides[ 'filtering' ] = filtering_dict
+
         return object.__new__( type( str( 'ResourceOptions' ), ( cls, ), overrides ))
 
 
@@ -1276,10 +1288,8 @@ class DocumentResource( Resource ):
             if not getattr( field, 'is_related', False ):
                 raise InvalidFilterError( "The '%s' field does not support relations." % field.field_name )
 
-            if not field.field_name in self._meta.filtering or ( isinstance( self._meta.filtering, dict ) and
-                    self._meta.filtering[ field.field_name ] != ALL_WITH_RELATIONS ):
+            if self._meta.filtering.get( field.field_name ) != ALL_WITH_RELATIONS:
                 raise InvalidFilterError( "Lookups are not allowed more than one level deep on the '%s' field." % field.field_name )
-
 
             related_resource = field.get_related_resource( None )
             if filter_bits[0] in related_resource.fields:
@@ -1314,7 +1324,7 @@ class DocumentResource( Resource ):
         # look at the resource specific limitations on filtering, defined in this resource's meta:
         if not field.field_name in self._meta.filtering:
             raise InvalidFilterError( "The `{0}` field does not allow filtering.".format( field.field_name ) )
-        elif isinstance( self._meta.filtering, dict ) and self._meta.filtering[ field.field_name ] not in ( ALL, ALL_WITH_RELATIONS ):
+        elif self._meta.filtering[ field.field_name ] not in ( ALL, ALL_WITH_RELATIONS ):
             if filter_type not in self._meta.filtering[ field.field_name ]:
                 invalid_filter = True
 
@@ -1393,6 +1403,8 @@ class DocumentResource( Resource ):
             'resource_field_name_4': ALL_WITH_RELATIONS,
             ...
         }
+
+        ( Note that if filtering is specified as list, it is rebuilt to a dict when instantiating the resource )
 
         Creates cross-relational lookups by using the results of intermediary
         filters on related resources.
