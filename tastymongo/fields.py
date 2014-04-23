@@ -647,7 +647,8 @@ class ToOneField( RelatedField ):
                 obj_data = str( obj_data )
 
             if obj_data == data_id:
-                #FIXME: INEFFICIENT DIRTY HACK:
+                # 'FIXME: INEFFICIENT DIRTY HACK':
+                # - actually not so inefficient, dirty, or hacky
                 #
                 # We run into trouble because `build_bundle` uses
                 # `obj_get_single` for building related data, where quite
@@ -764,21 +765,61 @@ class ToManyField( RelatedField ):
 
         if self.field_name in bundle.data: 
             # The bundle has data for this field. Return it.
-            data = self.convert( bundle.data[ self.field_name ] )
+            bundle_data = self.convert( bundle.data[ self.field_name ] )
 
         elif self.has_default:
             # The bundle has no data, but there's a default value for the field.
-            data = self.default
+            bundle_data = self.default
 
         elif not self.required:
             # There's no default but the field is not required. 
-            data = []
+            bundle_data = []
 
         else:
             # We're seriously out of options here.
             raise ApiFieldError( 'field `{0}` has no data in bundle `{1}` and no default.'.format( self.field_name, bundle ))
 
-        return [self.get_related_bundle( related_item, request=bundle.request ) for related_item in data if related_item]
+
+        # Get the object data, and create a second list where we take the ids
+        # of the related objects. We use these in a moment to cleverly fetch
+        # the related bundles
+        obj_data = bundle.obj._data[ self.attribute ]
+        obj_data_ids = []
+        for obj_single_id in obj_data:
+            if isinstance( obj_single_id, dict ) and '_ref' in obj_single_id:
+                obj_single_id = obj_single_id['_ref']  # Generic Reference
+
+            if isinstance( obj_single_id, DBRef ) or isinstance( obj_single_id, Document ):
+                obj_single_id = obj_single_id.id  # Returns an ObjectId
+
+            if isinstance( obj_single_id, ObjectId ):
+                obj_single_id = str( obj_single_id )
+
+            obj_data_ids.append( obj_single_id )
+
+        # Look for the related bundles, first try to pick the related object from our current object. If that does not
+        # work, we get_related_bundle, fetching the related object directly.
+        related_bundles = []
+        for single_related_data in bundle_data:
+            related_bundle = None
+
+            if isinstance( single_related_data, basestring ):
+                # There's no additional data, just a resource_uri, that can be
+                # the same or different from what we already have.
+                single_related_id = self._resource._meta.api.get_id_from_resource_uri( single_related_data )
+                if not single_related_id:
+                    raise ApiFieldError( 'Invalid data for related field `{}` on `{}`'.format(self.field_name, self._resource.Meta.resource_name))
+
+                if single_related_id in obj_data_ids:
+                    # FIXME: similar 'hack' as in ToOneField
+                    related_object = getattr( bundle.obj, self.attribute )[ obj_data_ids.index( single_related_id ) ]
+                    related_bundle = Bundle( obj=related_object, request=bundle.request )
+
+            if not related_bundle:
+                related_bundle = self.get_related_bundle( single_related_data, request=bundle.request )
+            related_bundles.append( related_bundle )
+
+        return related_bundles
 
     def dehydrate( self, bundle ):
         """
