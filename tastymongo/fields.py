@@ -564,12 +564,10 @@ class RelatedField( ApiField ):
             elif isinstance( data, basestring ):
                 related_resource = self._resource._meta.api.resource_for_uri( data )
 
-
-
         if not related_resource:
             raise ValueError( 'Unable to resolve a related_resource for `{}.{}`'.format( self._resource._meta.resource_name, self.field_name ) )
 
-        # Fix the ``api`` if it's not present.
+        # Fix the `api` if it's not present.
         if related_resource._meta.api is None:
             if self._resource and not self._resource._meta.api is None:
                 related_resource._meta.api = self._resource._meta.api
@@ -580,25 +578,30 @@ class RelatedField( ApiField ):
         """
         Returns a bundle built and hydrated by the related resource. 
         Accepts either a URI or a dictionary-like structure.
+
+        @rtype Bundle
         """
         related_resource = self.get_related_resource( data )
+        bundle = None
 
         if isinstance( data, basestring ):
             # We got a resource URI. Try to create a bundle with the resource.
-            return related_resource.build_bundle( request=request, data=data )
+            bundle = related_resource.build_bundle( request=request, data=data )
         elif hasattr( data, 'items' ):
             # We've got a data dictionary. 
             if self.readonly:
                 if 'resource_uri' in data:
                     # Ignore any other posted data and just return a URI.
-                    return related_resource.build_bundle( request=request, data=data['resource_uri'] )
+                    bundle = related_resource.build_bundle( request=request, data=data['resource_uri'] )
                 else:
-                    raise ApiFieldError("The `{0}` field was given data but is readonly: `{1}`.".format( self.field_name, data ) )
+                    raise ApiFieldError("The `{0}` field was given data, but no `resource_uri`, and is readonly: `{1}`.".format( self.field_name, data ) )
             else:
-                related_bundle = related_resource.build_bundle( request=request, data=data )
-                return related_resource.hydrate( related_bundle, request )
+                bundle = related_resource.build_bundle( request=request, data=data )
+                bundle = related_resource.hydrate( bundle, request )
         else:
             raise ApiFieldError("The `{0}` field was given data that was not a URI and not a dictionary-alike: `{1}`.".format( self.field_name, data ) )
+
+        return bundle
 
 
 class ToOneField( RelatedField ):
@@ -781,8 +784,7 @@ class ToManyField( RelatedField ):
 
 
         # Get the object data, and create a second list where we take the ids
-        # of the related objects. We use these in a moment to cleverly fetch
-        # the related bundles
+        # of the related objects. We use these in a moment to create the related bundles.
         obj_data = bundle.obj._data[ self.attribute ]
         obj_data_ids = []
         for obj_single_id in obj_data:
