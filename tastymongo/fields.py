@@ -815,9 +815,10 @@ class ToManyField( RelatedField ):
                     related_object = getattr( bundle.obj, self.attribute )[ obj_data_ids.index( single_related_id ) ]
                     related_bundle = Bundle( obj=related_object, request=bundle.request )
 
-            if not related_bundle:
+            if not related_bundle and single_related_data:
                 related_bundle = self.get_related_bundle( single_related_data, request=bundle.request )
-            related_bundles.append( related_bundle )
+            if related_bundle:
+                related_bundles.append( related_bundle )
 
         return related_bundles
 
