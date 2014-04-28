@@ -650,9 +650,6 @@ class ToOneField( RelatedField ):
                 obj_data = str( obj_data )
 
             if obj_data == data_id:
-                # 'FIXME: INEFFICIENT DIRTY HACK':
-                # - actually not so inefficient, dirty, or hacky
-                #
                 # We run into trouble because `build_bundle` uses
                 # `obj_get_single` for building related data, where quite
                 # convoluted querysets decrease performance and may lead to
@@ -813,8 +810,13 @@ class ToManyField( RelatedField ):
                     raise ApiFieldError( 'Invalid data for related field `{}` on `{}`'.format(self.field_name, self._resource.Meta.resource_name))
 
                 if single_related_id in obj_data_ids:
-                    # FIXME: similar 'hack' as in ToOneField
-                    related_object = getattr( bundle.obj, self.attribute )[ obj_data_ids.index( single_related_id ) ]
+                    # Then the related object exists on the current object, and we create a bundle with this object.
+
+                    related_objects = getattr( bundle.obj, self.attribute )
+                    # Related_objects is a list of objects, and we only have the id of the object we want. Luckily, we
+                    # preserved order in obj_data_ids, so we can pick the index and use it to find our related_object,
+                    # without accessing the other objects:
+                    related_object = related_objects[ obj_data_ids.index( single_related_id ) ]
                     related_bundle = Bundle( obj=related_object, request=bundle.request )
 
             if not related_bundle and single_related_data:
