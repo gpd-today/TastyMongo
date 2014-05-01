@@ -487,8 +487,6 @@ class Resource( object ):
         for bundle in bundles:
             for field_name, fld in self.fields.items():
 
-                if fld.readonly:
-                    continue
                 if request.method.lower() == 'patch' and field_name not in bundle.data:
                     # When patching, ignore values not present in the data
                     continue
@@ -498,6 +496,8 @@ class Resource( object ):
                 callback = getattr(self, "hydrate_{0}".format(field_name), None)
                 if callable( callback ):
                     data = callback( bundle )
+                elif fld.readonly:
+                    continue
                 else:
                     data = fld.hydrate( bundle )
 
