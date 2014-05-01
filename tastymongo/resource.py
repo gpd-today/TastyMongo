@@ -1749,6 +1749,7 @@ class DocumentResource( Resource ):
         """
         objects = self.obj_get_list(request, **kwargs)
         bundles = [ self.build_bundle( request=request, obj=obj ) for obj in objects ]
+        request.api[ 'deleted' ].update( bundle.obj for bundle in bundles if bundle.obj )
         for bundle in bundles:
             if bundle:
                 bundle.request.api['to_delete'].add( bundle.obj )
@@ -1768,6 +1769,6 @@ class DocumentResource( Resource ):
 
         bundle = self.build_bundle( request=request, obj=obj )
         if bundle:
+            request.api[ 'deleted' ].add( bundle.obj )
             bundle.request.api['to_delete'].add( bundle.obj )
             self._update_relations( bundle )
-
