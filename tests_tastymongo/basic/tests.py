@@ -1,12 +1,14 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
+# from mongoengine_relational import RelationManagerMixin
 import unittest
 import json
 from pyramid import testing
 
 from tests_tastymongo.run_tests import setup_db, setup_request
-from tests_tastymongo.documents import Activity 
+from tests_tastymongo.documents import Activity
+from tastymongo import http
 
 
 class BasicTests( unittest.TestCase ):
@@ -82,3 +84,64 @@ class BasicTests( unittest.TestCase ):
 
         # Check if the correct activity has been returned
         self.assertEqual( deserialized['name'], "post_list created activity")
+
+    def test_post_nested_list( self ):
+        d = self.data
+
+        d.request.body = json.dumps({
+            'name': 'post_list created activity',
+            'person': {
+                'name': 'nested person'
+            }
+        })
+
+        # we want to return the nested person as well:
+        d.activity_resource.fields[ 'person' ].full = True
+
+        # Create a new activity
+        response = d.activity_resource.post_list( d.request )
+        deserialized = json.loads( response.body )
+
+        self.assertIn( 'id', deserialized )
+        self.assertEqual( deserialized['name'], 'post_list created activity' )
+        person = deserialized[ 'person' ]
+        self.assertEqual( person['name'], 'nested person' )
+
+        # FIXME: the following fails, because in dispatch_single the nested person field does not get dereferenced
+        # and this breaks the dehydration of the person field. We could set _auto_dereference=True, but we don't know
+        # what else this impacts. This fails irrespective of importing RelationalManagerMixin.
+        # # Find out if the activity was indeed created:
+        d.request.matchdict = { 'name': 'post_list created activity'}
+        response = d.activity_resource.dispatch_single( d.request )
+        deserialized = json.loads( response.body )
+
+        # Check if the correct activity has been returned
+        self.assertEqual( deserialized['name'], 'post_list created activity' )
+
+        # Check if the nested person has been returned properly:
+        person = deserialized[ 'person' ]
+        self.assertEqual( person['name'], 'nested person' )
+
+
+        # Now we post the same activity, with the same person nested in it, and change the name fields on them. In this
+        # way, we test whether the fields and specifically the related field's fields are correctly dehydrated and saved
+        d.request.body = json.dumps({
+            'id': str( deserialized['id'] ),
+            'resource_uri': '/api/v1/person/' + str( deserialized['id'] ) + '/',
+            'name': 'new name activity',
+            'person': {
+                'id': str( person['id'] ),
+                'resource_uri': '/api/v1/person/' + str( person['id'] ) + '/',
+                'name': 'new name'
+            }
+        })
+
+        response = d.activity_resource.post_list( d.request )
+        deserialized_2 = json.loads( response.body )
+
+        self.assertIn( 'id', deserialized_2 )
+        self.assertEqual( deserialized['id'], deserialized_2['id'] )
+        self.assertEqual( deserialized_2['name'], 'new name activity' )
+        person_2 = deserialized_2[ 'person' ]
+        self.assertEqual( person_2['name'], 'new name' )
+        self.assertEqual( person['id'], person_2['id'] )
