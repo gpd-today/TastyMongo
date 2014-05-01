@@ -637,19 +637,9 @@ class ToOneField( RelatedField ):
             if not data_id:
                 raise ApiFieldError( 'Invalid data for related field `{}` on `{}`'.format(self.field_name, self._resource.Meta.resource_name))
 
-            # See if it corresponds to what we already have
-            obj_data = bundle.obj._data[ self.attribute ]
+            obj = getattr( bundle.obj, self.attribute )
 
-            if isinstance( obj_data, dict ) and '_ref' in obj_data:
-                obj_data = obj_data['_ref']  # Generic Reference
-
-            if isinstance( obj_data, DBRef ) or isinstance( obj_data, Document ):
-                obj_data = obj_data.id  # Returns an ObjectId
-
-            if isinstance( obj_data, ObjectId ):
-                obj_data = str( obj_data )
-
-            if obj_data == data_id:
+            if obj and str( obj.id ) == data_id:
                 # We run into trouble because `build_bundle` uses
                 # `obj_get_single` for building related data, where quite
                 # convoluted querysets decrease performance and may lead to
@@ -661,7 +651,7 @@ class ToOneField( RelatedField ):
                 # can skip that completely. However, that ties into the
                 # hydration cycle in several other places, so until we fix that
                 # thoroughly this patch is a workaround.
-                return Bundle( obj=getattr( bundle.obj, self.attribute ), request=bundle.request )
+                return Bundle( obj=obj, request=bundle.request )
 
         return self.get_related_bundle( related_data, request=bundle.request )
 
@@ -780,24 +770,10 @@ class ToManyField( RelatedField ):
             raise ApiFieldError( 'field `{0}` has no data in bundle `{1}` and no default.'.format( self.field_name, bundle ))
 
 
-        # Get the object data, and create a second list where we take the ids
-        # of the related objects. We use these in a moment to create the related bundles.
-        obj_data = bundle.obj._data[ self.attribute ]
-        obj_data_ids = []
-        for obj_single_id in obj_data:
-            if isinstance( obj_single_id, dict ) and '_ref' in obj_single_id:
-                obj_single_id = obj_single_id['_ref']  # Generic Reference
-
-            if isinstance( obj_single_id, DBRef ) or isinstance( obj_single_id, Document ):
-                obj_single_id = obj_single_id.id  # Returns an ObjectId
-
-            if isinstance( obj_single_id, ObjectId ):
-                obj_single_id = str( obj_single_id )
-
-            obj_data_ids.append( obj_single_id )
-
         # Look for the related bundles, first try to pick the related object from our current object. If that does not
         # work, we get_related_bundle, fetching the related object directly.
+        related_objs = getattr( bundle.obj, self.attribute )
+        related_obj_data_ids = [ obj.id for obj in related_objs ]
         related_bundles = []
         for single_related_data in bundle_data:
             related_bundle = None
@@ -809,14 +785,9 @@ class ToManyField( RelatedField ):
                 if not single_related_id:
                     raise ApiFieldError( 'Invalid data for related field `{}` on `{}`'.format(self.field_name, self._resource.Meta.resource_name))
 
-                if single_related_id in obj_data_ids:
+                if single_related_id in related_obj_data_ids:
                     # Then the related object exists on the current object, and we create a bundle with this object.
-
-                    related_objects = getattr( bundle.obj, self.attribute )
-                    # Related_objects is a list of objects, and we only have the id of the object we want. Luckily, we
-                    # preserved order in obj_data_ids, so we can pick the index and use it to find our related_object,
-                    # without accessing the other objects:
-                    related_object = related_objects[ obj_data_ids.index( single_related_id ) ]
+                    related_object = related_objs[ related_obj_data_ids.index( single_related_id ) ]
                     related_bundle = Bundle( obj=related_object, request=bundle.request )
 
             if not related_bundle and single_related_data:
