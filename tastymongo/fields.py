@@ -664,6 +664,9 @@ class ToOneField( RelatedField ):
         the related resource's dehydrate method to populate the data from
         the object. The related resource may in turn recurse for nested data.
         """
+        attr = None
+        data = None
+
         if isinstance( self.attribute, basestring ):
             if self.full:
                 # Pull the document either from cache or db
@@ -675,9 +678,7 @@ class ToOneField( RelatedField ):
             if attr is None:
                 if self.has_default:
                     attr = self.default
-                elif not self.required:
-                    attr = None
-                else:
+                elif self.required:
                     raise ApiFieldError( "Required relation=`{}` on object=`{}` may not be empty.".format( self.attribute, bundle.obj ) )
 
             attr = self.convert( attr )
@@ -689,27 +690,19 @@ class ToOneField( RelatedField ):
         elif self.has_default:
             attr = self.convert( self.default )
 
-        else:
-            attr = None
+        if attr:
+            related_resource = self.get_related_resource( attr )
 
-        if attr is None:
-            return None
+            if self.full:
+                assert isinstance( attr, Document )
 
-        related_resource = self.get_related_resource( attr )
-        if not self.full:
-            return related_resource.get_resource_uri( bundle.request, attr )
+                if may_read( attr, bundle.request ) and not ( self.ignore_closed and getattr( attr, 'closed', False ) ):
+                    related_bundle = related_resource.build_bundle( request=bundle.request, obj=attr )
+                    data = related_resource.dehydrate( related_bundle, bundle.request )
+            else:
+                data = related_resource.get_resource_uri( bundle.request, attr )
 
-        assert isinstance( attr, Document )
-
-        if not may_read( attr, bundle.request ):
-            return None
-        if self.ignore_closed and getattr( attr, 'closed', False ):
-            return None
-
-        related_bundle = related_resource.build_bundle( request=bundle.request, obj=attr )
-        return related_resource.dehydrate( related_bundle, bundle.request )
-
-
+        return data
 
 class ToManyField( RelatedField ):
     """
