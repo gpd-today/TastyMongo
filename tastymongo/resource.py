@@ -1711,6 +1711,7 @@ class DocumentResource( Resource ):
         only one instance matched by the request and the provided `kwargs`.
         """
         filters = {}
+        obj = None
 
         id = kwargs.get( 'pk' ) or kwargs.get( 'id' )
         if not id and 'uri' in kwargs:
