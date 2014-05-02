@@ -1493,19 +1493,17 @@ class DocumentResource( Resource ):
         return q_filter
 
     def get_queryset( self, request ):
+        qs = None
+
         if hasattr( self._meta, 'queryset' ) and self._meta.queryset:
             qs = self._meta.queryset.clone()
-            # Ensure the queryset doesn't auto-dereference, since we'll do that
-            qs._auto_dereference = False
-            return qs
         elif hasattr( self._meta, 'object_class' ):
             qs = self._meta.object_class.objects()
-            # Ensure the queryset doesn't auto-dereference, since we'll do that
-            qs._auto_dereference = False
-            return qs
-        else:
+
+        if qs is None:
             raise NotImplementedError('Resource needs a `queryset` or `object_class` to return objects')
 
+        return qs
 
     def save( self, bundle ):
         """
