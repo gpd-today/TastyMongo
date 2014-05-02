@@ -1021,9 +1021,11 @@ class DocumentResource( Resource ):
 
             if RelationManagerMixin and isinstance( bundle.obj, RelationManagerMixin ):
                 obj.delete( request=bundle.request )
+                bundle.request.api[ 'deleted' ].add( bundle.obj )
                 self._mark_relational_changes( bundle, obj )
             else:
                 obj.delete()
+                bundle.request.api[ 'deleted' ].add( bundle.obj )
 
         if bundle.request.api['to_save']: 
             # Deletion may have triggered documents that need to be updated.
@@ -1751,10 +1753,9 @@ class DocumentResource( Resource ):
         """
         objects = self.obj_get_list(request, **kwargs)
         bundles = [ self.build_bundle( request=request, obj=obj ) for obj in objects ]
-        request.api[ 'deleted' ].update( bundle.obj for bundle in bundles if bundle.obj )
         for bundle in bundles:
             if bundle:
-                bundle.request.api['to_delete'].add( bundle.obj )
+                request.api['to_delete'].add( bundle.obj )
                 self._update_relations( bundle )
 
     def obj_delete_single( self, request, **kwargs ):
@@ -1771,6 +1772,5 @@ class DocumentResource( Resource ):
 
         bundle = self.build_bundle( request=request, obj=obj )
         if bundle:
-            request.api[ 'deleted' ].add( bundle.obj )
-            bundle.request.api['to_delete'].add( bundle.obj )
+            request.api['to_delete'].add( bundle.obj )
             self._update_relations( bundle )
