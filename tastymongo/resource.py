@@ -1713,15 +1713,12 @@ class DocumentResource( Resource ):
         id = kwargs.get( 'pk' ) or kwargs.get( 'id' )
         if not id and 'uri' in kwargs:
              # We have received a uri. Try to grab an id from it.
-            id = self._meta.api.get_id_from_resource_uri( kwargs.pop( 'uri', '' ) )
+            id = self._meta.api.get_id_from_resource_uri( kwargs.get( 'uri', '' ) )
 
         if id:
             # Try to fetch the object from the document cache
-            if hasattr( request, 'cache' ) and id in request.cache:
+            if hasattr( request, 'cache' ):
                 obj = request.cache.get( id, None )
-                if obj:
-                    # We're done, return the object.
-                    return obj
             else:
                 # Object not found in cache, so add a filter for its id
                 filters['id'] = id
@@ -1729,16 +1726,20 @@ class DocumentResource( Resource ):
             filters = kwargs.copy()
 
         # Object not in cache, alas, we have to hit the database.
-        matched = [ o for o in self.obj_get_list( request, **filters ) ]
-        if len( matched ) == 1:
-            return matched[ 0 ]
+        if not obj:
+            matched = [ o for o in self.obj_get_list( request, **filters ) ]
+            if len( matched ) == 1:
+                obj = matched[ 0 ]
 
-        # Filters returned 0 or more than 1 match, raise an error.
-        stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in filters.items()] )
-        if len(matched) == 0:
-            raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
-        else:
-            raise self._meta.object_class.MultipleObjectsReturned( "More than one `{0}` matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
+            if not obj:
+                # Filters returned 0 or more than 1 match, raise an error.
+                stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in filters.items()] )
+                if len(matched) == 0:
+                    raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
+                else:
+                    raise self._meta.object_class.MultipleObjectsReturned( "More than one `{0}` matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
+
+        return obj
 
     def obj_delete_list( self, request, **kwargs ):
         """
