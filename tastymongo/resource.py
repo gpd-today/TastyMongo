@@ -1719,7 +1719,8 @@ class DocumentResource( Resource ):
             # Try to fetch the object from the document cache
             if hasattr( request, 'cache' ):
                 obj = request.cache.get( id, None )
-            else:
+
+            if not obj:
                 # Object not found in cache, so add a filter for its id
                 filters['id'] = id
         else:
