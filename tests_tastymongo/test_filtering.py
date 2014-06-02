@@ -72,6 +72,8 @@ class BasicTests( unittest.TestCase ):
         self.data.document.save()
         self.data.document.to_one_field = self.data.document
         self.data.document.to_many_field = [ self.data.document ]
+        self.data.document.to_one_field_not_on_resource = self.data.document
+        self.data.document.to_many_field_not_on_resource = [ self.data.document ]
         self.data.document.save()
 
         # the api url is needed to parse resource_uris
@@ -82,7 +84,7 @@ class BasicTests( unittest.TestCase ):
         # all tastymongo fields:
         self.data.document_fields = { 'id_field', 'string_field', 'int_field', 'float_field', 'decimal_field',
         'boolean_field', 'list_field', 'dict_field', 'document_field', 'date_field', 'datetime_field', 'time_field',
-        'to_one_field', 'to_many_field' }
+        'to_one_field', 'to_many_field', 'to_one_field_not_on_resource', 'to_many_field_not_on_resource' }
 
 
     def tearDown( self ):
@@ -329,6 +331,30 @@ class BasicTests( unittest.TestCase ):
 
             q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field__to_one_field__' + field + '__exists': 'True' }, None )
             self.assertDictEqual( q_filter.query, { 'to_one_field__in': [ str( self.data.document.id ) ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
+
+    def test_filtering_on_unregistered_related_fields( self ):
+        """
+        We allow filtering on related fields of the document even though they are not registered on the resource. As
+        the resource might not know what kind of fields these are, this is a special case for filtering which used to
+        fail.
+        """
+
+        object_id = ObjectId()
+        value = str( object_id )
+
+        for filter_type in QUERY_EQUALITY_OPERATORS:
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field_not_on_resource__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_one_field_not_on_resource__' + filter_type: object_id } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
+        for filter_type in  QUERY_LIST_OPERATORS:
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_one_field_not_on_resource__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_one_field_not_on_resource__' + filter_type: [ object_id ] } )
+            result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
+
+        for filter_type in { 'exact', 'ne' } | QUERY_LIST_OPERATORS:
+            q_filter = self.data.allfieldsdocument_resource.build_filters( { 'to_many_field_not_on_resource__' + filter_type: value }, None )
+            self.assertDictEqual( q_filter.query, { 'to_many_field_not_on_resource__' + filter_type: [ object_id ] } )
             result = list( self.data.resource.get_queryset( self.data.request ).filter( q_filter ) )
 
     def test_in_empty_list( self ):

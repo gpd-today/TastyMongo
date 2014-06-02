@@ -1094,6 +1094,8 @@ class DocumentResource( Resource ):
         # Specify only those field types that differ from default StringField
         if isinstance( f, mongofields.ObjectIdField, ):
             result = fields.ObjectIdField
+        elif isinstance( f, ( mongofields.ReferenceField, mongofields.GenericReferenceField ) ):
+            result = fields.ToOneField
         elif isinstance( f, mongofields.BooleanField ):
             result = fields.BooleanField
         elif isinstance( f, mongofields.FloatField ):
@@ -1108,6 +1110,8 @@ class DocumentResource( Resource ):
             result = fields.EmbeddedDocumentField
         elif isinstance( f, ( mongofields.DateTimeField, mongofields.ComplexDateTimeField ) ):
             result = fields.DateTimeField
+        elif isinstance( f, mongofields.ListField ) and isinstance( f.field, ( mongofields.ReferenceField, mongofields.GenericReferenceField ) ):
+            result = fields.ToManyField
         elif isinstance( f, ( mongofields.ListField, mongofields.SortedListField, mongofields.GeoPointField ) ):
             # This will be lists of simple objects, since references have been
             # discarded already by should_skip_fields. 

@@ -66,4 +66,4 @@ class AllFieldsDocumentResource( DocumentResource ):
         resource_name = 'all_fields_document'
         filtering = ( 'id_field', 'string_field', 'int_field', 'float_field', 'decimal_field',
         'boolean_field', 'list_field', 'dict_field', 'document_field', 'date_field', 'datetime_field', 'time_field',
-        'to_one_field', 'to_many_field' )
+        'to_one_field', 'to_many_field', 'to_one_field_not_on_resource', 'to_many_field_not_on_resource' )

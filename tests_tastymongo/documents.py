@@ -46,3 +46,6 @@ class AllFieldsDocument( Mixin, Document ):
     time_field = DateTimeField()
     to_one_field = ReferenceField( 'AllFieldsDocument' )
     to_many_field = ListField( ReferenceField( 'AllFieldsDocument' ) )
+
+    to_one_field_not_on_resource = ReferenceField( 'AllFieldsDocument' )
+    to_many_field_not_on_resource = ListField( ReferenceField( 'AllFieldsDocument' ) )
