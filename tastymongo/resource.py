@@ -1364,7 +1364,7 @@ class DocumentResource( Resource ):
                     value = None
             elif filter_type in QUERY_MATCH_OPERATORS:
                 # these query operators work only on strings
-                value = str( value )
+                value = unicode( value )
             elif filter_type in QUERY_EQUALITY_OPERATORS and not isinstance( field, fields.ToManyField ):
                 if not isinstance( field, fields.StringField ) and value in ( '', 'nil', 'null', 'none', 'None', None ):
                     value = None
