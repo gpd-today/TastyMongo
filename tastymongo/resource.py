@@ -339,8 +339,6 @@ class Resource( object ):
         if not auth_result is True:
             raise ImmediateHTTPResponse( response=http.HTTPUnauthorized() )
 
-
-
     def check_throttle( self, request ):
         """
         Handles checking if the user should be throttled.
@@ -351,19 +349,18 @@ class Resource( object ):
         identifier = self._meta.authentication.get_identifier( request )
 
         # Check to see if they should be throttled.
-        if self._meta.throttle.should_be_throttled( identifier ):
+        if self._meta.throttle.should_be_throttled( identifier, request ):
             # Throttle limit exceeded.
             raise ImmediateHTTPResponse( response=http.HTTPForbidden() )
 
-    def log_throttled_access(self, request):
+    def log_throttled_access( self, request ):
         """
         Handles the recording of the user's access for throttling purposes.
 
         Mostly a hook, this uses class assigned to `throttle` from
         `Resource._meta`.
         """
-        request_method = request.method.lower()
-        self._meta.throttle.accessed( self._meta.authentication.get_identifier(request), url=request.path_url, request_method=request_method )
+        self._meta.throttle.accessed( self._meta.authentication.get_identifier( request ), request )
 
     def create_response( self, bundles=None, request=None, data=None, response_class=Response, serializer_options=None, **kwargs ):
         '''
