@@ -351,7 +351,7 @@ class Resource( object ):
         # Check to see if they should be throttled.
         if self._meta.throttle.should_be_throttled( identifier, request ):
             # Throttle limit exceeded.
-            raise ImmediateHTTPResponse( response=http.HTTPForbidden() )
+            raise ImmediateHTTPResponse( response=http.HTTPTooManyRequests() )
 
     def log_throttled_access( self, request ):
         """

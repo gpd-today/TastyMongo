@@ -76,6 +76,12 @@ class HTTPGone(HTTPResponse):
         self.status_int = 410
 
 
+class HTTPTooManyRequests(HTTPResponse):
+    def __init__(self, *args, **kwargs):
+        super(HTTPTooManyRequests, self).__init__(*args, **kwargs)
+        self.status_int = 429
+
+
 class HTTPInternalServerError(HTTPResponse):
     def __init__(self, *args, **kwargs):
         super(HTTPInternalServerError, self).__init__(*args, **kwargs)
