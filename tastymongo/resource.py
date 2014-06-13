@@ -284,7 +284,7 @@ class Resource( object ):
             request_method = 'put'
 
         if request_method == "options":
-            allows = str( ','.join( map( unicode.upper, allowed )) )
+            allows = str( ','.join( map( unicode.upper, allowed ) ) )
             response = http.HTTPResponse( allows )
             response.headers[b'Allow'] = allows
             raise ImmediateHTTPResponse( response=response )

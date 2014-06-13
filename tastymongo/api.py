@@ -23,60 +23,30 @@ class Api( object ):
     this is done with version numbers (i.e. ``v1``, ``v2``, etc.) but can
     be named any string.
     """
-    def __init__(self, config, api_name='api', api_version='v1'):
+    def __init__(self, config, api_name='api', api_version='v1' ):
         self.api_name = api_name
         self.api_version = api_version
         self._registry = {}
+
+        if asbool( config.registry.settings.get( 'tastymongo.enable_CORS', 'false' ) ):
+            self.enable_CORS = True
+            self.CORS_settings = {
+                'origin': str( config.registry.settings.get( 'tastymongo.CORS_origin', 'None' ) ),
+                'headers': str( config.registry.settings.get( 'tastymongo.CORS_headers', 'None' ) ),
+                'credentials': str( config.registry.settings.get( 'tastymongo.CORS_credentials', 'false' ) ),
+            }
+        else:
+            self.enable_CORS = False
 
         # Parse `pyramid.debug_api` setting
         debug_api = asbool( config.registry.settings.get( 'pyramid.debug_api', 'false' ) )
         config.registry.settings[ 'pyramid.debug_api' ] = debug_api
         self.config = config
 
-        self.route = '/{}/{}'.format(self.api_name, self.api_version)
+        self.route = '/{}/{}'.format( self.api_name, self.api_version )
 
         self.config.add_route( self.route, self.route + '/' )
         self.config.add_view( self.wrap_view( self, self.top_level ), route_name=self.route )
-
-    @staticmethod
-    def wrap_view( resource, view ):
-        """
-        Wraps methods so they can be called in a more functional way as well
-        as handling exceptions better.
-
-        Note that if ``BadRequest`` or an exception with a ``response`` attr
-        are seen, there is special handling to either present a message back
-        to the user or return the response traveling with the exception.
-        """
-        def wrapper( request, *args, **kwargs ):
-            try:
-                if hasattr( view, '__call__' ):
-                    callback = view
-                else:
-                    callback = getattr( resource, view )
-
-                response = callback( request, *args, **kwargs )
-
-                if request.is_xhr:
-                    # IE excessively caches XMLHttpRequests, so we're disabling
-                    # the browser cache here.
-                    # See http://www.enhanceie.com/ie/bugs.asp for details.
-                    response.cache_control = 'no-cache'
-
-                if isinstance( response, basestring ):
-                    response = Response( body=response )
-
-                return response
-
-            except Exception as e:
-                # Return a raw error
-                if hasattr(e, 'response'):
-                    return e.response
-
-                # Return a serialized error message.
-                return Api._handle_server_error( resource, request, e )
-
-        return wrapper
 
     @staticmethod
     def _handle_server_error( resource, request, exception ):
@@ -104,6 +74,67 @@ class Api( object ):
             response_class = http.HTTPNotFound
 
         return response_class( body=serialized, content_type=str( desired_format ), charset=b'UTF-8' )
+
+    def wrap_view( self, resource, view ):
+        """
+        Wraps methods so they can be called in a more functional way as well
+        as handling exceptions better.
+
+        Note that if ``BadRequest`` or an exception with a ``response`` attr
+        are seen, there is special handling to either present a message back
+        to the user or return the response traveling with the exception.
+        """
+        def wrapper( request, *args, **kwargs ):
+            try:
+                if hasattr( view, '__call__' ):
+                    callback = view
+                else:
+                    callback = getattr( resource, view )
+
+                response = callback( request, *args, **kwargs )
+
+                if request.is_xhr:
+                    # IE excessively caches XMLHttpRequests, so we're disabling
+                    # the browser cache here.
+                    # See http://www.enhanceie.com/ie/bugs.asp for details.
+                    response.cache_control = 'no-cache'
+
+                if isinstance( response, basestring ):
+                    response = Response( body=response )
+            except Exception as e:
+                # Return a raw error
+                if hasattr(e, 'response'):
+                    response = e.response
+                else:
+                    # Return a serialized error message.
+                    response = Api._handle_server_error( resource, request, e )
+
+            if self.enable_CORS:
+                response = self.add_CORS_headers( response, resource, view )
+            return response
+
+        return wrapper
+
+    def add_CORS_headers( self, response, resource, view ):
+
+        if isinstance( resource, Api ):
+            allowed = ('get', 'options')
+        elif 'list' in str( view.im_func ):
+            allowed = resource._meta.list_allowed_methods
+        elif 'single' in str( view.im_func ):
+            allowed = resource._meta.single_allowed_methods
+        else:
+            allowed = resource._meta.allowed_methods
+
+        allowed = str( ','.join( map( unicode.upper, allowed ) ) )
+
+        response.headers[ b'Access-Control-Allow-Origin' ] = self.CORS_settings[ 'origin' ]
+        response.headers[ b'Access-Control-Allow-Headers' ] = self.CORS_settings[ 'headers' ]
+        response.headers[ b'Access-Control-Allow-Credentials' ] = self.CORS_settings[ 'credentials' ]
+        response.headers[ b'Access-Control-Allow-Methods' ] = str( allowed )
+        response.headers[ b'Allow' ] = str( allowed )
+
+        return response
 
     def register( self, resource ):
         """
