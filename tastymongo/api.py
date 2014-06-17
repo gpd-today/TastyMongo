@@ -110,12 +110,12 @@ class Api( object ):
                     response = Api._handle_server_error( resource, request, e )
 
             if self.enable_CORS:
-                response = self.add_CORS_headers( response, resource, view )
+                response = self.add_CORS_headers( request, response, resource, view )
             return response
 
         return wrapper
 
-    def add_CORS_headers( self, response, resource, view ):
+    def add_CORS_headers( self, request, response, resource, view ):
 
         if isinstance( resource, Api ):
             allowed = ('get', 'options')
@@ -128,7 +128,10 @@ class Api( object ):
 
         allowed = str( ','.join( map( unicode.upper, allowed ) ) )
 
-        response.headers[ b'Access-Control-Allow-Origin' ] = self.CORS_settings[ 'origin' ]
+        if self.CORS_settings[ 'origin' ] == '*':
+            response.headers[ b'Access-Control-Allow-Origin' ] = request.headers.environ.get( 'HTTP_ORIGIN', b'*' )
+        else:
+            response.headers[ b'Access-Control-Allow-Origin' ] = self.CORS_settings[ 'origin' ]
         response.headers[ b'Access-Control-Allow-Headers' ] = self.CORS_settings[ 'headers' ]
         response.headers[ b'Access-Control-Allow-Credentials' ] = self.CORS_settings[ 'credentials' ]
         response.headers[ b'Access-Control-Allow-Methods' ] = str( allowed )
