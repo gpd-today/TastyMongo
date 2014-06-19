@@ -14,7 +14,7 @@ class Authentication( object ):
         Should return either ``True`` if allowed, ``False`` if not or an
         ``HttpResponse`` if you need something custom.
         """
-        return not not request.user
+        return not not request.user and request.authenticated_userid == str( request.user.pk )
 
     def get_identifier( self, request ):
         """
