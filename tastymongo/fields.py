@@ -746,7 +746,7 @@ class ToManyField( RelatedField ):
                 if resource_uri not in resources_in_data:
                     bundle.data[ self.field_name ].append( resource_uri )
 
-        if self.field_name in bundle.data: 
+        if self.field_name in bundle.data:
             # The bundle has data for this field. Return it.
             bundle_data = self.convert( bundle.data[ self.field_name ] )
 
@@ -755,7 +755,7 @@ class ToManyField( RelatedField ):
             bundle_data = self.default
 
         elif not self.required:
-            # There's no default but the field is not required. 
+            # There's no default but the field is not required.
             bundle_data = []
 
         else:

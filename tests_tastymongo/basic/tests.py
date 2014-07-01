@@ -101,6 +101,7 @@ class BasicTests( unittest.TestCase ):
 
         self.assertEqual( len( deliverable.activities ), 1 )
 
+        # Change the deliverable's name to `d2`
         request = Request.blank( d.deliverable_resource.get_resource_uri( d.request, deliverable ) )
         request.body = json.dumps({
             'name': 'd2',
@@ -112,13 +113,27 @@ class BasicTests( unittest.TestCase ):
         # Update the deliverable
         response = d.deliverable_resource.put_single( request )
         deserialized = json.loads( response.body )
-        print( deserialized )
 
         deliverable.reload()
 
         self.assertEqual( deliverable.name, 'd2' )
         self.assertEqual( len( deliverable.activities ), 1 )
-        self.assertTrue( False )
+
+        # Change the name again, this time to `d3`
+        request = Request.blank( d.deliverable_resource.get_resource_uri( d.request, deliverable ) )
+        request.body = json.dumps({
+            'name': 'd3',
+            'id': str( deliverable.pk ),
+            'resource_uri': d.deliverable_resource.get_resource_uri( d.request, deliverable )
+        })
+
+        # Update the deliverable
+        response = d.deliverable_resource.put_single( request )
+        deliverable.reload()
+
+        self.assertEqual( deliverable.name, 'd3' )
+        self.assertEqual( len( deliverable.activities ), 1 )
+
 
     def test_post_nested_list( self ):
         d = self.data
