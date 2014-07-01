@@ -6,8 +6,10 @@ import unittest
 import json
 from pyramid import testing
 
+from pyramid.request import Request
+
 from tests_tastymongo.run_tests import setup_db, setup_request
-from tests_tastymongo.documents import Activity
+from tests_tastymongo.documents import Activity, Person, Deliverable
 from tastymongo import http
 
 
@@ -84,6 +86,39 @@ class BasicTests( unittest.TestCase ):
 
         # Check if the correct activity has been returned
         self.assertEqual( deserialized['name'], "post_list created activity")
+
+    def test_put_single( self ):
+        d = self.data
+
+        deliverable = Deliverable( name='d1', owner=d.user )
+        deliverable.save()
+
+        activity = Activity( person=d.user, name='a2' )
+        activity.save()
+
+        deliverable.activities.append( activity )
+        deliverable.save()
+
+        self.assertEqual( len( deliverable.activities ), 1 )
+
+        request = Request.blank( d.deliverable_resource.get_resource_uri( d.request, deliverable ) )
+        request.body = json.dumps({
+            'name': 'd2',
+            'id': str( deliverable.pk ),
+            'resource_uri': d.deliverable_resource.get_resource_uri( d.request, deliverable ),
+            'owner': d.person_resource.get_resource_uri( d.request, d.user )
+        })
+
+        # Update the deliverable
+        response = d.deliverable_resource.put_single( request )
+        deserialized = json.loads( response.body )
+        print( deserialized )
+
+        deliverable.reload()
+
+        self.assertEqual( deliverable.name, 'd2' )
+        self.assertEqual( len( deliverable.activities ), 1 )
+        self.assertTrue( False )
 
     def test_post_nested_list( self ):
         d = self.data

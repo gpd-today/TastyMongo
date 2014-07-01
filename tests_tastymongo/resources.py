@@ -34,7 +34,7 @@ class ActivityResource( DocumentResource ):
 class DeliverableResource( DocumentResource ):
 
     owner = fields.ToOneField( 'owner', PersonResource )
-    activities = fields.ToManyField( 'activities', 'ActivityResource' )
+    activities = fields.ToManyField( 'activities', ActivityResource )
 
     class Meta:
         object_class = Deliverable

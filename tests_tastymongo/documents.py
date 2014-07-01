@@ -9,7 +9,7 @@ class Mixin(object):
     name = StringField()
 
     def __unicode__( self ):
-        return unicode( self.name )
+        return '{} ({} @ {})'.format( self.name, self.pk or '(no id)', id( self ) )
 
 
 class Activity( Mixin, Document ):
