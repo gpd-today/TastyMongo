@@ -133,6 +133,7 @@ class Api( object ):
         else:
             response.headers[ b'Access-Control-Allow-Origin' ] = self.CORS_settings[ 'origin' ]
         response.headers[ b'Access-Control-Allow-Headers' ] = self.CORS_settings[ 'headers' ]
+        response.headers[ b'Access-Control-Expose-Headers' ] = self.CORS_settings[ 'headers' ]
         response.headers[ b'Access-Control-Allow-Credentials' ] = self.CORS_settings[ 'credentials' ]
         response.headers[ b'Access-Control-Allow-Methods' ] = str( allowed )
         response.headers[ b'Allow' ] = str( allowed )
