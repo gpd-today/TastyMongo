@@ -8,7 +8,7 @@ from pyramid import testing
 
 from pyramid.request import Request
 
-from tests_tastymongo.run_tests import setup_db, setup_request
+from tests_tastymongo.run_tests import setup_db, setup_request, get_request
 from tests_tastymongo.documents import Activity, Person, Deliverable
 from tastymongo import http
 
@@ -102,13 +102,16 @@ class BasicTests( unittest.TestCase ):
         self.assertEqual( len( deliverable.activities ), 1 )
 
         # Change the deliverable's name to `d2`
-        request = Request.blank( d.deliverable_resource.get_resource_uri( d.request, deliverable ) )
-        request.body = json.dumps({
-            'name': 'd2',
-            'id': str( deliverable.pk ),
-            'resource_uri': d.deliverable_resource.get_resource_uri( d.request, deliverable ),
-            'owner': d.person_resource.get_resource_uri( d.request, d.user )
-        })
+        request = get_request( d.user,
+            path=d.deliverable_resource.get_resource_uri( d.request, deliverable ),
+            request_method='PUT',
+            body=json.dumps({
+                'name': 'd2',
+                'id': str( deliverable.pk ),
+                'resource_uri': d.deliverable_resource.get_resource_uri( d.request, deliverable ),
+                'owner': d.person_resource.get_resource_uri( d.request, d.user )
+            })
+        )
 
         # Update the deliverable
         response = d.deliverable_resource.put_single( request )
@@ -120,12 +123,15 @@ class BasicTests( unittest.TestCase ):
         self.assertEqual( len( deliverable.activities ), 1 )
 
         # Change the name again, this time to `d3`
-        request = Request.blank( d.deliverable_resource.get_resource_uri( d.request, deliverable ) )
-        request.body = json.dumps({
-            'name': 'd3',
-            'id': str( deliverable.pk ),
-            'resource_uri': d.deliverable_resource.get_resource_uri( d.request, deliverable )
-        })
+        request = get_request( d.user,
+            path=d.deliverable_resource.get_resource_uri( d.request, deliverable ),
+            request_method='PUT',
+            body=json.dumps({
+                'name': 'd3',
+                'id': str( deliverable.pk ),
+                'resource_uri': d.deliverable_resource.get_resource_uri( d.request, deliverable )
+            })
+        )
 
         # Update the deliverable
         response = d.deliverable_resource.put_single( request )

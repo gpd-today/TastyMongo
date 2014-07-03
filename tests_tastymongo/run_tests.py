@@ -28,7 +28,7 @@ def setup_request( user=None ):
     d = Struct()
 
     # Setup application/request config
-    d.request = Request.blank( '/api/v1/' )
+    d.request = get_request( user )
     d.config = testing.setUp( request=d.request )
 
     # Setup our API
@@ -56,6 +56,15 @@ def setup_request( user=None ):
         d.config.set_authentication_policy( policy )
 
     return d
+
+def get_request( user=None, path='/api/v1/', body=b'', request_method='GET' ):
+    request = Request.blank( path )
+    request.method = request_method
+    request.user = user
+    request.body = str(body)
+
+    return request
+
 
 if __name__ == '__main__':
     test_loader = unittest.defaultTestLoader.discover( '.' )

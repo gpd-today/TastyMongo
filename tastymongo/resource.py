@@ -484,7 +484,7 @@ class Resource( object ):
         for bundle in bundles:
             for field_name, fld in self.fields.items():
 
-                if request.method.lower() == 'patch' and field_name not in bundle.data:
+                if ( request.method.lower() == 'patch' or request.method.lower() == 'put' ) and field_name not in bundle.data:
                     # When patching, ignore values not present in the data
                     continue
 
