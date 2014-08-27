@@ -627,7 +627,8 @@ class ToOneField( RelatedField ):
         object. The related resource may in turn recurse for nested data.
         """
         related_data = super( ToOneField, self ).hydrate( bundle )
-        if related_data is None:
+
+        if related_data is None or related_data == '':
             return None
 
         if isinstance( related_data, basestring ):
@@ -768,10 +769,11 @@ class ToManyField( RelatedField ):
         related_objs = getattr( bundle.obj, self.attribute )
         related_obj_data_ids = [ obj.id for obj in related_objs ]
         related_bundles = []
+
         for single_related_data in bundle_data:
             related_bundle = None
 
-            if isinstance( single_related_data, basestring ):
+            if isinstance( single_related_data, basestring ) and single_related_data:
                 # There's no additional data, just a resource_uri, that can be
                 # the same or different from what we already have.
                 single_related_id = self._resource._meta.api.get_id_from_resource_uri( single_related_data )
@@ -785,6 +787,7 @@ class ToManyField( RelatedField ):
 
             if not related_bundle and single_related_data:
                 related_bundle = self.get_related_bundle( single_related_data, request=bundle.request )
+
             if related_bundle:
                 related_bundles.append( related_bundle )
 
