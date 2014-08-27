@@ -236,7 +236,7 @@ class Api( object ):
 
         return None
 
-    def build_uri( self, request, id=None, resource_name=None, operation=None, route_name=None, absolute=False ):
+    def build_uri( self, request, id=None, resource_name=None, operation='single', route_name=None, absolute=False ):
         if route_name is None:
             route_name = self.build_route_name( resource_name, operation )
 
