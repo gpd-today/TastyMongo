@@ -10,6 +10,9 @@ from .serializers import Serializer
 from .utils import *
 from .resource import Resource
 
+import logging
+log = logging.getLogger( __name__ )
+
 
 class Api( object ):
     """
@@ -50,14 +53,18 @@ class Api( object ):
 
     @staticmethod
     def _handle_server_error( resource, request, exception ):
+        import sys, traceback
+        traceback = ''.join( traceback.format_exception( *( sys.exc_info() ) ) )
+
+        log.info( traceback )
+
         data = {
             'code': getattr( exception, 'code', 0 ),
             'message': unicode( exception )
         }
 
         if request.registry.settings[ 'pyramid.debug_api' ]:
-            import sys, traceback
-            data[ 'traceback' ] = '\n'.join( traceback.format_exception( *( sys.exc_info() ) ) )
+            data[ 'traceback' ] = traceback
 
         if isinstance( resource, Resource ):
             desired_format = resource.determine_format( request )
