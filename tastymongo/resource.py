@@ -32,7 +32,7 @@ from mongoengine.document import Document
 from bson import ObjectId, DBRef
 
 from copy import copy
-from operator import or_
+from operator import or_, and_
 import collections 
 from constants import *
 
@@ -1428,8 +1428,8 @@ class DocumentResource( Resource ):
         if not filters:
             filters = {}
 
-        and_filters = {}
-        or_filters = {}
+        and_filters = []
+        or_filters = []
 
         for filter_expr, value in filters.items():
             filter_bits = filter_expr.split( LOOKUP_SEP )
@@ -1478,18 +1478,18 @@ class DocumentResource( Resource ):
             qs_filter = "{0}{1}{2}".format( resource_filters[0][1].attribute, LOOKUP_SEP, filter_type )
 
             if is_or_filter:
-                or_filters[ qs_filter ] = value
+                or_filters.append( ( qs_filter, value ) )
             else:
-                and_filters[ qs_filter ] = value
+                and_filters.append( ( qs_filter, value ) )
 
         # Combine `filter_group` into a (set of) Q filters. A single Q object is `and`; for `or`, we create a set of filters.
         q_filter = Q()
 
         if and_filters:
-            q_filter = Q( **and_filters )
+            q_filter = reduce( and_, ( Q(**{k:v}) for k,v in and_filters ) )
 
         if or_filters:
-            q_filter &= reduce( or_, ( Q(**{k:v}) for k,v in or_filters.items() ) )
+            q_filter &= reduce( or_, ( Q(**{k:v}) for k,v in or_filters ) )
 
         return q_filter
 
