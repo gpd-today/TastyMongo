@@ -51,8 +51,7 @@ class Api( object ):
         self.config.add_route( self.route, self.route + '/' )
         self.config.add_view( self.wrap_view( self, self.top_level ), route_name=self.route )
 
-    @staticmethod
-    def _handle_server_error( resource, request, exception ):
+    def _handle_server_error( self, resource, request, exception ):
         import sys, traceback
         traceback = ''.join( traceback.format_exception( *( sys.exc_info() ) ) )
 
@@ -114,7 +113,7 @@ class Api( object ):
                     response = e.response
                 else:
                     # Return a serialized error message.
-                    response = Api._handle_server_error( resource, request, e )
+                    response = self._handle_server_error( resource, request, e )
 
             if self.enable_CORS:
                 response = self.add_CORS_headers( request, response, resource, view )
