@@ -1,5 +1,5 @@
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
 
 from . import fields
 from . import http
@@ -15,15 +15,16 @@ from .paginator import Paginator
 from pyramid.response import Response
 from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned, Q
 from mongoengine.errors import ValidationError as MongoEngineValidationError
+from functools import reduce
 
 try:
     from mongoengine_relational.relationalmixin import RelationManagerMixin, set_difference
-except ImportError, e:
+except ImportError as e:
     RelationManagerMixin = None
 
 try:
     from mongoengine_privileges.privilegemixin import PrivilegeMixin
-except ImportError, e:
+except ImportError as e:
     PrivilegeMixin = None
 
 import mongoengine
@@ -34,7 +35,7 @@ from bson import ObjectId, DBRef
 from copy import copy
 from operator import or_, and_
 import collections 
-from constants import *
+from .constants import *
 
 from kitchen.text.converters import getwriter
 import sys
@@ -125,13 +126,13 @@ class DeclarativeMetaclass( type ):
             for p in parent_classes:
                 parent_class_fields = getattr( p, 'base_fields', {})
 
-                for field_name, fld in parent_class_fields.items():
+                for field_name, fld in list(parent_class_fields.items()):
                     attrs['base_fields'][field_name] = copy( fld )
         except NameError:
             pass
 
         # Find fields explicitly set on the Resource
-        for attr, obj in attrs.items():
+        for attr, obj in list(attrs.items()):
             if isinstance( obj, fields.ApiField ):
                 field = attrs.pop( attr )
                 declared_fields[ attr ] = field
@@ -160,18 +161,16 @@ class DeclarativeMetaclass( type ):
         elif 'resource_uri' in new_class.base_fields and not 'resource_uri' in attrs:
             del( new_class.base_fields['resource_uri'] )
 
-        for field_name, fld in new_class.base_fields.items():
+        for field_name, fld in list(new_class.base_fields.items()):
             if hasattr( fld, 'contribute_to_class' ):
                 fld.contribute_to_class( new_class, field_name )
 
         return new_class
 
 
-class Resource( object ):
-    __metaclass__ = DeclarativeMetaclass
-
+class Resource( object, metaclass=DeclarativeMetaclass ):
     def __init__( self, api=None ):
-        self.fields = { k: copy( v ) for k, v in self.base_fields.items() }
+        self.fields = { k: copy( v ) for k, v in list(self.base_fields.items()) }
 
         if api:
             self._meta.api = api
@@ -236,7 +235,7 @@ class Resource( object ):
         if self._meta.filtering:
             data['filtering'] = self._meta.filtering
 
-        for field_name, fld in self.fields.items():
+        for field_name, fld in list(self.fields.items()):
             data['fields'][field_name] = {
                 'default': fld.default,
                 'type': fld.dehydrated_type,
@@ -284,13 +283,13 @@ class Resource( object ):
             request_method = 'put'
 
         if request_method == "options":
-            allows = str( ','.join( map( unicode.upper, allowed ) ) )
+            allows = str( ','.join( map( str.upper, allowed ) ) )
             response = http.HTTPResponse( allows )
             response.headers[b'Allow'] = allows
             raise ImmediateHTTPResponse( response=response )
 
         if not request_method in allowed:
-            allows = ','.join( map( unicode.upper, allowed ))
+            allows = ','.join( map( str.upper, allowed ))
             response = http.HTTPMethodNotAllowed( body='Allowed methods={0}'.format( allows ))
             raise ImmediateHTTPResponse( response=response )
 
@@ -437,7 +436,7 @@ class Resource( object ):
         Errors are added to the bundle if a new resource may not be created or 
         if an existing resource is not found or may not be updated.
         """
-        if isinstance( data, basestring ):
+        if isinstance( data, str ):
             # Assume data /is/ the uri
             data = { 'resource_uri': data }
 
@@ -482,7 +481,7 @@ class Resource( object ):
         bundles = self.pre_hydrate( bundles, request )
 
         for bundle in bundles:
-            for field_name, fld in self.fields.items():
+            for field_name, fld in list(self.fields.items()):
 
                 if ( request.method.lower() == 'patch' or request.method.lower() == 'put' ) and field_name not in bundle.data:
                     # When patching, ignore values not present in the data
@@ -491,7 +490,7 @@ class Resource( object ):
                 # You may provide a custom method on the resource that will replace
                 # the default hydration behaviour for the field.
                 callback = getattr(self, "hydrate_{0}".format(field_name), None)
-                if callable( callback ):
+                if isinstance( callback, collections.Callable):
                     data = callback( bundle )
                 elif fld.readonly:
                     continue
@@ -542,12 +541,12 @@ class Resource( object ):
 
         for bundle in bundles:
             # Dehydrate each field.
-            for field_name, fld in self.fields.items():
+            for field_name, fld in list(self.fields.items()):
                 bundle.data[field_name] = fld.dehydrate( bundle )
 
                 # Check for an optional method to do further dehydration.
                 method = getattr( self, "dehydrate_{0}".format( field_name ), None )
-                if callable( method ):
+                if isinstance( method, collections.Callable):
                     bundle.data[field_name] = method( bundle )
 
         bundles = self.post_dehydrate( bundles, request )
@@ -620,7 +619,7 @@ class Resource( object ):
 
         # Determine which callback we're going to use
         method = getattr( self, '{0}_{1}'.format( request_method, request_type ), None )
-        if not callable( method ):
+        if not isinstance( method, collections.Callable):
             error = 'Method="{0}_{1}" is not implemented for resource="{2}"'.format( request_method, request_type, self._meta.resource_name )
             raise ImmediateHTTPResponse( response=http.HTTPNotImplemented( body=error ))
 
@@ -693,9 +692,9 @@ class Resource( object ):
         """
         try:
             obj = self.obj_get_single( request=request, **request.matchdict )
-        except DoesNotExist, e:
+        except DoesNotExist as e:
             return http.HTTPNotFound()
-        except MultipleObjectsReturned, e:
+        except MultipleObjectsReturned as e:
             return http.HTTPMultipleChoices( "More than one resource is found at this URI." )
 
         bundle = self.build_bundle( request=request, obj=obj )
@@ -862,7 +861,7 @@ class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
         include_fields = getattr( new_class._meta, 'fields', [] )
         excludes = getattr( new_class._meta, 'excludes', [] )
 
-        for field_name, fld in new_class.base_fields.items():
+        for field_name, fld in list(new_class.base_fields.items()):
             if field_name == 'resource_uri':
                 # Embedded objects don't have their own resource_uri
                 if meta and hasattr( meta, 'object_class' ) and issubclass( meta.object_class, mongoengine.EmbeddedDocument ):
@@ -883,16 +882,15 @@ class DocumentDeclarativeMetaclass( DeclarativeMetaclass ):
         return new_class
 
 
-class DocumentResource( Resource ):
+class DocumentResource( Resource, metaclass=DocumentDeclarativeMetaclass ):
     '''
     A MongoEngine specific implementation of Resource
     '''
-    __metaclass__ = DocumentDeclarativeMetaclass
 
     def _prefetch_documents( self, bundles, request ):
         # On bundles, find DBRefs in fields to prefetch
         to_fetch = {}
-        for field_name, field in self.fields.items():
+        for field_name, field in list(self.fields.items()):
             # Per field, loop over the bundles and pick up related docs we could have to dereference.
             if getattr( field, 'is_related', False ) and field.to and field.full:
                 related_resource = self._meta.api.resource_for_class( field.to_class )
@@ -908,7 +906,7 @@ class DocumentResource( Resource ):
                     for bundle in bundles:
                         to_fetch[ resource_name ].add( bundle.obj._data[ field.attribute ] )
 
-        for resource_name, related in to_fetch.items():
+        for resource_name, related in list(to_fetch.items()):
             # Limit each set to ObjectIds we can't find in the cache yet
             ids = [ ref.id for ref in related if isinstance( ref, DBRef ) and ref.id not in request.cache ]
 
@@ -962,7 +960,7 @@ class DocumentResource( Resource ):
         try:
             bundle.obj.validate()
         except MongoEngineValidationError as e:
-            for k in e.errors.keys():  # ! Document, not Resource, fields
+            for k in list(e.errors.keys()):  # ! Document, not Resource, fields
                 fld = bundle.obj._fields[k]
                 if isinstance( fld, mongofields.ReferenceField ):
                     if not fld.required:
@@ -988,7 +986,7 @@ class DocumentResource( Resource ):
         if not RelationManagerMixin or not isinstance( bundle.obj, RelationManagerMixin ):
             return bundle
 
-        for field_name, data in bundle.stashed_relations.items():
+        for field_name, data in list(bundle.stashed_relations.items()):
             setattr( bundle.obj, field_name, data )
 
         bundle.stashed_relations = {}
@@ -1032,7 +1030,7 @@ class DocumentResource( Resource ):
         return bundle
 
     def _related_fields_callback( self, bundle, callback_func ):
-        for field_name, fld in self.fields.items():
+        for field_name, fld in list(self.fields.items()):
 
             if fld.readonly:
                 continue
@@ -1129,7 +1127,7 @@ class DocumentResource( Resource ):
         if not cls._meta.object_class:
             return final_fields
 
-        for name, f in cls._meta.object_class._fields.items():
+        for name, f in list(cls._meta.object_class._fields.items()):
             # If the field name is already present, skip
             if name in cls.base_fields:
                 continue
@@ -1215,7 +1213,7 @@ class DocumentResource( Resource ):
             elif isinstance( data, ObjectId ):
                 kwargs[ 'id' ] = str( data )
 
-            elif isinstance( data, basestring ):
+            elif isinstance( data, str ):
                 # assume the data _is_ the URI
                 kwargs[ 'id' ] = self._meta.api.get_id_from_resource_uri( data )
 
@@ -1365,7 +1363,7 @@ class DocumentResource( Resource ):
                     value = None
             elif filter_type in QUERY_MATCH_OPERATORS:
                 # these query operators work only on strings
-                value = unicode( value )
+                value = str( value )
             elif filter_type in QUERY_EQUALITY_OPERATORS and not isinstance( field, fields.ToManyField ):
                 if not isinstance( field, fields.StringField ) and value in ( '', 'nil', 'null', 'none', 'None', None ):
                     value = None
@@ -1431,7 +1429,7 @@ class DocumentResource( Resource ):
         and_filters = []
         or_filters = []
 
-        for filter_expr, value in filters.items():
+        for filter_expr, value in list(filters.items()):
             filter_bits = filter_expr.split( LOOKUP_SEP )
             filter_type = 'exact'  # default
             field_name = filter_bits.pop( 0 )
@@ -1629,7 +1627,7 @@ class DocumentResource( Resource ):
 
                 bundle.request.api['created'].add( bundle.obj )
 
-            except MongoEngineValidationError, e:
+            except MongoEngineValidationError as e:
                 # We'll have to wait for related objects to be created first.
                 pass
             bundle = self._pop_stashed_relations( bundle )
@@ -1736,7 +1734,7 @@ class DocumentResource( Resource ):
 
             if not obj:
                 # Filters returned 0 or more than 1 match, raise an error.
-                stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in filters.items()] )
+                stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in list(filters.items())] )
                 if len(matched) == 0:
                     raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
                 else:

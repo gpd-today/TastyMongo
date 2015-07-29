@@ -1,8 +1,8 @@
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
 
 from .exceptions import BadRequest
-from urllib import urlencode
+from urllib.parse import urlencode
 
 
 class Paginator(object):
@@ -152,8 +152,8 @@ class Paginator(object):
         except AttributeError:
             request_params = {}
 
-            for k, v in self.request_data.items():
-                if isinstance(v, unicode):
+            for k, v in list(self.request_data.items()):
+                if isinstance(v, str):
                     request_params[k] = v.encode('utf-8')
                 else:
                     request_params[k] = v

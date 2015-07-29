@@ -1,5 +1,5 @@
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
 
 from pyramid.response import Response
 from pyramid.settings import asbool
@@ -59,7 +59,7 @@ class Api( object ):
 
         data = {
             'code': getattr( exception, 'code', 0 ),
-            'message': unicode( exception )
+            'message': str( exception )
         }
 
         if request.registry.settings[ 'pyramid.debug_api' ]:
@@ -105,7 +105,7 @@ class Api( object ):
                     # See http://www.enhanceie.com/ie/bugs.asp for details.
                     response.cache_control = 'no-cache'
 
-                if isinstance( response, basestring ):
+                if isinstance( response, str ):
                     response = Response( body=response )
             except Exception as e:
                 # Return a raw error
@@ -125,14 +125,14 @@ class Api( object ):
 
         if isinstance( resource, Api ):
             allowed = ('get', 'options')
-        elif 'list' in str( view.im_func ):
+        elif 'list' in str( view.__func__ ):
             allowed = resource._meta.list_allowed_methods
-        elif 'single' in str( view.im_func ):
+        elif 'single' in str( view.__func__ ):
             allowed = resource._meta.single_allowed_methods
         else:
             allowed = resource._meta.allowed_methods
 
-        allowed = str( ','.join( map( unicode.upper, allowed ) ) )
+        allowed = str( ','.join( map( str.upper, allowed ) ) )
 
         if self.CORS_settings[ 'origin' ] == '*':
             response.headers[ b'Access-Control-Allow-Origin' ] = request.headers.environ.get( 'HTTP_ORIGIN', b'*' )
@@ -194,7 +194,7 @@ class Api( object ):
         '''
         @param cls: either a resource or document class
         '''
-        for resource in self._registry.values():
+        for resource in list(self._registry.values()):
             if isinstance( resource, cls ) or resource._meta.object_class and resource._meta.object_class == cls:
                 return resource
 
@@ -203,7 +203,7 @@ class Api( object ):
     def resource_for_document( self, document ):
         # This becomes non-deterministic if there's more than a single Resource for a certain Document class.
         # We may need to set introduce a canonical resource.
-        for resource in self._registry.values():
+        for resource in list(self._registry.values()):
             if resource._meta.object_class and isinstance( document, resource._meta.object_class ):
                 return resource
 
@@ -212,7 +212,7 @@ class Api( object ):
     def resource_for_collection( self, collection ):
         # This becomes non-deterministic if there's more than a single Resource for a certain collection.
         # We may need to set introduce a canonical resource.
-        for resource in self._registry.values():
+        for resource in list(self._registry.values()):
             if resource._meta.object_class and resource._meta.object_class._meta['collection'] == collection:
                 return resource
 
@@ -234,7 +234,7 @@ class Api( object ):
         return route_name
 
     def get_id_from_resource_uri( self, value ):
-        if isinstance( value, basestring ) and value.startswith( self.route ):
+        if isinstance( value, str ) and value.startswith( self.route ):
             # '/api/v1/<resource_name>/<objectid>/' or some other string
             parts = value.split( '/' )
             if len( parts ) == 6:

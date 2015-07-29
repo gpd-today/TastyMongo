@@ -1,5 +1,5 @@
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
 
 import datetime
 import importlib
@@ -13,6 +13,7 @@ from mongoengine.errors import ValidationError as MongoEngineValidationError
 from bson import DBRef, ObjectId
 
 from .bundle import Bundle
+import collections
 
 class NOT_PROVIDED:
     def __str__( self ):
@@ -95,7 +96,7 @@ class ApiField( object ):
     @property
     def default( self ):
         """Returns the default value for the field."""
-        if callable( self._default ):
+        if isinstance( self._default, collections.Callable):
             return self._default()
 
         return self._default
@@ -149,7 +150,7 @@ class ApiField( object ):
         ``attribute`` specifies which field on the object should
         be accessed to get data for this corresponding ApiField.
         '''
-        if isinstance( self.attribute, basestring ):
+        if isinstance( self.attribute, str ):
             # `attribute` points to an attribute or method on the object.
             attr = getattr( bundle.obj, self.attribute )
 
@@ -163,7 +164,7 @@ class ApiField( object ):
 
             return self.convert( attr )
 
-        elif callable( self.attribute ):
+        elif isinstance( self.attribute, collections.Callable):
             # `attribute` is a method on the Resource that provides data.
             return self.attribute()
 
@@ -209,7 +210,7 @@ class StringField( ApiField ):
         if value is None:
             return None
 
-        return unicode( value )
+        return str( value )
 
 
 class IntegerField( ApiField ):
@@ -320,7 +321,7 @@ class EmbeddedDocumentField( ApiField ):
         # (de)hydrate methods.
         doc = self._resource._meta.object_class._fields[ self.field_name ].document_type()
         dct = {}
-        for k, f in doc._fields.items():
+        for k, f in list(doc._fields.items()):
             if k in value:
                 api_field_class = self._resource.get_api_field_for_mongoengine_field( f )()
                 dct[k] = api_field_class.convert( value[k] )
@@ -337,7 +338,7 @@ class EmbeddedDocumentField( ApiField ):
 
         doc = getattr(bundle.obj, self.field_name) or self._resource._meta.object_class._fields[ self.field_name ].document_type()
 
-        for k, v in dct.items():
+        for k, v in list(dct.items()):
             doc[k] = v
 
         try:
@@ -359,7 +360,7 @@ class DateField( ApiField ):
             return None
 
         d = value
-        if isinstance( value, basestring ):
+        if isinstance( value, str ):
             try:
                 d = parser.parse( value ).date()
             except ValueError:
@@ -386,7 +387,7 @@ class DateTimeField( ApiField ):
             return None
 
         dt = value
-        if isinstance( value, basestring ):
+        if isinstance( value, str ):
             try:
                 dt = parser.parse( value )
             except ValueError:
@@ -407,7 +408,7 @@ class TimeField( ApiField ):
             return None
 
         t = value
-        if isinstance( value, basestring ):
+        if isinstance( value, str ):
             try:
                 t = parser.parse( value ).time()
             except ValueError:
@@ -500,7 +501,7 @@ class RelatedField( ApiField ):
         if self._to_class:
             return self._to_class
 
-        if not isinstance( self.to, basestring ):
+        if not isinstance( self.to, str ):
             self._to_class = self.to
             return self._to_class
 
@@ -561,7 +562,7 @@ class RelatedField( ApiField ):
             elif isinstance( data, DBRef ):
                 related_resource = self._resource._meta.api.resource_for_collection( data.collection )
             
-            elif isinstance( data, basestring ):
+            elif isinstance( data, str ):
                 related_resource = self._resource._meta.api.resource_for_uri( data )
 
         if not related_resource:
@@ -584,7 +585,7 @@ class RelatedField( ApiField ):
         related_resource = self.get_related_resource( data )
         bundle = None
 
-        if isinstance( data, basestring ):
+        if isinstance( data, str ):
             # We got a resource URI. Try to create a bundle with the resource.
             bundle = related_resource.build_bundle( request=request, data=data )
         elif hasattr( data, 'items' ):
@@ -631,7 +632,7 @@ class ToOneField( RelatedField ):
         if related_data is None or related_data == '':
             return None
 
-        if isinstance( related_data, basestring ):
+        if isinstance( related_data, str ):
             # There's no additional data, just a resource_uri, that can be
             # the same or different from what we already have.
             data_id = self._resource._meta.api.get_id_from_resource_uri( related_data )
@@ -668,7 +669,7 @@ class ToOneField( RelatedField ):
         attr = None
         data = None
 
-        if isinstance( self.attribute, basestring ):
+        if isinstance( self.attribute, str ):
             if self.full:
                 # Pull the document either from cache or db
                 attr = bundle.obj[ self.attribute ]
@@ -684,7 +685,7 @@ class ToOneField( RelatedField ):
 
             attr = self.convert( attr )
 
-        elif callable( self.attribute ):
+        elif isinstance( self.attribute, collections.Callable):
             # `attribute` is a method on the Resource that provides data.
             attr = self.attribute()
 
@@ -738,7 +739,7 @@ class ToManyField( RelatedField ):
             for d in bundle.data[ self.field_name ]:
                 if isinstance( d, dict ) and d.get('resource_uri', None):
                     resources_in_data.add( d.get('resource_uri') )
-                elif isinstance( d, basestring ):
+                elif isinstance( d, str ):
                     resources_in_data.add( d )
 
             related_resource = self.get_related_resource()
@@ -773,7 +774,7 @@ class ToManyField( RelatedField ):
         for single_related_data in bundle_data:
             related_bundle = None
 
-            if isinstance( single_related_data, basestring ) and single_related_data:
+            if isinstance( single_related_data, str ) and single_related_data:
                 # There's no additional data, just a resource_uri, that can be
                 # the same or different from what we already have.
                 single_related_id = self._resource._meta.api.get_id_from_resource_uri( single_related_data )
@@ -802,7 +803,7 @@ class ToManyField( RelatedField ):
         the related resource's dehydrate method to populate the data from
         the object. The related resources may in turn recurse for nested data.
         """
-        if isinstance( self.attribute, basestring ):
+        if isinstance( self.attribute, str ):
             if self.full:
                 # Pull the document either from cache or db
                 attr = bundle.obj[ self.attribute ]
@@ -820,7 +821,7 @@ class ToManyField( RelatedField ):
 
             attr = self.convert( attr )
 
-        elif callable( self.attribute ):
+        elif isinstance( self.attribute, collections.Callable):
             # `attribute` is a method on the Resource that provides data.
             attr = self.attribute()
 

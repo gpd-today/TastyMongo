@@ -1,0 +1,931 @@
+--- ./conf.py	(original)
++++ ./conf.py	(refactored)
+@@ -40,8 +40,8 @@
+ master_doc = 'index'
+ 
+ # General information about the project.
+-project = u'tastymongo'
+-copyright = u'2012, Progressive Company'
++project = 'tastymongo'
++copyright = '2012, Progressive Company'
+ 
+ # The version info for the project you're documenting, acts as replacement for
+ # |version| and |release|, also used in various other places throughout the
+@@ -183,8 +183,8 @@
+ # Grouping the document tree into LaTeX files. List of tuples
+ # (source start file, target name, title, author, documentclass [howto/manual]).
+ latex_documents = [
+-  ('index', 'tastymongo.tex', u'tastymongo Documentation',
+-   u'Progressive Company', 'manual'),
++  ('index', 'tastymongo.tex', 'tastymongo Documentation',
++   'Progressive Company', 'manual'),
+ ]
+ 
+ # The name of an image file (relative to this directory) to place at the top of
+@@ -213,8 +213,8 @@
+ # One entry per manual page. List of tuples
+ # (source start file, name, description, authors, manual section).
+ man_pages = [
+-    ('index', 'tastymongo', u'tastymongo Documentation',
+-     [u'Progressive Company'], 1)
++    ('index', 'tastymongo', 'tastymongo Documentation',
++     ['Progressive Company'], 1)
+ ]
+ 
+ # If true, show URL addresses after external links.
+@@ -227,8 +227,8 @@
+ # (source start file, target name, title, author,
+ #  dir menu entry, description, category)
+ texinfo_documents = [
+-  ('index', 'tastymongo', u'tastymongo Documentation',
+-   u'Progressive Company', 'tastymongo', 'One line description of project.',
++  ('index', 'tastymongo', 'tastymongo Documentation',
++   'Progressive Company', 'tastymongo', 'One line description of project.',
+    'Miscellaneous'),
+ ]
+ 
+--- ./tastymongo/api.py	(original)
++++ ./tastymongo/api.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ from pyramid.response import Response
+ from pyramid.settings import asbool
+@@ -59,7 +59,7 @@
+ 
+         data = {
+             'code': getattr( exception, 'code', 0 ),
+-            'message': unicode( exception )
++            'message': str( exception )
+         }
+ 
+         if request.registry.settings[ 'pyramid.debug_api' ]:
+@@ -105,7 +105,7 @@
+                     # See http://www.enhanceie.com/ie/bugs.asp for details.
+                     response.cache_control = 'no-cache'
+ 
+-                if isinstance( response, basestring ):
++                if isinstance( response, str ):
+                     response = Response( body=response )
+             except Exception as e:
+                 # Return a raw error
+@@ -125,14 +125,14 @@
+ 
+         if isinstance( resource, Api ):
+             allowed = ('get', 'options')
+-        elif 'list' in str( view.im_func ):
++        elif 'list' in str( view.__func__ ):
+             allowed = resource._meta.list_allowed_methods
+-        elif 'single' in str( view.im_func ):
++        elif 'single' in str( view.__func__ ):
+             allowed = resource._meta.single_allowed_methods
+         else:
+             allowed = resource._meta.allowed_methods
+ 
+-        allowed = str( ','.join( map( unicode.upper, allowed ) ) )
++        allowed = str( ','.join( map( str.upper, allowed ) ) )
+ 
+         if self.CORS_settings[ 'origin' ] == '*':
+             response.headers[ b'Access-Control-Allow-Origin' ] = request.headers.environ.get( 'HTTP_ORIGIN', b'*' )
+@@ -194,7 +194,7 @@
+         '''
+         @param cls: either a resource or document class
+         '''
+-        for resource in self._registry.values():
++        for resource in list(self._registry.values()):
+             if isinstance( resource, cls ) or resource._meta.object_class and resource._meta.object_class == cls:
+                 return resource
+ 
+@@ -203,7 +203,7 @@
+     def resource_for_document( self, document ):
+         # This becomes non-deterministic if there's more than a single Resource for a certain Document class.
+         # We may need to set introduce a canonical resource.
+-        for resource in self._registry.values():
++        for resource in list(self._registry.values()):
+             if resource._meta.object_class and isinstance( document, resource._meta.object_class ):
+                 return resource
+ 
+@@ -212,7 +212,7 @@
+     def resource_for_collection( self, collection ):
+         # This becomes non-deterministic if there's more than a single Resource for a certain collection.
+         # We may need to set introduce a canonical resource.
+-        for resource in self._registry.values():
++        for resource in list(self._registry.values()):
+             if resource._meta.object_class and resource._meta.object_class._meta['collection'] == collection:
+                 return resource
+ 
+@@ -234,7 +234,7 @@
+         return route_name
+ 
+     def get_id_from_resource_uri( self, value ):
+-        if isinstance( value, basestring ) and value.startswith( self.route ):
++        if isinstance( value, str ) and value.startswith( self.route ):
+             # '/api/v1/<resource_name>/<objectid>/' or some other string
+             parts = value.split( '/' )
+             if len( parts ) == 6:
+--- ./tastymongo/authentication.py	(original)
++++ ./tastymongo/authentication.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ class Authentication( object ):
+     """
+--- ./tastymongo/bundle.py	(original)
++++ ./tastymongo/bundle.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ from mongoengine import Document
+ 
+--- ./tastymongo/constants.py	(original)
++++ ./tastymongo/constants.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ # Enable all basic ORM filters but do not allow filtering across relationships.
+ ALL = 1
+--- ./tastymongo/exceptions.py	(original)
++++ ./tastymongo/exceptions.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ from pyramid.response import Response
+ 
+@@ -97,4 +97,4 @@
+         self.response = response
+ 
+     def __unicode__( self ):
+-        return unicode( self.response )
++        return str( self.response )
+--- ./tastymongo/fields.py	(original)
++++ ./tastymongo/fields.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ import datetime
+ import importlib
+@@ -13,6 +13,7 @@
+ from bson import DBRef, ObjectId
+ 
+ from .bundle import Bundle
++import collections
+ 
+ class NOT_PROVIDED:
+     def __str__( self ):
+@@ -95,7 +96,7 @@
+     @property
+     def default( self ):
+         """Returns the default value for the field."""
+-        if callable( self._default ):
++        if isinstance( self._default, collections.Callable):
+             return self._default()
+ 
+         return self._default
+@@ -149,7 +150,7 @@
+         ``attribute`` specifies which field on the object should
+         be accessed to get data for this corresponding ApiField.
+         '''
+-        if isinstance( self.attribute, basestring ):
++        if isinstance( self.attribute, str ):
+             # `attribute` points to an attribute or method on the object.
+             attr = getattr( bundle.obj, self.attribute )
+ 
+@@ -163,7 +164,7 @@
+ 
+             return self.convert( attr )
+ 
+-        elif callable( self.attribute ):
++        elif isinstance( self.attribute, collections.Callable):
+             # `attribute` is a method on the Resource that provides data.
+             return self.attribute()
+ 
+@@ -209,7 +210,7 @@
+         if value is None:
+             return None
+ 
+-        return unicode( value )
++        return str( value )
+ 
+ 
+ class IntegerField( ApiField ):
+@@ -320,7 +321,7 @@
+         # (de)hydrate methods.
+         doc = self._resource._meta.object_class._fields[ self.field_name ].document_type()
+         dct = {}
+-        for k, f in doc._fields.items():
++        for k, f in list(doc._fields.items()):
+             if k in value:
+                 api_field_class = self._resource.get_api_field_for_mongoengine_field( f )()
+                 dct[k] = api_field_class.convert( value[k] )
+@@ -337,7 +338,7 @@
+ 
+         doc = getattr(bundle.obj, self.field_name) or self._resource._meta.object_class._fields[ self.field_name ].document_type()
+ 
+-        for k, v in dct.items():
++        for k, v in list(dct.items()):
+             doc[k] = v
+ 
+         try:
+@@ -359,7 +360,7 @@
+             return None
+ 
+         d = value
+-        if isinstance( value, basestring ):
++        if isinstance( value, str ):
+             try:
+                 d = parser.parse( value ).date()
+             except ValueError:
+@@ -386,7 +387,7 @@
+             return None
+ 
+         dt = value
+-        if isinstance( value, basestring ):
++        if isinstance( value, str ):
+             try:
+                 dt = parser.parse( value )
+             except ValueError:
+@@ -407,7 +408,7 @@
+             return None
+ 
+         t = value
+-        if isinstance( value, basestring ):
++        if isinstance( value, str ):
+             try:
+                 t = parser.parse( value ).time()
+             except ValueError:
+@@ -500,7 +501,7 @@
+         if self._to_class:
+             return self._to_class
+ 
+-        if not isinstance( self.to, basestring ):
++        if not isinstance( self.to, str ):
+             self._to_class = self.to
+             return self._to_class
+ 
+@@ -561,7 +562,7 @@
+             elif isinstance( data, DBRef ):
+                 related_resource = self._resource._meta.api.resource_for_collection( data.collection )
+             
+-            elif isinstance( data, basestring ):
++            elif isinstance( data, str ):
+                 related_resource = self._resource._meta.api.resource_for_uri( data )
+ 
+         if not related_resource:
+@@ -584,7 +585,7 @@
+         related_resource = self.get_related_resource( data )
+         bundle = None
+ 
+-        if isinstance( data, basestring ):
++        if isinstance( data, str ):
+             # We got a resource URI. Try to create a bundle with the resource.
+             bundle = related_resource.build_bundle( request=request, data=data )
+         elif hasattr( data, 'items' ):
+@@ -631,7 +632,7 @@
+         if related_data is None or related_data == '':
+             return None
+ 
+-        if isinstance( related_data, basestring ):
++        if isinstance( related_data, str ):
+             # There's no additional data, just a resource_uri, that can be
+             # the same or different from what we already have.
+             data_id = self._resource._meta.api.get_id_from_resource_uri( related_data )
+@@ -668,7 +669,7 @@
+         attr = None
+         data = None
+ 
+-        if isinstance( self.attribute, basestring ):
++        if isinstance( self.attribute, str ):
+             if self.full:
+                 # Pull the document either from cache or db
+                 attr = bundle.obj[ self.attribute ]
+@@ -684,7 +685,7 @@
+ 
+             attr = self.convert( attr )
+ 
+-        elif callable( self.attribute ):
++        elif isinstance( self.attribute, collections.Callable):
+             # `attribute` is a method on the Resource that provides data.
+             attr = self.attribute()
+ 
+@@ -738,7 +739,7 @@
+             for d in bundle.data[ self.field_name ]:
+                 if isinstance( d, dict ) and d.get('resource_uri', None):
+                     resources_in_data.add( d.get('resource_uri') )
+-                elif isinstance( d, basestring ):
++                elif isinstance( d, str ):
+                     resources_in_data.add( d )
+ 
+             related_resource = self.get_related_resource()
+@@ -773,7 +774,7 @@
+         for single_related_data in bundle_data:
+             related_bundle = None
+ 
+-            if isinstance( single_related_data, basestring ) and single_related_data:
++            if isinstance( single_related_data, str ) and single_related_data:
+                 # There's no additional data, just a resource_uri, that can be
+                 # the same or different from what we already have.
+                 single_related_id = self._resource._meta.api.get_id_from_resource_uri( single_related_data )
+@@ -802,7 +803,7 @@
+         the related resource's dehydrate method to populate the data from
+         the object. The related resources may in turn recurse for nested data.
+         """
+-        if isinstance( self.attribute, basestring ):
++        if isinstance( self.attribute, str ):
+             if self.full:
+                 # Pull the document either from cache or db
+                 attr = bundle.obj[ self.attribute ]
+@@ -820,7 +821,7 @@
+ 
+             attr = self.convert( attr )
+ 
+-        elif callable( self.attribute ):
++        elif isinstance( self.attribute, collections.Callable):
+             # `attribute` is a method on the Resource that provides data.
+             attr = self.attribute()
+ 
+--- ./tastymongo/http.py	(original)
++++ ./tastymongo/http.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ from pyramid.response import Response
+ 
+--- ./tastymongo/paginator.py	(original)
++++ ./tastymongo/paginator.py	(refactored)
+@@ -1,8 +1,8 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ from .exceptions import BadRequest
+-from urllib import urlencode
++from urllib.parse import urlencode
+ 
+ 
+ class Paginator(object):
+@@ -152,8 +152,8 @@
+         except AttributeError:
+             request_params = {}
+ 
+-            for k, v in self.request_data.items():
+-                if isinstance(v, unicode):
++            for k, v in list(self.request_data.items()):
++                if isinstance(v, str):
+                     request_params[k] = v.encode('utf-8')
+                 else:
+                     request_params[k] = v
+--- ./tastymongo/resource.py	(original)
++++ ./tastymongo/resource.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ from . import fields
+ from . import http
+@@ -15,15 +15,16 @@
+ from pyramid.response import Response
+ from mongoengine.queryset import DoesNotExist, MultipleObjectsReturned, Q
+ from mongoengine.errors import ValidationError as MongoEngineValidationError
++from functools import reduce
+ 
+ try:
+     from mongoengine_relational.relationalmixin import RelationManagerMixin, set_difference
+-except ImportError, e:
++except ImportError as e:
+     RelationManagerMixin = None
+ 
+ try:
+     from mongoengine_privileges.privilegemixin import PrivilegeMixin
+-except ImportError, e:
++except ImportError as e:
+     PrivilegeMixin = None
+ 
+ import mongoengine
+@@ -34,7 +35,7 @@
+ from copy import copy
+ from operator import or_, and_
+ import collections 
+-from constants import *
++from .constants import *
+ 
+ from kitchen.text.converters import getwriter
+ import sys
+@@ -125,13 +126,13 @@
+             for p in parent_classes:
+                 parent_class_fields = getattr( p, 'base_fields', {})
+ 
+-                for field_name, fld in parent_class_fields.items():
++                for field_name, fld in list(parent_class_fields.items()):
+                     attrs['base_fields'][field_name] = copy( fld )
+         except NameError:
+             pass
+ 
+         # Find fields explicitly set on the Resource
+-        for attr, obj in attrs.items():
++        for attr, obj in list(attrs.items()):
+             if isinstance( obj, fields.ApiField ):
+                 field = attrs.pop( attr )
+                 declared_fields[ attr ] = field
+@@ -160,18 +161,16 @@
+         elif 'resource_uri' in new_class.base_fields and not 'resource_uri' in attrs:
+             del( new_class.base_fields['resource_uri'] )
+ 
+-        for field_name, fld in new_class.base_fields.items():
++        for field_name, fld in list(new_class.base_fields.items()):
+             if hasattr( fld, 'contribute_to_class' ):
+                 fld.contribute_to_class( new_class, field_name )
+ 
+         return new_class
+ 
+ 
+-class Resource( object ):
+-    __metaclass__ = DeclarativeMetaclass
+-
++class Resource( object, metaclass=DeclarativeMetaclass ):
+     def __init__( self, api=None ):
+-        self.fields = { k: copy( v ) for k, v in self.base_fields.items() }
++        self.fields = { k: copy( v ) for k, v in list(self.base_fields.items()) }
+ 
+         if api:
+             self._meta.api = api
+@@ -236,7 +235,7 @@
+         if self._meta.filtering:
+             data['filtering'] = self._meta.filtering
+ 
+-        for field_name, fld in self.fields.items():
++        for field_name, fld in list(self.fields.items()):
+             data['fields'][field_name] = {
+                 'default': fld.default,
+                 'type': fld.dehydrated_type,
+@@ -284,13 +283,13 @@
+             request_method = 'put'
+ 
+         if request_method == "options":
+-            allows = str( ','.join( map( unicode.upper, allowed ) ) )
++            allows = str( ','.join( map( str.upper, allowed ) ) )
+             response = http.HTTPResponse( allows )
+             response.headers[b'Allow'] = allows
+             raise ImmediateHTTPResponse( response=response )
+ 
+         if not request_method in allowed:
+-            allows = ','.join( map( unicode.upper, allowed ))
++            allows = ','.join( map( str.upper, allowed ))
+             response = http.HTTPMethodNotAllowed( body='Allowed methods={0}'.format( allows ))
+             raise ImmediateHTTPResponse( response=response )
+ 
+@@ -437,7 +436,7 @@
+         Errors are added to the bundle if a new resource may not be created or 
+         if an existing resource is not found or may not be updated.
+         """
+-        if isinstance( data, basestring ):
++        if isinstance( data, str ):
+             # Assume data /is/ the uri
+             data = { 'resource_uri': data }
+ 
+@@ -482,7 +481,7 @@
+         bundles = self.pre_hydrate( bundles, request )
+ 
+         for bundle in bundles:
+-            for field_name, fld in self.fields.items():
++            for field_name, fld in list(self.fields.items()):
+ 
+                 if ( request.method.lower() == 'patch' or request.method.lower() == 'put' ) and field_name not in bundle.data:
+                     # When patching, ignore values not present in the data
+@@ -491,7 +490,7 @@
+                 # You may provide a custom method on the resource that will replace
+                 # the default hydration behaviour for the field.
+                 callback = getattr(self, "hydrate_{0}".format(field_name), None)
+-                if callable( callback ):
++                if isinstance( callback, collections.Callable):
+                     data = callback( bundle )
+                 elif fld.readonly:
+                     continue
+@@ -542,12 +541,12 @@
+ 
+         for bundle in bundles:
+             # Dehydrate each field.
+-            for field_name, fld in self.fields.items():
++            for field_name, fld in list(self.fields.items()):
+                 bundle.data[field_name] = fld.dehydrate( bundle )
+ 
+                 # Check for an optional method to do further dehydration.
+                 method = getattr( self, "dehydrate_{0}".format( field_name ), None )
+-                if callable( method ):
++                if isinstance( method, collections.Callable):
+                     bundle.data[field_name] = method( bundle )
+ 
+         bundles = self.post_dehydrate( bundles, request )
+@@ -620,7 +619,7 @@
+ 
+         # Determine which callback we're going to use
+         method = getattr( self, '{0}_{1}'.format( request_method, request_type ), None )
+-        if not callable( method ):
++        if not isinstance( method, collections.Callable):
+             error = 'Method="{0}_{1}" is not implemented for resource="{2}"'.format( request_method, request_type, self._meta.resource_name )
+             raise ImmediateHTTPResponse( response=http.HTTPNotImplemented( body=error ))
+ 
+@@ -693,9 +692,9 @@
+         """
+         try:
+             obj = self.obj_get_single( request=request, **request.matchdict )
+-        except DoesNotExist, e:
++        except DoesNotExist as e:
+             return http.HTTPNotFound()
+-        except MultipleObjectsReturned, e:
++        except MultipleObjectsReturned as e:
+             return http.HTTPMultipleChoices( "More than one resource is found at this URI." )
+ 
+         bundle = self.build_bundle( request=request, obj=obj )
+@@ -862,7 +861,7 @@
+         include_fields = getattr( new_class._meta, 'fields', [] )
+         excludes = getattr( new_class._meta, 'excludes', [] )
+ 
+-        for field_name, fld in new_class.base_fields.items():
++        for field_name, fld in list(new_class.base_fields.items()):
+             if field_name == 'resource_uri':
+                 # Embedded objects don't have their own resource_uri
+                 if meta and hasattr( meta, 'object_class' ) and issubclass( meta.object_class, mongoengine.EmbeddedDocument ):
+@@ -883,16 +882,15 @@
+         return new_class
+ 
+ 
+-class DocumentResource( Resource ):
++class DocumentResource( Resource, metaclass=DocumentDeclarativeMetaclass ):
+     '''
+     A MongoEngine specific implementation of Resource
+     '''
+-    __metaclass__ = DocumentDeclarativeMetaclass
+ 
+     def _prefetch_documents( self, bundles, request ):
+         # On bundles, find DBRefs in fields to prefetch
+         to_fetch = {}
+-        for field_name, field in self.fields.items():
++        for field_name, field in list(self.fields.items()):
+             # Per field, loop over the bundles and pick up related docs we could have to dereference.
+             if getattr( field, 'is_related', False ) and field.to and field.full:
+                 related_resource = self._meta.api.resource_for_class( field.to_class )
+@@ -908,7 +906,7 @@
+                     for bundle in bundles:
+                         to_fetch[ resource_name ].add( bundle.obj._data[ field.attribute ] )
+ 
+-        for resource_name, related in to_fetch.items():
++        for resource_name, related in list(to_fetch.items()):
+             # Limit each set to ObjectIds we can't find in the cache yet
+             ids = [ ref.id for ref in related if isinstance( ref, DBRef ) and ref.id not in request.cache ]
+ 
+@@ -962,7 +960,7 @@
+         try:
+             bundle.obj.validate()
+         except MongoEngineValidationError as e:
+-            for k in e.errors.keys():  # ! Document, not Resource, fields
++            for k in list(e.errors.keys()):  # ! Document, not Resource, fields
+                 fld = bundle.obj._fields[k]
+                 if isinstance( fld, mongofields.ReferenceField ):
+                     if not fld.required:
+@@ -988,7 +986,7 @@
+         if not RelationManagerMixin or not isinstance( bundle.obj, RelationManagerMixin ):
+             return bundle
+ 
+-        for field_name, data in bundle.stashed_relations.items():
++        for field_name, data in list(bundle.stashed_relations.items()):
+             setattr( bundle.obj, field_name, data )
+ 
+         bundle.stashed_relations = {}
+@@ -1032,7 +1030,7 @@
+         return bundle
+ 
+     def _related_fields_callback( self, bundle, callback_func ):
+-        for field_name, fld in self.fields.items():
++        for field_name, fld in list(self.fields.items()):
+ 
+             if fld.readonly:
+                 continue
+@@ -1129,7 +1127,7 @@
+         if not cls._meta.object_class:
+             return final_fields
+ 
+-        for name, f in cls._meta.object_class._fields.items():
++        for name, f in list(cls._meta.object_class._fields.items()):
+             # If the field name is already present, skip
+             if name in cls.base_fields:
+                 continue
+@@ -1215,7 +1213,7 @@
+             elif isinstance( data, ObjectId ):
+                 kwargs[ 'id' ] = str( data )
+ 
+-            elif isinstance( data, basestring ):
++            elif isinstance( data, str ):
+                 # assume the data _is_ the URI
+                 kwargs[ 'id' ] = self._meta.api.get_id_from_resource_uri( data )
+ 
+@@ -1365,7 +1363,7 @@
+                     value = None
+             elif filter_type in QUERY_MATCH_OPERATORS:
+                 # these query operators work only on strings
+-                value = unicode( value )
++                value = str( value )
+             elif filter_type in QUERY_EQUALITY_OPERATORS and not isinstance( field, fields.ToManyField ):
+                 if not isinstance( field, fields.StringField ) and value in ( '', 'nil', 'null', 'none', 'None', None ):
+                     value = None
+@@ -1431,7 +1429,7 @@
+         and_filters = []
+         or_filters = []
+ 
+-        for filter_expr, value in filters.items():
++        for filter_expr, value in list(filters.items()):
+             filter_bits = filter_expr.split( LOOKUP_SEP )
+             filter_type = 'exact'  # default
+             field_name = filter_bits.pop( 0 )
+@@ -1629,7 +1627,7 @@
+ 
+                 bundle.request.api['created'].add( bundle.obj )
+ 
+-            except MongoEngineValidationError, e:
++            except MongoEngineValidationError as e:
+                 # We'll have to wait for related objects to be created first.
+                 pass
+             bundle = self._pop_stashed_relations( bundle )
+@@ -1736,7 +1734,7 @@
+ 
+             if not obj:
+                 # Filters returned 0 or more than 1 match, raise an error.
+-                stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in filters.items()] )
++                stringified_filters = ', '.join( ["{0}={1}".format( k, v ) for k, v in list(filters.items())] )
+                 if len(matched) == 0:
+                     raise self._meta.object_class.DoesNotExist( "Couldn't find an instance of `{0}` which matched `{1}`.".format( self._meta.object_class.__name__, stringified_filters ) )
+                 else:
+--- ./tastymongo/serializers.py	(original)
++++ ./tastymongo/serializers.py	(refactored)
+@@ -1,10 +1,10 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ import datetime
+ import json
+ import csv
+-import StringIO
++import io
+ from collections import OrderedDict
+ 
+ from .exceptions import *
+@@ -100,7 +100,7 @@
+         """
+         desired_format = None
+ 
+-        for short_format, long_format in self.content_types.items():
++        for short_format, long_format in list(self.content_types.items()):
+             if format == long_format:
+                 if hasattr(self, "to_%s" % short_format):
+                     desired_format = short_format
+@@ -121,7 +121,7 @@
+ 
+         format = format.split(';')[0]
+ 
+-        for short_format, long_format in self.content_types.items():
++        for short_format, long_format in list(self.content_types.items()):
+             if format == long_format:
+                 if hasattr(self, "from_%s" % short_format):
+                     desired_format = short_format
+@@ -144,9 +144,9 @@
+         if isinstance( data, ( list, tuple ) ):
+             return [ self.to_simple( item ) for item in data ]
+         if isinstance(data, dict):
+-            return dict( ( key, self.to_simple( val ) ) for ( key, val ) in data.iteritems() )
++            return dict( ( key, self.to_simple( val ) ) for ( key, val ) in data.items() )
+         elif isinstance(data, Bundle):
+-            return dict( ( key, self.to_simple( val ) ) for ( key, val ) in data.data.iteritems() )
++            return dict( ( key, self.to_simple( val ) ) for ( key, val ) in data.data.items() )
+         elif isinstance( data, datetime.datetime ):
+             return self.format_datetime( data )
+         elif isinstance( data, datetime.date ):
+@@ -155,12 +155,12 @@
+             return self.format_time( data )
+         elif isinstance( data, bool ):
+             return data
+-        elif type( data ) in ( long, int, float ):
++        elif type( data ) in ( int, int, float ):
+             return data
+         elif data is None:
+             return None
+         else:
+-            return unicode( data )
++            return str( data )
+ 
+     def to_json( self, data, options ):
+         """
+@@ -208,7 +208,7 @@
+ 
+     def to_csv( self, data, options ):
+         data = self.to_simple( data )
+-        raw_data = StringIO.StringIO()
++        raw_data = io.StringIO()
+         rows = []
+ 
+         def getByDotNotation( obj, ref ):
+@@ -228,9 +228,9 @@
+                 for row in data[ 'objects' ]:
+                     item = OrderedDict()
+ 
+-                    for name, field in options.items():
++                    for name, field in list(options.items()):
+                         value = getByDotNotation( row, field )
+-                        if isinstance( value, basestring ):
++                        if isinstance( value, str ):
+                             value = value.encode( 'utf-8' )
+                         item[ name ] = value
+ 
+@@ -239,17 +239,17 @@
+                 rows = data[ 'objects' ]
+ 
+         if rows and isinstance( rows, list ) and len( rows ):
+-            writer = csv.DictWriter( raw_data, rows[0].keys(), dialect='excel', extrasaction='ignore' )
++            writer = csv.DictWriter( raw_data, list(rows[0].keys()), dialect='excel', extrasaction='ignore' )
+             writer.writeheader()
+             writer.writerows( rows )
+         elif options:
+-            writer = csv.DictWriter( raw_data, options.keys(), extrasaction='ignore', quoting=csv.QUOTE_NONNUMERIC )
++            writer = csv.DictWriter( raw_data, list(options.keys()), extrasaction='ignore', quoting=csv.QUOTE_NONNUMERIC )
+             writer.writeheader()
+ 
+         return raw_data.getvalue()
+ 
+     def from_csv( self, content ):
+-        raw_data = StringIO.StringIO(content)
++        raw_data = io.StringIO(content)
+         data = []
+         for item in csv.DictReader(raw_data):
+             data.append(item)
+@@ -262,7 +262,7 @@
+     """
+     data_type = type(data)
+ 
+-    if data_type in (int, long):
++    if data_type in (int, int):
+         return 'integer'
+     elif data_type == float:
+         return 'float'
+@@ -274,5 +274,5 @@
+         return 'hash'
+     elif data is None:
+         return 'null'
+-    elif isinstance(data, basestring):
++    elif isinstance(data, str):
+         return 'string'
+--- ./tastymongo/throttle.py	(original)
++++ ./tastymongo/throttle.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ import time
+ 
+--- ./tastymongo/utils/mime.py	(original)
++++ ./tastymongo/utils/mime.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ def determine_format(request, serializer, default_format='application/json'):
+     """
+--- ./tastymongo/utils/timezone.py	(original)
++++ ./tastymongo/utils/timezone.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ import pytz 
+ 
+--- ./tests_tastymongo/__init__.py	(original)
++++ ./tests_tastymongo/__init__.py	(refactored)
+@@ -1,4 +1,4 @@
+-from resources import PersonResource
+-from resources import DeliverableResource
+-from resources import ActivityResource
+-from resources import AllFieldsDocumentResource
++from .resources import PersonResource
++from .resources import DeliverableResource
++from .resources import ActivityResource
++from .resources import AllFieldsDocumentResource
+--- ./tests_tastymongo/documents.py	(original)
++++ ./tests_tastymongo/documents.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ from mongoengine import Document, EmbeddedDocument
+ from mongoengine.fields import *
+--- ./tests_tastymongo/resources.py	(original)
++++ ./tests_tastymongo/resources.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ from tastymongo.constants import ALL_WITH_RELATIONS, ALL
+ from tastymongo.resource import DocumentResource
+--- ./tests_tastymongo/run_tests.py	(original)
++++ ./tests_tastymongo/run_tests.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ import unittest
+ 
+--- ./tests_tastymongo/test_filtering.py	(original)
++++ ./tests_tastymongo/test_filtering.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ import unittest
+ 
+--- ./tests_tastymongo/utils.py	(original)
++++ ./tests_tastymongo/utils.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ class Struct( object ):
+     def __init__( self, **entries ):
+--- ./tests_tastymongo/basic/tests.py	(original)
++++ ./tests_tastymongo/basic/tests.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ # from mongoengine_relational import RelationManagerMixin
+ import unittest
+@@ -52,8 +52,8 @@
+         deserialized = json.loads( response.body )
+ 
+         # Check if the correct activity has been returned
+-        self.assertEqual( deserialized['id'], unicode(self.data.a1.id) )
+-        self.assertEqual( deserialized['person'].split('/')[-2], unicode(self.data.user.id) )
++        self.assertEqual( deserialized['id'], str(self.data.a1.id) )
++        self.assertEqual( deserialized['person'].split('/')[-2], str(self.data.user.id) )
+ 
+     def test_get_list( self ):
+         d = self.data
+--- ./tests_tastymongo/fields/test_hasmany.py	(original)
++++ ./tests_tastymongo/fields/test_hasmany.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ import unittest
+ from pyramid import testing
+--- ./tests_tastymongo/fields/test_hasone.py	(original)
++++ ./tests_tastymongo/fields/test_hasone.py	(refactored)
+@@ -1,5 +1,5 @@
+-from __future__ import print_function
+-from __future__ import unicode_literals
++
++
+ 
+ import unittest
+ import json

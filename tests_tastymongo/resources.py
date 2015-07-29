@@ -1,5 +1,5 @@
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
 
 from tastymongo.constants import ALL_WITH_RELATIONS, ALL
 from tastymongo.resource import DocumentResource

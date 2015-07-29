@@ -1,10 +1,10 @@
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
 
 import datetime
 import json
 import csv
-import StringIO
+import io
 from collections import OrderedDict
 
 from .exceptions import *
@@ -100,7 +100,7 @@ class Serializer(object):
         """
         desired_format = None
 
-        for short_format, long_format in self.content_types.items():
+        for short_format, long_format in list(self.content_types.items()):
             if format == long_format:
                 if hasattr(self, "to_%s" % short_format):
                     desired_format = short_format
@@ -121,7 +121,7 @@ class Serializer(object):
 
         format = format.split(';')[0]
 
-        for short_format, long_format in self.content_types.items():
+        for short_format, long_format in list(self.content_types.items()):
             if format == long_format:
                 if hasattr(self, "from_%s" % short_format):
                     desired_format = short_format
@@ -144,9 +144,9 @@ class Serializer(object):
         if isinstance( data, ( list, tuple ) ):
             return [ self.to_simple( item ) for item in data ]
         if isinstance(data, dict):
-            return dict( ( key, self.to_simple( val ) ) for ( key, val ) in data.iteritems() )
+            return dict( ( key, self.to_simple( val ) ) for ( key, val ) in data.items() )
         elif isinstance(data, Bundle):
-            return dict( ( key, self.to_simple( val ) ) for ( key, val ) in data.data.iteritems() )
+            return dict( ( key, self.to_simple( val ) ) for ( key, val ) in data.data.items() )
         elif isinstance( data, datetime.datetime ):
             return self.format_datetime( data )
         elif isinstance( data, datetime.date ):
@@ -155,12 +155,12 @@ class Serializer(object):
             return self.format_time( data )
         elif isinstance( data, bool ):
             return data
-        elif type( data ) in ( long, int, float ):
+        elif type( data ) in ( int, int, float ):
             return data
         elif data is None:
             return None
         else:
-            return unicode( data )
+            return str( data )
 
     def to_json( self, data, options ):
         """
@@ -208,7 +208,7 @@ class Serializer(object):
 
     def to_csv( self, data, options ):
         data = self.to_simple( data )
-        raw_data = StringIO.StringIO()
+        raw_data = io.StringIO()
         rows = []
 
         def getByDotNotation( obj, ref ):
@@ -228,9 +228,9 @@ class Serializer(object):
                 for row in data[ 'objects' ]:
                     item = OrderedDict()
 
-                    for name, field in options.items():
+                    for name, field in list(options.items()):
                         value = getByDotNotation( row, field )
-                        if isinstance( value, basestring ):
+                        if isinstance( value, str ):
                             value = value.encode( 'utf-8' )
                         item[ name ] = value
 
@@ -239,17 +239,17 @@ class Serializer(object):
                 rows = data[ 'objects' ]
 
         if rows and isinstance( rows, list ) and len( rows ):
-            writer = csv.DictWriter( raw_data, rows[0].keys(), dialect='excel', extrasaction='ignore' )
+            writer = csv.DictWriter( raw_data, list(rows[0].keys()), dialect='excel', extrasaction='ignore' )
             writer.writeheader()
             writer.writerows( rows )
         elif options:
-            writer = csv.DictWriter( raw_data, options.keys(), extrasaction='ignore', quoting=csv.QUOTE_NONNUMERIC )
+            writer = csv.DictWriter( raw_data, list(options.keys()), extrasaction='ignore', quoting=csv.QUOTE_NONNUMERIC )
             writer.writeheader()
 
         return raw_data.getvalue()
 
     def from_csv( self, content ):
-        raw_data = StringIO.StringIO(content)
+        raw_data = io.StringIO(content)
         data = []
         for item in csv.DictReader(raw_data):
             data.append(item)
@@ -262,7 +262,7 @@ def get_type_string(data):
     """
     data_type = type(data)
 
-    if data_type in (int, long):
+    if data_type in (int, int):
         return 'integer'
     elif data_type == float:
         return 'float'
@@ -274,5 +274,5 @@ def get_type_string(data):
         return 'hash'
     elif data is None:
         return 'null'
-    elif isinstance(data, basestring):
+    elif isinstance(data, str):
         return 'string'

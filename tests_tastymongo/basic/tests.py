@@ -1,5 +1,5 @@
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
 
 # from mongoengine_relational import RelationManagerMixin
 import unittest
@@ -52,8 +52,8 @@ class BasicTests( unittest.TestCase ):
         deserialized = json.loads( response.body )
 
         # Check if the correct activity has been returned
-        self.assertEqual( deserialized['id'], unicode(self.data.a1.id) )
-        self.assertEqual( deserialized['person'].split('/')[-2], unicode(self.data.user.id) )
+        self.assertEqual( deserialized['id'], str(self.data.a1.id) )
+        self.assertEqual( deserialized['person'].split('/')[-2], str(self.data.user.id) )
 
     def test_get_list( self ):
         d = self.data

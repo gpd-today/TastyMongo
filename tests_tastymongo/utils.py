@@ -1,5 +1,5 @@
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
 
 class Struct( object ):
     def __init__( self, **entries ):

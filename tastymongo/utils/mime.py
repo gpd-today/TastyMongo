@@ -1,5 +1,5 @@
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
 
 def determine_format(request, serializer, default_format='application/json'):
     """

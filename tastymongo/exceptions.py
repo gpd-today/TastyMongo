@@ -1,5 +1,5 @@
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
 
 from pyramid.response import Response
 
@@ -97,4 +97,4 @@ class ImmediateHTTPResponse(TastyException):
         self.response = response
 
     def __unicode__( self ):
-        return unicode( self.response )
+        return str( self.response )
