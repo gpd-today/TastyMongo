@@ -1,6 +1,3 @@
-
-
-
 from . import fields
 from . import http
 from .serializers import Serializer
@@ -36,12 +33,6 @@ from copy import copy
 from operator import or_, and_
 import collections 
 from .constants import *
-
-from kitchen.text.converters import getwriter
-import sys
-UTF8Writer = getwriter('utf8')
-sys.stdout = UTF8Writer(sys.stdout)
-
 
 class ResourceOptions( object ):
     """
