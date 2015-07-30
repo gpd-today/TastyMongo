@@ -174,7 +174,7 @@ class Serializer(object):
         """
         Given some JSON data, returns a Python dictionary of the decoded data.
         """
-        return json.loads(content)
+        return json.loads(content.decode('utf-8'))
 
     def to_jsonp( self, data, options ):
         """

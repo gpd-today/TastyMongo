@@ -1,6 +1,3 @@
-
-
-
 from pyramid.response import Response
 from pyramid.settings import asbool
 
@@ -34,9 +31,9 @@ class Api( object ):
         if asbool( config.registry.settings.get( 'tastymongo.enable_CORS', 'false' ) ):
             self.enable_CORS = True
             self.CORS_settings = {
-                'origin': str( config.registry.settings.get( 'tastymongo.CORS_origin', 'None' ) ),
-                'headers': str( config.registry.settings.get( 'tastymongo.CORS_headers', 'None' ) ),
-                'credentials': str( config.registry.settings.get( 'tastymongo.CORS_credentials', 'false' ) ),
+                'origin': config.registry.settings.get( 'tastymongo.CORS_origin', 'None' ),
+                'headers': config.registry.settings.get( 'tastymongo.CORS_headers', 'None' ),
+                'credentials': config.registry.settings.get( 'tastymongo.CORS_credentials', 'false' ),
             }
         else:
             self.enable_CORS = False
@@ -59,7 +56,7 @@ class Api( object ):
 
         data = {
             'code': getattr( exception, 'code', 0 ),
-            'message': str( exception )
+            'message': exception
         }
 
         if request.registry.settings[ 'pyramid.debug_api' ]:
@@ -79,7 +76,7 @@ class Api( object ):
         if isinstance( exception, NotFound ):
             response_class = http.HTTPNotFound
 
-        return response_class( body=serialized, content_type=str( desired_format ), charset='UTF-8' )
+        return response_class( body=serialized, content_type=desired_format, charset='UTF-8' )
 
     def wrap_view( self, resource, view ):
         """
@@ -132,7 +129,7 @@ class Api( object ):
         else:
             allowed = resource._meta.allowed_methods
 
-        allowed = str( ','.join( map( str.upper, allowed ) ) )
+        allowed = ','.join( map( str.upper, allowed ) )
 
         if self.CORS_settings[ 'origin' ] == '*':
             response.headers[ 'Access-Control-Allow-Origin' ] = request.headers.environ.get( 'HTTP_ORIGIN', '*' )
@@ -141,8 +138,8 @@ class Api( object ):
         response.headers[ 'Access-Control-Allow-Headers' ] = self.CORS_settings[ 'headers' ]
         response.headers[ 'Access-Control-Expose-Headers' ] = self.CORS_settings[ 'headers' ]
         response.headers[ 'Access-Control-Allow-Credentials' ] = self.CORS_settings[ 'credentials' ]
-        response.headers[ 'Access-Control-Allow-Methods' ] = str( allowed )
-        response.headers[ 'Allow' ] = str( allowed )
+        response.headers[ 'Access-Control-Allow-Methods' ] = allowed
+        response.headers[ 'Allow' ] = allowed
 
         return response
 
@@ -268,5 +265,5 @@ class Api( object ):
         desired_format = determine_format(request, serializer)
 
         serialized = serializer.serialize( available_resources, format=desired_format )
-        return Response( body=serialized, content_type=str( desired_format ), charset='UTF-8' )
+        return Response( body=serialized, content_type=desired_format, charset='UTF-8' )
 

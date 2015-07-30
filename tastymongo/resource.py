@@ -382,7 +382,7 @@ class Resource( object, metaclass=DeclarativeMetaclass ):
                 data[ 'objects' ] = bundles
 
         serialized = self.serialize( request, data, desired_format, serializer_options )
-        return response_class( body=serialized, content_type=str( desired_format ), charset=b'UTF-8', **kwargs )
+        return response_class( body=serialized, content_type=str( desired_format ), charset='UTF-8', **kwargs )
 
 
     def deserialize( self, request, data, format=None ):
