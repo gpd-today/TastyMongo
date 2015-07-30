@@ -79,7 +79,7 @@ class Api( object ):
         if isinstance( exception, NotFound ):
             response_class = http.HTTPNotFound
 
-        return response_class( body=serialized, content_type=str( desired_format ), charset=b'UTF-8' )
+        return response_class( body=serialized, content_type=str( desired_format ), charset='UTF-8' )
 
     def wrap_view( self, resource, view ):
         """
@@ -135,14 +135,14 @@ class Api( object ):
         allowed = str( ','.join( map( str.upper, allowed ) ) )
 
         if self.CORS_settings[ 'origin' ] == '*':
-            response.headers[ b'Access-Control-Allow-Origin' ] = request.headers.environ.get( 'HTTP_ORIGIN', b'*' )
+            response.headers[ 'Access-Control-Allow-Origin' ] = request.headers.environ.get( 'HTTP_ORIGIN', '*' )
         else:
-            response.headers[ b'Access-Control-Allow-Origin' ] = self.CORS_settings[ 'origin' ]
-        response.headers[ b'Access-Control-Allow-Headers' ] = self.CORS_settings[ 'headers' ]
-        response.headers[ b'Access-Control-Expose-Headers' ] = self.CORS_settings[ 'headers' ]
-        response.headers[ b'Access-Control-Allow-Credentials' ] = self.CORS_settings[ 'credentials' ]
-        response.headers[ b'Access-Control-Allow-Methods' ] = str( allowed )
-        response.headers[ b'Allow' ] = str( allowed )
+            response.headers[ 'Access-Control-Allow-Origin' ] = self.CORS_settings[ 'origin' ]
+        response.headers[ 'Access-Control-Allow-Headers' ] = self.CORS_settings[ 'headers' ]
+        response.headers[ 'Access-Control-Expose-Headers' ] = self.CORS_settings[ 'headers' ]
+        response.headers[ 'Access-Control-Allow-Credentials' ] = self.CORS_settings[ 'credentials' ]
+        response.headers[ 'Access-Control-Allow-Methods' ] = str( allowed )
+        response.headers[ 'Allow' ] = str( allowed )
 
         return response
 
@@ -268,5 +268,5 @@ class Api( object ):
         desired_format = determine_format(request, serializer)
 
         serialized = serializer.serialize( available_resources, format=desired_format )
-        return Response( body=serialized, content_type=str( desired_format ), charset=b'UTF-8' )
+        return Response( body=serialized, content_type=str( desired_format ), charset='UTF-8' )
 
